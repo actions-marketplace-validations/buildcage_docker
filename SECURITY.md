@@ -22,8 +22,9 @@ The following are **out of scope** (please report to the respective projects ins
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 3.x     | :white_check_mark: |
+| 2.x     | :x:                |
 | 1.x     | :x:                |
-| 2.x     | :white_check_mark: |
 
 ## Verifying Releases
 
