@@ -47,12 +47,28 @@ func writeResolvConf(externalResolver string) error {
 // restated because a remount drops the ones it isn't given, which would
 // silently turn /sys/fs/cgroup suid- and exec-capable.
 func remountCgroupRW() error {
+	// cgroup.controllers exists only on a unified (v2) mount. On a v1 host
+	// /sys/fs/cgroup is a tmpfs whose per-controller mounts stay read-only, and
+	// the remount below would report success while leaving them that way, so the
+	// build would fail at its first RUN step with nothing pointing here.
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return fmt.Errorf("not a cgroup v2 mount, which buildcage requires: %w", err)
+	}
+
 	out, err := exec.Command("mount",
 		"-o", "remount,rw,nosuid,nodev,noexec,relatime", "cgroup", "/sys/fs/cgroup").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return nil
+
+	// Creating a directory under a cgroup v2 root creates a cgroup, which is
+	// exactly what buildkitd will go on to do. Prove it works while the failure
+	// can still name its own cause.
+	const probe = "/sys/fs/cgroup/buildcage-probe"
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		return fmt.Errorf("still read-only after remounting it: %w", err)
+	}
+	return os.Remove(probe)
 }
 
 // generateSourcePolicy invokes the QuickJS policy generator (which reuses

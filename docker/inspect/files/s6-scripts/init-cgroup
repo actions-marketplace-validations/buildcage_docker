@@ -5,11 +5,29 @@ set -e
 # read-only in a container that isn't privileged. Remounting here rather than
 # bind-mounting the host's cgroupfs keeps the writable tree inside the
 # container's own cgroup namespace, which sees only its own subtree.
-#
+
+# cgroup.controllers exists only on a unified (v2) mount. On a v1 host
+# /sys/fs/cgroup is a tmpfs whose per-controller mounts stay read-only, and the
+# remount below would report success while leaving them that way, so the build
+# would fail at its first RUN step with nothing pointing here.
+if [ ! -e /sys/fs/cgroup/cgroup.controllers ]; then
+  echo "init-cgroup: /sys/fs/cgroup is not a cgroup v2 mount; buildcage needs a cgroup v2 host" >&2
+  exit 1
+fi
+
 # The source has to be named too: busybox mount resolves a lone mountpoint
 # against /proc/mounts and does not find this one. Every flag other than rw is
 # restated because a remount drops the ones it isn't given, which would
 # silently turn /sys/fs/cgroup suid- and exec-capable.
 mount -o remount,rw,nosuid,nodev,noexec,relatime cgroup /sys/fs/cgroup
+
+# Creating a directory under a cgroup v2 root creates a cgroup, which is
+# exactly what buildkitd will go on to do. Prove it works while the failure can
+# still name its own cause.
+if ! mkdir /sys/fs/cgroup/buildcage-probe 2>/dev/null; then
+  echo "init-cgroup: /sys/fs/cgroup is still read-only after remounting it" >&2
+  exit 1
+fi
+rmdir /sys/fs/cgroup/buildcage-probe
 
 echo "init-cgroup: /sys/fs/cgroup remounted read-write within this container's cgroup namespace"

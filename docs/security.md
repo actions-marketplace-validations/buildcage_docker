@@ -407,9 +407,10 @@ it widens two.
   under `explicit`. runc reads `/proc/PID/ns/mnt` to set a step's mount namespace up.
 - **Seccomp is Docker's own default profile**, where `privileged` switches filtering off entirely.
   That profile already permits `mount`, `umount2`, `unshare`, `setns` and `clone` to a
-  `CAP_SYS_ADMIN` holder, so the only additions are `pivot_root` and the three `keyctl` operations
-  runc performs per step, which it allows under no capability at all. Everything outside the
-  profile's allowlist stays refused, including syscalls added to the kernel after it was written.
+  `CAP_SYS_ADMIN` holder, so the only additions are the two things it refuses at every capability
+  and runc still needs: `pivot_root`, and the three `keyctl` operations runc performs per step.
+  Everything outside the allowlist stays refused, including syscalls added to the kernel after the
+  profile was written.
 - **AppArmor is unconfined, as it also is under `privileged`.** `docker-default` refuses every
   `mount` regardless of capabilities, so it cannot coexist with the `SYS_ADMIN` above, and a
   replacement profile would have to be loaded into the host kernel, which an action cannot do

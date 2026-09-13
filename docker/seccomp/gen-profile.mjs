@@ -1,7 +1,7 @@
 // Regenerates builder.json: moby's own default seccomp profile for the pinned
-// MOBY_PROFILES_SECCOMP_VERSION, plus the two syscalls runc needs that the
-// default profile allows under no capability at all. Run via
-// `make seccomp_profile`; CI asserts the committed file still matches.
+// MOBY_PROFILES_SECCOMP_VERSION, plus the two syscalls runc needs and that
+// profile refuses at every capability. Run via `make seccomp_profile`; CI
+// asserts the committed file still matches.
 //
 // The profile is emitted in Docker's extended format (archMap, includes,
 // excludes) rather than plain OCI seccomp, because the daemon resolves the
