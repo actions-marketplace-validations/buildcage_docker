@@ -1,2 +1,2 @@
 #!/command/with-contenv sh
-exec buildkitd --oci-worker-net=cni
+exec s6-notifyoncheck -d -w 500 -n 120 buildkitd --oci-worker-net=cni

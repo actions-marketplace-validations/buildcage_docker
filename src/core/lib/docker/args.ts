@@ -30,6 +30,11 @@ export interface BuildComposeUpArgsOptions extends ComposeArgsOptions {
   pullPolicy: string;
 }
 
+/** Bounds the `--wait` phase, image pull excluded. Compose gives up on its own
+ *  once a container reports unhealthy, so this only catches one that stays
+ *  "starting" forever. */
+const WAIT_TIMEOUT_SECONDS = 180;
+
 export function buildComposeUpArgs({
   composeFile,
   projectName,
@@ -47,7 +52,33 @@ export function buildComposeUpArgs({
     pullPolicy,
     "--no-build",
     "--wait",
+    "--wait-timeout",
+    String(WAIT_TIMEOUT_SECONDS),
     "--quiet-pull",
+  ];
+}
+
+export interface BuildComposeLogsArgsOptions extends ComposeArgsOptions {
+  tail: number;
+}
+
+/** Build the `docker compose ... logs` argv. Goes through Compose rather than
+ *  `docker logs` so it still reads a container that has exited. */
+export function buildComposeLogsArgs({
+  composeFile,
+  projectName,
+  tail,
+}: BuildComposeLogsArgsOptions): string[] {
+  return [
+    "compose",
+    "-f",
+    composeFile,
+    "-p",
+    projectName,
+    "logs",
+    "--no-color",
+    "--tail",
+    String(tail),
   ];
 }
 

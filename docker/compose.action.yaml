@@ -34,4 +34,14 @@ services:
       - ALLOWED_TLS_RULES=${ALLOWED_TLS_RULES:-}
       - KNOWN_BLOCKED_RULES=${KNOWN_BLOCKED_RULES:-}
       - PROXY_ENGINE=${PROXY_ENGINE:-universal}
-    restart: unless-stopped
+    # `--wait` would otherwise return on "running" alone, which says nothing
+    # about buildkitd. buildctl works in all three engines. No restart policy
+    # goes with it: a container that stopped itself has to stay stopped for the
+    # wait to see it.
+    healthcheck:
+      test: ["CMD", "buildctl", "debug", "workers"]
+      interval: 5s
+      start_interval: 2s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
