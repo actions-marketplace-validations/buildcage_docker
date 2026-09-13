@@ -21,12 +21,13 @@ services:
     # capabilities, and a replacement profile would have to be loaded into the
     # host kernel. Seccomp does not: builder.json is Docker's own default plus
     # what runc needs (see docker/seccomp/gen-profile.mjs).
-    #
-    # The cgroup namespace is left private and each engine's init-cgroup
-    # remounts it read-write, so no host cgroupfs mount belongs here.
     security_opt:
       - seccomp=./docker/seccomp/builder.json
       - apparmor=unconfined
+    # Pinned, not left to the daemon's default-cgroupns-mode: under `host` the
+    # remount in each engine's init-cgroup would land on the host's own cgroup
+    # tree.
+    cgroup: private
     environment:
       - PROXY_MODE=${PROXY_MODE:-restrict}
       - ALLOWED_HTTPS_RULES=${ALLOWED_HTTPS_RULES:-}
