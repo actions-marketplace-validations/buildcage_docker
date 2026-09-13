@@ -304,6 +304,10 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     "",
     "global",
     "    log stdout format raw local0",
+    // This process terminates TLS and parses HTTP the build controls, so it
+    // drops to an unprivileged user once the listeners are bound.
+    "    user haproxy",
+    "    group haproxy",
     "    # normalize-uri is still marked experimental upstream.",
     "    expose-experimental-directives",
     "    tune.ssl.default-dh-param 2048",
