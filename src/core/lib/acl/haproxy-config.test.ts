@@ -46,6 +46,11 @@ describe("load-bearing directives", () => {
     expect(health.includes("monitor-uri /health")).toBe(true);
   });
 
+  it("drops to an unprivileged user", () => {
+    expect(config.includes("\n    user haproxy\n")).toBe(true);
+    expect(config.includes("\n    group haproxy\n")).toBe(true);
+  });
+
   it("classifies by the first bytes, so no port is declared in advance", () => {
     // This is what lets audit record everything without being configured.
     expect(config.includes("acl is_tls req.ssl_hello_type 1")).toBe(true);

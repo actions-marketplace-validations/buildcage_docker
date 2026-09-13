@@ -91,6 +91,14 @@ ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=90000
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
+
+# CoreDNS answers queries the build controls, so it must not run as root.
+# setcap keeps :53 bindable once it has dropped.
+RUN apk add --no-cache --virtual .setcap libcap-utils && \
+    addgroup -S coredns && adduser -S -D -H -G coredns coredns && \
+    setcap cap_net_bind_service=+ep /usr/local/bin/coredns && \
+    apk del .setcap
+
 COPY --from=runc-wrapper-build /out/buildcage-runc /opt/buildcage/bin/buildcage-runc
 
 RUN mkdir -p /etc/buildkit /etc/coredns /etc/haproxy /var/log/haproxy \

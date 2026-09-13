@@ -304,6 +304,9 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     "",
     "global",
     "    log stdout format raw local0",
+    // This process parses traffic the workload controls, so it must not be root.
+    "    user haproxy",
+    "    group haproxy",
     "    # normalize-uri is still marked experimental upstream.",
     "    expose-experimental-directives",
     "    tune.ssl.default-dh-param 2048",
