@@ -121,6 +121,10 @@ async function main(): Promise<void> {
     ALLOWED_TLS_RULES: tlsRules.join("\n"),
     KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
     BUILDCAGE_IMAGE_REF: imageRef,
+    // Pinned rather than inherited, like every other variable here: the
+    // resolver the builder uses is the action's choice, not whatever an earlier
+    // step left in the job environment.
+    EXTERNAL_RESOLVER: "",
   };
 
   try {
