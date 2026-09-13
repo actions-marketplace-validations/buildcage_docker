@@ -444,7 +444,14 @@ If you encounter issues, try reproducing the problem locally to get detailed log
    [CA trust for tools with their own CA store](./explicit-engine.md#ca-trust-for-tools-with-their-own-ca-store)
    in the Explicit Proxy Engine doc.
 
-5. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
+5. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
+workers` never succeeded inside it. The step prints the container log; locally:
+
+   ```bash
+   docker inspect --format '{{json .State.Health}}' buildcage
+   ```
+
+6. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
    - Your Dockerfile
    - The audit mode report output
    - Full error messages from `docker compose logs builder`
