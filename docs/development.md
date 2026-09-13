@@ -92,6 +92,45 @@ make test_integration_buildkit_inspect_debian_restrict
 make test_integration_buildkit_inspect_roundtrip
 ```
 
+### Running the suite from several git worktrees
+
+One Docker daemon serves every worktree and namespaces nothing per worktree: the
+builder container, the buildx builder, the Compose project and the built image
+all have one fixed name, so a second worktree's `setup_buildkit_*` tears down the
+first one's builder without saying so.
+
+The fixtures' addresses are not part of that problem. Each assigns its own
+`10.200.0.x` inside its own network namespace instead of taking one from Compose
+IPAM (see each fixture's entrypoint, and `test/test-net-addr/attach.sh`, which the test overlays
+wrap the builder's own entrypoint with),
+so the daemon never allocates `10.200.0.0/24` and every worktree uses the same
+addresses. That is why the assertions name those addresses literally.
+
+A fresh worktree needs `vp install` before any target that runs `report/src` or
+`src/post.ts`: `node_modules` is per checkout, and the integration targets run
+both straight from source.
+
+Nothing has to be configured for it. The Makefile takes the worktree's name from
+`git rev-parse --git-dir` and suffixes the builder, the buildx builder, the
+Compose project, the image tags and the `/tmp` paths with it, so a worktree named
+`wt2` uses `buildcage-wt2` and `buildcage-project-wt2`. The main checkout has no
+worktree name and keeps the unsuffixed names used everywhere else in this
+document. `BUILDCAGE_WORKTREE_SUFFIX` and `TEST_NET_SUBNET` override the derived values.
+
+`test-net`'s subnet comes from the same name, and appears in no assertion. It is
+pinned rather than left to Docker because Docker's own pool includes
+`172.20.0.0/16`, which overlaps the builder's CNI bridge: a daemon-side network
+in that range is shadowed by the longer prefix and becomes unreachable from
+inside the builder. Two worktrees whose names happen to pick the same subnet
+fail with `Pool overlaps with other one on this address space`; rename one, or
+set `TEST_NET_SUBNET`.
+
+Docker picks the Compose `default` network's subnet from its own pool, which
+includes `172.20.0.0/16` and can collide the same way. If the builder starts
+failing to reach the fixtures or the network for no apparent reason, check that
+subnet with `docker network inspect` and consider narrowing
+`default-address-pools` in the daemon configuration.
+
 ## Local Development
 
 Local Usage above runs the builder image. This is about running the setup and report actions

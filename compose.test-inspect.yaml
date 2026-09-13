@@ -10,6 +10,8 @@ services:
         # Never set for real builds/releases.
         BUILDCAGE_TEST_HOOKS: "1"
     environment:
+      TEST_NET_ADDR: 10.200.0.2/24
+      TEST_NET_SUBNET: ${TEST_NET_SUBNET:-10.210.0.0/24}
       EXTERNAL_RESOLVER: 10.200.0.53
       BUILDCAGE_EXTRA_CA_FILE: /test-fixtures/test-server-cert.pem
       # The rules live here rather than in the Makefile so CI, which drives
@@ -57,6 +59,10 @@ services:
         GET ~^https://blocked\.example\.com/frag(x#y|'z)$
     volumes:
       - ./test/test-server-inspect/cert.pem:/test-fixtures/test-server-cert.pem:ro
+      - ./test/test-net-addr/attach.sh:/test-hooks/attach-test-net-addr.sh:ro
+    # Wrapped here rather than in the image: the builder is the product image
+    # and carries no test-only setup.
+    entrypoint: ["/test-hooks/attach-test-net-addr.sh", "/init"]
     networks:
       default:
       test-net:
@@ -65,37 +71,51 @@ services:
   # the method, so a path or method rule can be told to have actually applied.
   test-server:
     build: test/test-server-inspect
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.100/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.100
 
   # A second origin nothing resolves to. Reaching it means the destination came
   # from the client rather than from the proxy's own resolution.
   test-server-impostor:
     build: test/test-server-impostor
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.101/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.101
 
   # Echoes whatever UDP it is sent. A build must not be able to reach it, and
   # a container beside it must, or "unreachable" would prove nothing.
   test-udp-echo:
     build: test/test-udp-echo
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.102/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.102
 
   # Upstream for the builder's HAProxy, which resolves the real destination
   # against it once a request has already passed the rules; CoreDNS itself
   # never forwards here.
   test-dns:
     build: test/test-dns-inspect
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.53/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.53
 
 networks:
+  # Pinned rather than auto-assigned: Docker's pool includes 172.20.0.0/16,
+  # which collides with the builder's CNI bridge inside its netns.
   test-net:
     ipam:
       config:
-        - subnet: 10.200.0.0/24
+        - subnet: ${TEST_NET_SUBNET:-10.210.0.0/24}
