@@ -14,15 +14,28 @@ import {
   type ResolvedImage,
 } from "#core/lib/provenance/verify-image.ts";
 import { resolveBuildcageImageRef } from "#core/lib/provenance/image-ref.ts";
-import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
+import { describeDockerFailure, type DockerErrorLike } from "#core/lib/actions/docker-error.ts";
 import { logRules } from "#core/lib/actions/log.ts";
 import { deriveProjectName } from "#core/lib/docker/compose-project-name.ts";
-import { buildComposeUpArgs, buildComposeDownArgs } from "#core/lib/docker/args.ts";
+import {
+  buildComposeUpArgs,
+  buildComposeDownArgs,
+  buildComposeLogsArgs,
+} from "#core/lib/docker/args.ts";
+import {
+  buildDockerInspectStateArgs,
+  parseContainerState,
+  describeContainerStartFailure,
+  type ContainerState,
+} from "#core/lib/docker/health.ts";
 
 export { buildACLRules };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const composeFile = join(__dirname, "../docker/compose.action.yaml");
+
+/** Lines of container log printed when the builder fails to come up. */
+const LOG_TAIL = 100;
 
 // Gates a local-image override used only by this repo's own CI/dev testing
 // (see test_action in .github/workflows/test-e2e.yml), never by a consumer of
@@ -145,11 +158,83 @@ async function main(): Promise<void> {
       env: composeEnv,
     });
   } catch (e) {
-    throw new SetupError(
+    throw builderStartError(e, { composeFile, projectName, builderName, composeEnv });
+  }
+}
+
+interface BuilderStartErrorOptions {
+  composeFile: string;
+  projectName: string;
+  builderName: string;
+  composeEnv: NodeJS.ProcessEnv;
+}
+
+/** Asks the container itself why `compose up` failed. With no container to
+ *  ask, the failure predates it and is Docker's own. */
+function builderStartError(
+  e: unknown,
+  { composeFile, projectName, builderName, composeEnv }: BuilderStartErrorOptions,
+): SetupError {
+  const state = readBuilderState(builderName, composeEnv);
+  if (!state) {
+    return new SetupError(
       describeDockerFailure(e, { operation: "docker compose up" }),
       "DOCKER_UNAVAILABLE",
     );
   }
+
+  printBuilderLog({ composeFile, projectName, composeEnv });
+  return new SetupError(
+    describeContainerStartFailure(state, { role: "builder", containerName: builderName }),
+    "BUILDER_NOT_READY",
+  );
+}
+
+function readBuilderState(
+  builderName: string,
+  composeEnv: NodeJS.ProcessEnv,
+): ContainerState | null {
+  try {
+    return parseContainerState(
+      execFileSync("docker", buildDockerInspectStateArgs(builderName), {
+        encoding: "utf8",
+        env: composeEnv,
+        // Captured, not inherited: no container is the expected outcome here,
+        // and the daemon's "no such object" would read as the cause.
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
+  } catch (e) {
+    reportInspectFailure(e);
+    return null;
+  }
+}
+
+/** Anything other than the expected missing container is worth seeing, even
+ *  though the compose failure is what gets reported. */
+function reportInspectFailure(e: unknown): void {
+  const stderr = ((e && typeof e === "object" ? e : {}) as DockerErrorLike).stderr ?? "";
+  if (stderr.trim() && !/no such object/i.test(stderr)) {
+    console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
+  }
+}
+
+/** Best effort: the message that follows still stands without the log. */
+function printBuilderLog({
+  composeFile,
+  projectName,
+  composeEnv,
+}: Omit<BuilderStartErrorOptions, "builderName">): void {
+  console.log("::group::buildcage: Builder container log");
+  try {
+    execFileSync("docker", buildComposeLogsArgs({ composeFile, projectName, tail: LOG_TAIL }), {
+      stdio: "inherit",
+      env: composeEnv,
+    });
+  } catch {
+    console.log("The builder container's log could not be read.");
+  }
+  console.log("::endgroup::");
 }
 
 /**
