@@ -20,6 +20,11 @@ const (
 	endMarker   = "# END buildcage CA"
 )
 
+// How much of a bundle removeCA holds at once. The store directory is a bind
+// mount of the scratch mirror while the step runs, so the file is whatever
+// size the step left it at, not what the image shipped.
+const scanChunk = 64 << 10
+
 // Same candidate order as buildkit's executor.InjectProxyCA.
 var systemCertFiles = []string{
 	"/etc/ssl/certs/ca-certificates.crt",
@@ -160,34 +165,100 @@ func removeCA(path string) error {
 		return fmt.Errorf("%s: %w", path, errNotRegular)
 	}
 
-	content := make([]byte, info.Size())
-	if _, err := io.ReadFull(f, content); err != nil {
+	size := info.Size()
+	start, err := findInFile(f, []byte(beginMarker), 0, size)
+	if err != nil {
 		return err
 	}
-
-	start := bytes.Index(content, []byte(beginMarker))
 	if start == -1 {
 		return nil
 	}
-	end := bytes.Index(content[start:], []byte(endMarker))
+	end, err := findInFile(f, []byte(endMarker), start, size)
+	if err != nil {
+		return err
+	}
 	if end == -1 {
 		return nil
 	}
-	end += start + len(endMarker)
-	// Absorb the newline that opened the block and the one that closed it.
-	if start > 0 && content[start-1] == '\n' {
-		start--
-	}
-	if end < len(content) && content[end] == '\n' {
-		end++
-	}
-	stripped := append(content[:start:start], content[end:]...)
+	end += int64(len(endMarker))
 
-	if err := f.Truncate(int64(len(stripped))); err != nil {
+	// Absorb the newline that opened the block and the one that closed it.
+	if start > 0 {
+		nl, err := isNewlineAt(f, start-1)
+		if err != nil {
+			return err
+		}
+		if nl {
+			start--
+		}
+	}
+	if end < size {
+		nl, err := isNewlineAt(f, end)
+		if err != nil {
+			return err
+		}
+		if nl {
+			end++
+		}
+	}
+
+	if err := shiftDown(f, end, start, size); err != nil {
 		return err
 	}
-	_, err = f.WriteAt(stripped, 0)
-	return err
+	return f.Truncate(size - (end - start))
+}
+
+// findInFile returns the offset of needle at or after from, or -1. Each read
+// carries len(needle)-1 bytes over, so a marker on a chunk boundary still
+// matches.
+func findInFile(f *os.File, needle []byte, from, size int64) (int64, error) {
+	buf := make([]byte, scanChunk+len(needle)-1)
+	for off := from; off < size; {
+		n, err := f.ReadAt(buf, off)
+		if err != nil && err != io.EOF {
+			return -1, err
+		}
+		if n < len(needle) {
+			return -1, nil
+		}
+		if i := bytes.Index(buf[:n], needle); i != -1 {
+			return off + int64(i), nil
+		}
+		off += int64(n - len(needle) + 1)
+	}
+	return -1, nil
+}
+
+func isNewlineAt(f *os.File, off int64) (bool, error) {
+	var b [1]byte
+	if _, err := f.ReadAt(b[:], off); err != nil {
+		return false, err
+	}
+	return b[0] == '\n', nil
+}
+
+// shiftDown moves from..size down to to, leaving the caller to truncate. The
+// destination trails the source, so copying forwards never overwrites bytes
+// still to be read.
+func shiftDown(f *os.File, from, to, size int64) error {
+	buf := make([]byte, scanChunk)
+	for from < size {
+		n, err := f.ReadAt(buf, from)
+		if n > 0 {
+			if _, werr := f.WriteAt(buf[:n], to); werr != nil {
+				return werr
+			}
+			from += int64(n)
+			to += int64(n)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // containerPathOf converts a path already resolved inside rootfs back to how
