@@ -46,7 +46,7 @@ describe("load-bearing directives", () => {
     expect(health.includes("monitor-uri /health")).toBe(true);
   });
 
-  it("drops to an unprivileged user, this being what terminates the build's TLS", () => {
+  it("drops to an unprivileged user", () => {
     expect(config.includes("\n    user haproxy\n")).toBe(true);
     expect(config.includes("\n    group haproxy\n")).toBe(true);
   });
