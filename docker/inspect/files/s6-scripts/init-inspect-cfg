@@ -61,12 +61,23 @@ else
     URL_RULES="$ALLOWED_URL_RULES"
 fi
 
-# Unset, HAProxy reads the container's own /etc/resolv.conf, so a name resolves
-# against the runner's own DNS rather than a hardcoded public one.
-if [ -z "$EXTERNAL_RESOLVER" ]; then
+# Only the integration tests name an upstream; unset, HAProxy reads the
+# container's own /etc/resolv.conf, so a name resolves against the runner's own
+# DNS rather than a hardcoded public one. Each entry is substituted into the
+# generated resolvers section verbatim, so a value that is not an address is
+# refused here rather than left to open a directive of its own in that file.
+UPSTREAM_RESOLVERS=$(echo "$EXTERNAL_RESOLVER" | tr ',' ' ')
+for ip in $UPSTREAM_RESOLVERS; do
+    if ! echo "$ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+        echo "init-inspect-cfg: EXTERNAL_RESOLVER takes IPv4 addresses; \"$ip\" is not one" >&2
+        exit 1
+    fi
+done
+
+if [ -z "$UPSTREAM_RESOLVERS" ]; then
     echo "init-inspect-cfg: resolver=(default, via /etc/resolv.conf)"
 else
-    echo "init-inspect-cfg: resolver=$EXTERNAL_RESOLVER"
+    echo "init-inspect-cfg: resolver=$UPSTREAM_RESOLVERS"
 fi
 
 qjs --std -m /opt/buildcage/scripts/gen-configs.js \
@@ -74,7 +85,7 @@ qjs --std -m /opt/buildcage/scripts/gen-configs.js \
     /etc/coredns/Corefile \
     "$GATEWAY" \
     "$HOST_ADDR_FILE" \
-    "$EXTERNAL_RESOLVER" \
+    "$UPSTREAM_RESOLVERS" \
     "${PROXY_MODE:-restrict}" \
     "$HTTPS_RULES" \
     "$HTTP_RULES" \
