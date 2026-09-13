@@ -83,8 +83,6 @@ jobs:
 
       - uses: ./.github/actions/verify-dist
 
-      # Keeps MOBY_PROFILES_SECCOMP_VERSION and the vendored profile from
-      # drifting apart: a Renovate bump of the pin alone fails here.
       - name: Check the builder's seccomp profile matches its pin
         run: |
           make seccomp_profile

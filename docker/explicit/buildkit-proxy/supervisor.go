@@ -35,35 +35,27 @@ func writeResolvConf(externalResolver string) error {
 }
 
 // remountCgroupRW makes /sys/fs/cgroup writable so buildkitd's OCI worker can
-// create a cgroup per RUN step. Docker mounts /sys read-only in a container
-// that isn't privileged; remounting here rather than bind-mounting the host's
-// cgroupfs keeps the writable tree inside the container's own cgroup
-// namespace, which sees only its own subtree. The universal and inspect
-// images do the same from an s6 oneshot, which this image has no equivalent
-// of.
-//
-// The source has to be named too: busybox mount resolves a lone mountpoint
-// against /proc/mounts and does not find this one. Every flag other than rw is
-// restated because a remount drops the ones it isn't given, which would
-// silently turn /sys/fs/cgroup suid- and exec-capable.
+// make a cgroup per RUN step. Remounting, rather than bind-mounting the host's
+// cgroupfs, keeps the writable tree inside this container's own cgroup
+// namespace. universal and inspect do the same from an s6 oneshot, which this
+// image has no equivalent of.
 func remountCgroupRW() error {
-	// cgroup.controllers exists only on a unified (v2) mount. On a v1 host
-	// /sys/fs/cgroup is a tmpfs whose per-controller mounts stay read-only, and
-	// the remount below would report success while leaving them that way, so the
-	// build would fail at its first RUN step with nothing pointing here.
+	// A v1 host passes the remount below and still leaves its per-controller
+	// mounts read-only, so the exit status alone is not enough to go on.
 	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
 		return fmt.Errorf("not a cgroup v2 mount, which buildcage requires: %w", err)
 	}
 
+	// busybox mount won't resolve a lone mountpoint against /proc/mounts, hence
+	// the source. The flags are restated because a remount drops the ones it
+	// omits.
 	out, err := exec.Command("mount",
 		"-o", "remount,rw,nosuid,nodev,noexec,relatime", "cgroup", "/sys/fs/cgroup").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	// Creating a directory under a cgroup v2 root creates a cgroup, which is
-	// exactly what buildkitd will go on to do. Prove it works while the failure
-	// can still name its own cause.
+	// Fail here rather than leave buildkitd to fail at the first RUN step.
 	const probe = "/sys/fs/cgroup/buildcage-probe"
 	if err := os.Mkdir(probe, 0o755); err != nil {
 		return fmt.Errorf("still read-only after remounting it: %w", err)

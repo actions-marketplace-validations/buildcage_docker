@@ -2,10 +2,9 @@ services:
   builder:
     container_name: ${BUILDER_NAME:-buildcage}
     image: ${BUILDCAGE_IMAGE_REF:-placeholder}
-    # The builder has to mount, create namespaces and manage cgroups, which is
-    # why docker/setup-buildx-action's own builder runs privileged. Granting
-    # only the three capabilities that needs leaves out device access and a
-    # writable host /proc and /sys.
+    # Not privileged, unlike docker/setup-buildx-action's own builder: these
+    # three are all BuildKit needs, and device access and a writable host /proc
+    # and /sys stay out.
     #
     # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
     # iptables and CNI networking require NET_ADMIN.
@@ -14,17 +13,13 @@ services:
       - SYS_ADMIN
       - NET_ADMIN
       - SYS_PTRACE
-    # docker-default refuses every mount regardless of capabilities, so it
-    # cannot coexist with the SYS_ADMIN above, and a replacement profile would
-    # have to be loaded into the host kernel. Seccomp needs no such escape
-    # hatch: Docker's own default profile already allows mount, unshare and
-    # setns to a SYS_ADMIN holder, so builder.json only adds what runc needs
-    # beyond it (see docker/seccomp/gen-profile.mjs).
+    # AppArmor has to be off: docker-default refuses every mount regardless of
+    # capabilities, and a replacement profile would have to be loaded into the
+    # host kernel. Seccomp does not: builder.json is Docker's own default plus
+    # what runc needs (see docker/seccomp/gen-profile.mjs).
     #
-    # No cgroup: host and no host cgroupfs mount either. The container keeps
-    # its own cgroup namespace and remounts that namespace's /sys/fs/cgroup
-    # read-write at startup, which is what BuildKit needs to make a cgroup per
-    # RUN step (see each engine's init-cgroup).
+    # The cgroup namespace is left private and each engine's init-cgroup
+    # remounts it read-write, so no host cgroupfs mount belongs here.
     security_opt:
       - seccomp=./seccomp/builder.json
       - apparmor=unconfined
