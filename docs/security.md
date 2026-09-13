@@ -239,8 +239,12 @@ network, so what it fetches for itself is never filtered: see
 - **DNS never leaves the job.** The internal resolver has no upstream and answers every query
   locally, so a name carrying data in its labels reaches nobody. The iptables rules leave no path to
   an outside resolver either.
-- **The real SNI cannot be hidden.** Encrypted Client Hello needs ECHConfig keys from a DNS HTTPS
-  (type 65) record, which a resolver with no upstream never returns.
+- **Encrypted Client Hello does not change which name is matched.** ECH conceals the inner name,
+  but the outer SNI is what a rule matches and what the proxy resolves and connects to, so an ECH
+  handshake reaches the outer name's server or nothing at all. Hiding a target behind an allowed
+  outer name is the [domain fronting](#what-it-cant-see) case below, not a way past the allowlist.
+  A build also has to bring its own ECHConfig keys: the resolver has no upstream, so the DNS HTTPS
+  (type 65) record that normally carries them is never returned.
 - **Nothing but TCP gets out.** Everything else is dropped before it reaches the proxy, so ICMP, raw
   UDP and QUIC have no exit path at all.
 - **IPv6 is not a way around any of this.** Equivalent ip6tables rules drop forwarded IPv6, the
@@ -249,17 +253,17 @@ network, so what it fetches for itself is never filtered: see
 
 ### Attempts to bypass it
 
-| What the build does                                    | What happens                                                                                                                                         |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sets an allowed name in the SNI while aiming elsewhere | Reaches the server the proxy resolved that name to, not the one the build chose                                                                      |
-| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, or another never-public range, in `audit` too |
-| Uses ECH to conceal the real SNI                       | The handshake cannot start: the type 65 record it needs is never returned                                                                            |
-| Encodes data into DNS queries                          | Answered locally and never forwarded; an outside resolver is unreachable                                                                             |
-| Tunnels over ICMP, raw UDP, or QUIC                    | Dropped before the proxy; only TCP is redirected to it                                                                                               |
-| Falls back to IPv6                                     | Forwarded IPv6 is dropped, lookups answer `::`, and the proxy connects over IPv4                                                                     |
-| Uses DNS over TLS or DNS over HTTPS                    | Redirected to the proxy like any other TCP and checked on its SNI, so an outside resolver is reachable only if its own host and port are allowlisted |
-| Connects to a raw address                              | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                 |
-| Ignores the proxy variables entirely                   | No effect; interception is at the network level, not opt-in                                                                                          |
+| What the build does                                    | What happens                                                                                                                                            |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sets an allowed name in the SNI while aiming elsewhere | Reaches the server the proxy resolved that name to, not the one the build chose                                                                         |
+| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, or another never-public range, in `audit` too    |
+| Uses ECH to conceal the real SNI                       | Reaches whatever the outer SNI resolved to, and that outer name still has to be allowed; the type 65 record carrying ECHConfig is never returned either |
+| Encodes data into DNS queries                          | Answered locally and never forwarded; an outside resolver is unreachable                                                                                |
+| Tunnels over ICMP, raw UDP, or QUIC                    | Dropped before the proxy; only TCP is redirected to it                                                                                                  |
+| Falls back to IPv6                                     | Forwarded IPv6 is dropped, lookups answer `::`, and the proxy connects over IPv4                                                                        |
+| Uses DNS over TLS or DNS over HTTPS                    | Redirected to the proxy like any other TCP and checked on its SNI, so an outside resolver is reachable only if its own host and port are allowlisted    |
+| Connects to a raw address                              | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                    |
+| Ignores the proxy variables entirely                   | No effect; interception is at the network level, not opt-in                                                                                             |
 
 ### What it can't see
 
