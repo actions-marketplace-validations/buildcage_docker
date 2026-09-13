@@ -257,6 +257,14 @@ RUN echo "=== [Reverse lookup] ===" && \
     echo "elapsed=${ELAPSED}s" && \
     [ "$ELAPSED" -lt 3 ] || (echo "FAILED: the reverse lookup stalled" && exit 1)
 
+# [Reverse zone, invented name]
+# Only a name that is an address backwards counts as a reverse lookup. The verb
+# those are logged under is one the report drops, so appending `.in-addr.arpa`
+# to an exfiltration name must not be a way out of the report.
+RUN echo "=== [Reverse zone, invented name] ===" && \
+    (nslookup SECRET-IN-A-NAME.in-addr.arpa >/dev/null 2>&1 || true) && \
+    echo "queried"
+
 # [A rule may name an address, and it stays inspected]
 # No resolver can answer an address, so the proxy takes one in the Host header
 # as it stands rather than asking. Without that a rule naming an address could

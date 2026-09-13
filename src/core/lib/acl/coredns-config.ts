@@ -108,6 +108,15 @@ function proxyAnswerLines(proxyAddress: string, ttlSeconds: number): string[] {
 }
 
 /**
+ * A name that is an address read backwards, and nothing else under the reverse
+ * zones. Character classes rather than `\\.`, which CEL rejects outright; see
+ * escapeForCel. The trailing `[.]` is the dot a query carries, as in the
+ * allowlist expression.
+ */
+const REVERSE_NAME_REGEX =
+  "^(([0-9]{1,3}[.]){1,4}in-addr[.]arpa|([0-9a-fA-F][.]){1,32}ip6[.]arpa)[.]$";
+
+/**
  * The reverse zones, where a PTR query is answered NXDOMAIN.
  *
  * Nothing inside the cage has a name to give back, so the only question is how
@@ -118,16 +127,25 @@ function proxyAnswerLines(proxyAddress: string, ttlSeconds: number): string[] {
  * gives the universal engine for the same addresses through bogus-priv.
  *
  * The lookup is still recorded, but under a verb of its own: no rule can name
- * a reverse zone, so reporting it as denied would put a row in the report that
- * no rule could ever take away. Anything else under these zones is answered
- * like any other name, a reverse zone being no less usable as one.
+ * an address read backwards, so reporting one as denied would put a row in the
+ * report that no rule could ever take away.
+ *
+ * The view is what stops that verb from becoming a hiding place. It holds the
+ * block to names that really are an address backwards; `SECRET-DATA.in-addr.arpa`
+ * and every other label a build might invent misses the view, falls through to
+ * the blocks below, and is answered, logged and reported like any other name.
  */
 function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
   const soa = `{{ .Zone }} ${ttlSeconds} IN SOA ns.buildcage.invalid. hostmaster.buildcage.invalid. 1 ${ttlSeconds} ${ttlSeconds} ${ttlSeconds} ${ttlSeconds}`;
   return [
     "# Reverse lookups: answered NXDOMAIN rather than left unhandled, which",
-    "# would be SERVFAIL and cost musl a five-second timeout each time.",
+    "# would be SERVFAIL and cost musl a five-second timeout each time. Only a",
+    "# name that is an address backwards is treated this way; anything else",
+    "# under these zones misses the view and falls through to the blocks below.",
     "in-addr.arpa ip6.arpa {",
+    "    view reverse {",
+    `      expr name() matches '${REVERSE_NAME_REGEX}'`,
+    "    }",
     "    template IN PTR {",
     "      rcode NXDOMAIN",
     `      authority "${soa}"`,

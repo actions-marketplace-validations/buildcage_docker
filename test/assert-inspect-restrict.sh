@@ -200,6 +200,14 @@ if grep -qF "buildcage dns denied name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; 
 else
   pass "the reverse lookup was not recorded as denied"
 fi
+# Only an address backwards is a reverse lookup. An invented name under the
+# same zone is judged like any other, or appending `.in-addr.arpa` would be a
+# way out of the report.
+if grep -qiF "buildcage dns denied name=SECRET-IN-A-NAME.in-addr.arpa" <<< "$DNS_LOG"; then
+  pass "an invented name under the reverse zone was still refused and recorded"
+else
+  fail "an invented name under the reverse zone was not recorded as refused"
+fi
 echo ""
 
 echo "[UDP] the echo server the build could not reach is reachable from beside it:"
@@ -272,10 +280,16 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-if grep -qF "in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
   fail "a reverse lookup reached the report"
 else
   pass "a reverse lookup is left out of the report entirely"
+fi
+
+if grep -qiF "secret-in-a-name.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+  pass "an invented name under the reverse zone still reaches the report"
+else
+  fail "an invented name under the reverse zone was dropped from the report too"
 fi
 
 # Listing a name that resolved doubles every line, and the request that
