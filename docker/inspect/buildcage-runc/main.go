@@ -35,6 +35,15 @@ const (
 // instead of the real host path.
 var logFile = "/var/log/buildcage/runc.log"
 
+// One file carries every step of every build and BuildKit runs steps
+// concurrently, so each line is tagged with the step that wrote it and kept in
+// memory as well. Bounding the dump by an offset into the shared file instead
+// would sweep up whatever a neighbouring step appended in the meantime.
+var (
+	logTag = fmt.Sprintf("[pid %d]", os.Getpid())
+	ownLog strings.Builder
+)
+
 // Subcommands runc accepts. Only those carrying a bundle are acted on; the
 // rest are passed through untouched.
 var subcommands = map[string]bool{
@@ -45,42 +54,27 @@ var subcommands = map[string]bool{
 }
 
 func logf(format string, a ...any) {
+	line := logTag + " " + fmt.Sprintf(format, a...) + "\n"
+	ownLog.WriteString(line)
+
 	_ = os.MkdirAll(filepath.Dir(logFile), 0o755)
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintf(f, format+"\n", a...)
+	_, _ = io.WriteString(f, line)
 }
 
-func logSize() int64 {
-	info, err := os.Stat(logFile)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
-}
-
-// dumpLogSince copies this invocation's own lines onto w. Nothing collects
-// the log from the builder container, so without this a failure reaches the
-// build log as a bare non-zero exit. from bounds the dump to this step: one
-// file carries every step of every build.
-func dumpLogSince(w io.Writer, from int64) {
-	f, err := os.Open(logFile)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if _, err := f.Seek(from, io.SeekStart); err != nil {
-		return
-	}
-	lines, err := io.ReadAll(f)
-	if err != nil || len(lines) == 0 {
+// dumpOwnLog copies this invocation's own lines onto w. Nothing collects the
+// log from the builder container, so without this a failure reaches the build
+// log as a bare non-zero exit.
+func dumpOwnLog(w io.Writer) {
+	if ownLog.Len() == 0 {
 		return
 	}
 	fmt.Fprintf(w, "buildcage: %s for this step:\n", logFile)
-	_, _ = w.Write(lines)
+	_, _ = io.WriteString(w, ownLog.String())
 }
 
 // parseArgs returns the runc subcommand and the --bundle value, if any.
@@ -108,14 +102,15 @@ func parseArgs(args []string) (sub, bundle string) {
 func main() {
 	args := os.Args[1:]
 	sub, bundle := parseArgs(args)
+	if bundle != "" {
+		logTag = "[" + filepath.Base(bundle) + "]"
+	}
 
 	// `run` only, not `create`: restore is tied to the wrapped process exiting,
 	// but `runc create` returns before the process runs, so the CA would be gone
 	// by `runc start`. BuildKit's runcexecutor uses `run`.
 	var restore func() error
-	var logStart int64
 	if sub == "run" && bundle != "" {
-		logStart = logSize()
 		ca, err := os.ReadFile(caFile)
 		if err != nil {
 			// Without a CA there is nothing to trust and nothing to undo; the
@@ -163,7 +158,7 @@ func main() {
 	if restore != nil {
 		if err := restore(); err != nil {
 			logf("CA write-back failed, failing the build: %v", err)
-			dumpLogSince(os.Stderr, logStart)
+			dumpOwnLog(os.Stderr)
 			if code == 0 {
 				code = 1
 			}
