@@ -1,0 +1,15 @@
+#!/command/with-contenv sh
+set -e
+
+# BuildKit's OCI worker creates a cgroup per RUN step, but Docker mounts /sys
+# read-only in a container that isn't privileged. Remounting here rather than
+# bind-mounting the host's cgroupfs keeps the writable tree inside the
+# container's own cgroup namespace, which sees only its own subtree.
+#
+# The source has to be named too: busybox mount resolves a lone mountpoint
+# against /proc/mounts and does not find this one. Every flag other than rw is
+# restated because a remount drops the ones it isn't given, which would
+# silently turn /sys/fs/cgroup suid- and exec-capable.
+mount -o remount,rw,nosuid,nodev,noexec,relatime cgroup /sys/fs/cgroup
+
+echo "init-cgroup: /sys/fs/cgroup remounted read-write within this container's cgroup namespace"

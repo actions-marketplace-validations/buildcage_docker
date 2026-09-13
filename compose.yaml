@@ -4,9 +4,10 @@ services:
     build:
       context: .
       dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile
-    # Instead of privileged: true, grant only the minimum privileges required
-    # to run BuildKit and iptables. This avoids granting full device access
-    # and unrestricted /sys write permissions that privileged mode includes.
+    # The builder has to mount, create namespaces and manage cgroups, which is
+    # why docker/setup-buildx-action's own builder runs privileged. Granting
+    # only the three capabilities that needs leaves out device access and a
+    # writable host /proc and /sys.
     #
     # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
     # NET_ADMIN is required for network namespace setup: iptables and CNI
@@ -17,17 +18,20 @@ services:
       - SYS_ADMIN
       - NET_ADMIN
       - SYS_PTRACE
-    # BuildKit/runc needs syscalls (mount, unshare, pivot_root) blocked by
-    # default seccomp and AppArmor profiles.
+    # docker-default refuses every mount regardless of capabilities, so it
+    # cannot coexist with the SYS_ADMIN above, and a replacement profile would
+    # have to be loaded into the host kernel. Seccomp needs no such escape
+    # hatch: Docker's own default profile already allows mount, unshare and
+    # setns to a SYS_ADMIN holder, so builder.json only adds what runc needs
+    # beyond it (see docker/seccomp/gen-profile.mjs).
+    #
+    # No cgroup: host and no host cgroupfs mount either. The container keeps
+    # its own cgroup namespace and remounts that namespace's /sys/fs/cgroup
+    # read-write at startup, which is what BuildKit needs to make a cgroup per
+    # RUN step (see each engine's init-cgroup).
     security_opt:
-      - seccomp=unconfined
+      - seccomp=./docker/seccomp/builder.json
       - apparmor=unconfined
-    # Share the host's cgroup namespace so BuildKit can manage cgroups for
-    # build containers. The volume mount makes /sys/fs/cgroup writable
-    # (read-only by default in non-privileged containers).
-    cgroup: host
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     environment:
       - PROXY_MODE=${PROXY_MODE:-restrict}
       - ALLOWED_HTTPS_RULES=${ALLOWED_HTTPS_RULES:-}

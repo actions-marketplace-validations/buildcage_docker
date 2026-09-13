@@ -34,6 +34,27 @@ func writeResolvConf(externalResolver string) error {
 	return os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0o644)
 }
 
+// remountCgroupRW makes /sys/fs/cgroup writable so buildkitd's OCI worker can
+// create a cgroup per RUN step. Docker mounts /sys read-only in a container
+// that isn't privileged; remounting here rather than bind-mounting the host's
+// cgroupfs keeps the writable tree inside the container's own cgroup
+// namespace, which sees only its own subtree. The universal and inspect
+// images do the same from an s6 oneshot, which this image has no equivalent
+// of.
+//
+// The source has to be named too: busybox mount resolves a lone mountpoint
+// against /proc/mounts and does not find this one. Every flag other than rw is
+// restated because a remount drops the ones it isn't given, which would
+// silently turn /sys/fs/cgroup suid- and exec-capable.
+func remountCgroupRW() error {
+	out, err := exec.Command("mount",
+		"-o", "remount,rw,nosuid,nodev,noexec,relatime", "cgroup", "/sys/fs/cgroup").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // generateSourcePolicy invokes the QuickJS policy generator (which reuses
 // core/shared/lib/rules.ts's wildcard/regex compiler) and writes its
 // stdout — a sourcepolicy.pb.Policy protobuf-JSON document — to outPath.
