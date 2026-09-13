@@ -8,6 +8,9 @@ import type { ExpectedFlag } from "../build/aggregate.ts";
  * meaning differs by proxy engine, so subtracting summed row counts from it
  * isn't reliable. An empty `blockedRows` with a nonzero `blockedCount` is
  * treated as unexpected too (fail closed).
+ *
+ * An implausible log decides on its own: what survived says nothing about
+ * what was dropped, so known_blocked_rules cannot clear the step.
  */
 export interface BlockedOutcome {
   level: "none" | "notice" | "error";
@@ -30,17 +33,13 @@ export function determineBlockedOutcome({
   blockedRows,
   logLooksPlausible,
 }: DetermineBlockedOutcomeOptions): BlockedOutcome {
-  if (!blockedCount) {
-    // A log with no recognizable trace of a real proxy run is treated as
-    // suspicious rather than as "nothing was blocked" — this is a
-    // heuristic against a naive wholesale-erasure tamper, not a guarantee
-    // against a deliberate, format-aware forgery.
-    if (logLooksPlausible) return { level: "none", shouldFail: false };
+  if (!logLooksPlausible) {
     if (isAudit) return { level: "notice", shouldFail: false };
     return failOnBlocked
       ? { level: "error", shouldFail: true }
       : { level: "notice", shouldFail: false };
   }
+  if (!blockedCount) return { level: "none", shouldFail: false };
   if (isAudit) return { level: "notice", shouldFail: false };
   const hasUnexpected = blockedRows.length === 0 || blockedRows.some((row) => !row.expected);
   if (failOnBlocked && hasUnexpected) return { level: "error", shouldFail: true };
@@ -54,7 +53,9 @@ export function determineBlockedOutcome({
  * regardless of known_blocked_rules matching — audit mode's pass/fail
  * outcome is unaffected by matching (see determineBlockedOutcome), so
  * varying the notice text there would be misleading and would silently
- * break any tooling that matches the old fixed-format notice.
+ * break any tooling that matches the old fixed-format notice. An incomplete
+ * log is appended to that string by describeBlockedOutcome, never
+ * substituted for it, for the same reason.
  *
  */
 export interface BuildBlockedMessageOptions {
@@ -107,6 +108,21 @@ export function describeBlockedOutcome({
     blockedRows,
     logLooksPlausible,
   });
-  const message = buildBlockedMessage({ blockedCount, blockedRows, engineLabel, isAudit });
+  const base = buildBlockedMessage({ blockedCount, blockedRows, engineLabel, isAudit });
+  if (logLooksPlausible) return { ...outcome, message: base };
+  // audit's notice keeps the fixed-format opening buildBlockedMessage
+  // promises, so the warning is appended rather than replacing it.
+  if (isAudit) {
+    return {
+      ...outcome,
+      message: `${base}, but the logs are incomplete and this is not a full record`,
+    };
+  }
+  // Plural: inspect has a resolver log too, and either can be the truncated one.
+  const incomplete = `buildcage ${engineLabel} logs are incomplete, so this report is not a full record of what ran`;
+  // No longer the whole count, hence "still recorded".
+  const message = blockedCount
+    ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
+    : incomplete;
   return { ...outcome, message };
 }

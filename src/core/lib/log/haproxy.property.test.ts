@@ -78,7 +78,6 @@ describe("scanHaproxyLog – properties", () => {
         const line = `[ts] buildcage [ALLOWED] (HTTPS) "example.com:443" ${r} ${extra}`;
         const result = await scanHaproxyLog([line], false);
         expect(result.passed.length).toBe(0);
-        expect(result.hasNonBuildcageContent).toBe(true);
       }),
     );
   });

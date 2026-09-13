@@ -141,14 +141,16 @@ describe("hasProxyStarted", () => {
 });
 
 describe("scanInspectDnsLog", () => {
+  const startMarker = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
   const lines = [
+    startMarker,
     "2026-08-23 16:45:00.550304964  [INFO] buildcage dns allowed name=registry.npmjs.org.",
     "2026-08-23 16:45:00.551089047  [INFO] buildcage dns allowed name=registry.npmjs.org.",
     "2026-08-23 16:45:01.100000000  [INFO] buildcage dns denied name=evil.example.com.",
   ];
 
   it("reports each name once, at the time it was first asked for", async () => {
-    const events = await scanInspectDnsLog(lines);
+    const { events } = await scanInspectDnsLog(lines);
     expect(events.length).toBe(2);
     // Millisecond precision, truncated from the source line's nanoseconds,
     // not floored away to the whole second.
@@ -156,12 +158,12 @@ describe("scanInspectDnsLog", () => {
   });
 
   it("strips the trailing dot a query carries", async () => {
-    const events = await scanInspectDnsLog(lines);
+    const { events } = await scanInspectDnsLog(lines);
     expect(events.some((e) => e.host === "registry.npmjs.org")).toBe(true);
   });
 
   it("separates a name the resolver refused from one it answered", async () => {
-    const events = await scanInspectDnsLog(lines);
+    const { events } = await scanInspectDnsLog(lines);
     const denied = events.find((e) => e.host === "evil.example.com");
     expect(denied?.action).toBe("block");
     expect(denied?.reason).toBe("dns-not-allowed");
@@ -174,12 +176,33 @@ describe("scanInspectDnsLog", () => {
       "2026-08-23 16:45:00.000000000  [INFO] buildcage dns allowed name=a.example.com.",
       "2026-08-23 16:45:00.000000000  [INFO] buildcage dns denied name=a.example.com.",
     ];
-    expect((await scanInspectDnsLog(mixed))[0].action).toBe("allow");
+    expect((await scanInspectDnsLog(mixed)).events[0].action).toBe("allow");
   });
 
   it("ignores coredns' own output", async () => {
     const noise = ["2026-08-23 16:45:00.000000000  [INFO] CoreDNS-1.14.7", "[INFO] linux/arm64"];
-    expect((await scanInspectDnsLog(noise)).length).toBe(0);
+    expect((await scanInspectDnsLog(noise)).events.length).toBe(0);
+  });
+
+  it("headIntact is true when the log opens with the startup marker", async () => {
+    expect((await scanInspectDnsLog(lines)).headIntact).toBe(true);
+  });
+
+  it("headIntact is false when the log opens mid-traffic", async () => {
+    expect((await scanInspectDnsLog(lines.slice(1))).headIntact).toBe(false);
+  });
+
+  it("headIntact is false for an empty log", async () => {
+    expect((await scanInspectDnsLog([])).headIntact).toBe(false);
+  });
+
+  it("headIntact is false when coredns' own output stands where the marker should be", async () => {
+    // The errors plugin writes mid-run, so a flood can leave one of these first.
+    const noise = [
+      "2026-08-23 16:45:00.000000000  [ERROR] plugin/errors: 2 evil.example.com. A: read udp timeout",
+      "2026-08-23 16:45:01.000000000  [INFO] buildcage dns denied name=evil.example.com.",
+    ];
+    expect((await scanInspectDnsLog(noise)).headIntact).toBe(false);
   });
 });
 

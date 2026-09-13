@@ -18,8 +18,8 @@ export interface TrafficRecord {
   time: string;
   /** Time since the proxy itself started, always HH:MM:SS.mmm -- the shape
    *  never changes between a short and a long run. Absent when the proxy's
-   *  start time could not be determined (logLooksPlausible false); never
-   *  fabricated from something else. */
+   *  start time could not be determined; never fabricated from something
+   *  else. */
   elapsed?: string;
   /** `allow`, `block`, or `audit` when nothing was being enforced. */
   action: string;

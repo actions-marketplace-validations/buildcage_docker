@@ -40,12 +40,14 @@ fi
 echo ""
 
 echo "[report action] no false-positive blocked-connection error:"
-if grep -qF "blocked connection(s) detected" <<< "$REPORT_OUTPUT"; then
-  echo "  FAIL  unexpected blocked-connection message in report output"
+# Both annotations the head check can produce: the blocked-connection one and
+# the incomplete-log one it is replaced by when the marker is missing.
+if grep -qE "blocked connection\(s\) detected|logs are incomplete" <<< "$REPORT_OUTPUT"; then
+  echo "  FAIL  unexpected blocked-connection or incomplete-log message in report output"
   echo "$REPORT_OUTPUT"
   FAILURES=$((FAILURES + 1))
 else
-  echo "  PASS  no blocked-connection message"
+  echo "  PASS  no blocked-connection or incomplete-log message"
 fi
 echo ""
 

@@ -43,7 +43,10 @@ export async function buildInspectReportData(
   // Independent inputs (separate `docker exec` log streams, no data
   // dependency between them) -- read concurrently rather than paying their
   // combined latency serially.
-  const [{ events: proxyEvents, startedAt }, dnsEvents] = await Promise.all([
+  const [
+    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact },
+    { events: dnsEvents, headIntact: dnsHeadIntact },
+  ] = await Promise.all([
     scanInspectLog(proxyLines, isAudit),
     scanInspectDnsLog(dnsLines, isAudit),
   ]);
@@ -72,7 +75,9 @@ export async function buildInspectReportData(
     // Every blocked event is counted, not just the distinct hosts the table
     // collapses them into.
     blockedCount: blockedRows.length,
-    logLooksPlausible: startedAt !== undefined,
+    // A refused name is only ever in the resolver log, so either log losing
+    // its beginning loses evidence the other cannot vouch for.
+    logLooksPlausible: proxyHeadIntact && dnsHeadIntact,
     startedAt,
     timeline,
   };

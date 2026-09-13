@@ -143,21 +143,22 @@ What each kind of rule decides, and what stays undecrypted:
 
 ### Attempts to get around it
 
-| What the build does                                    | What happens                                                                                                             |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Asks for any name, on or off the allowlist             | Answered locally with the proxy's own address; the query is never forwarded, allowed or not                              |
-| Requests a host no rule covers                         | **403**, recorded with its full URL, origin never contacted                                                              |
-| Requests a path or method no rule covers               | **403**, recorded with its full URL                                                                                      |
-| Walks out of an allowed path with `..`                 | **403**: the path is normalised before the rules see it                                                                  |
-| Encodes the traversal as `%2e%2e` or `..%2f`           | **403**: decoding happens first, and what no normaliser can strip is refused outright                                    |
-| Uses a backslash, raw or `%5c`, to climb               | **403**: the URL standard treats `\` as `/` for http(s), so a raw backslash is refused outright and `..%5c` like `..%2f` |
-| Sends an allowed name while aiming elsewhere           | Reaches the address the proxy resolved, not the one the build chose                                                      |
-| Puts an address in the Host header                     | Taken as the destination only if a rule names it; the rules decide either way                                            |
-| Points `/etc/hosts` at an address of its choosing      | Same: the build's own address is discarded                                                                               |
-| Allowlists a name that resolves to an internal address | **403**: the resolved address is refused if it is loopback, link-local, the proxy itself, or another never-public range  |
-| Reaches an allowed host presenting a wrong certificate | **503**: the origin's certificate is checked when the proxy connects                                                     |
-| Speaks a protocol that is not TLS on any port          | Classified by its first bytes, so it is parsed as HTTP if it is HTTP                                                     |
-| Ignores the proxy variables entirely                   | No effect: interception is at the network level, not opt-in                                                              |
+| What the build does                                     | What happens                                                                                                                                                                             |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Asks for any name, on or off the allowlist              | Answered locally with the proxy's own address; the query is never forwarded, allowed or not                                                                                              |
+| Requests a host no rule covers                          | **403**, recorded with its full URL, origin never contacted                                                                                                                              |
+| Requests a path or method no rule covers                | **403**, recorded with its full URL                                                                                                                                                      |
+| Walks out of an allowed path with `..`                  | **403**: the path is normalised before the rules see it                                                                                                                                  |
+| Encodes the traversal as `%2e%2e` or `..%2f`            | **403**: decoding happens first, and what no normaliser can strip is refused outright                                                                                                    |
+| Uses a backslash, raw or `%5c`, to climb                | **403**: the URL standard treats `\` as `/` for http(s), so a raw backslash is refused outright and `..%5c` like `..%2f`                                                                 |
+| Sends an allowed name while aiming elsewhere            | Reaches the address the proxy resolved, not the one the build chose                                                                                                                      |
+| Puts an address in the Host header                      | Taken as the destination only if a rule names it; the rules decide either way                                                                                                            |
+| Points `/etc/hosts` at an address of its choosing       | Same: the build's own address is discarded                                                                                                                                               |
+| Allowlists a name that resolves to an internal address  | **403**: the resolved address is refused if it is loopback, link-local, the proxy itself, or another never-public range                                                                  |
+| Reaches an allowed host presenting a wrong certificate  | **503**: the origin's certificate is checked when the proxy connects                                                                                                                     |
+| Speaks a protocol that is not TLS on any port           | Classified by its first bytes, so it is parsed as HTTP if it is HTTP                                                                                                                     |
+| Ignores the proxy variables entirely                    | No effect: interception is at the network level, not opt-in                                                                                                                              |
+| Floods the proxy logs until earlier entries rotate away | A log that no longer starts where a real run does is not accepted as a complete record: the step fails under `restrict` with `fail_on_blocked` (the default), and is annotated otherwise |
 
 ### What it can't do
 
@@ -254,17 +255,18 @@ network, so what it fetches for itself is never filtered: see
 
 ### Attempts to bypass it
 
-| What the build does                                    | What happens                                                                                                                                            |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sets an allowed name in the SNI while aiming elsewhere | Reaches the server the proxy resolved that name to, not the one the build chose                                                                         |
-| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, or another never-public range, in `audit` too    |
-| Uses ECH to conceal the real SNI                       | Reaches whatever the outer SNI resolved to, and that outer name still has to be allowed; the type 65 record carrying ECHConfig is never returned either |
-| Encodes data into DNS queries                          | Answered locally and never forwarded; an outside resolver is unreachable                                                                                |
-| Tunnels over ICMP, raw UDP, or QUIC                    | Dropped before the proxy; only TCP is redirected to it                                                                                                  |
-| Falls back to IPv6                                     | Forwarded IPv6 is dropped, lookups answer `::`, and the proxy connects over IPv4                                                                        |
-| Uses DNS over TLS or DNS over HTTPS                    | Redirected to the proxy like any other TCP and checked on its SNI, so an outside resolver is reachable only if its own host and port are allowlisted    |
-| Connects to a raw address                              | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                    |
-| Ignores the proxy variables entirely                   | No effect; interception is at the network level, not opt-in                                                                                             |
+| What the build does                                    | What happens                                                                                                                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sets an allowed name in the SNI while aiming elsewhere | Reaches the server the proxy resolved that name to, not the one the build chose                                                                                                          |
+| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, or another never-public range, in `audit` too                                     |
+| Uses ECH to conceal the real SNI                       | Reaches whatever the outer SNI resolved to, and that outer name still has to be allowed; the type 65 record carrying ECHConfig is never returned either                                  |
+| Encodes data into DNS queries                          | Answered locally and never forwarded; an outside resolver is unreachable                                                                                                                 |
+| Tunnels over ICMP, raw UDP, or QUIC                    | Dropped before the proxy; only TCP is redirected to it                                                                                                                                   |
+| Falls back to IPv6                                     | Forwarded IPv6 is dropped, lookups answer `::`, and the proxy connects over IPv4                                                                                                         |
+| Uses DNS over TLS or DNS over HTTPS                    | Redirected to the proxy like any other TCP and checked on its SNI, so an outside resolver is reachable only if its own host and port are allowlisted                                     |
+| Connects to a raw address                              | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                                                     |
+| Ignores the proxy variables entirely                   | No effect; interception is at the network level, not opt-in                                                                                                                              |
+| Floods the proxy log until earlier entries rotate away | A log that no longer starts where a real run does is not accepted as a complete record: the step fails under `restrict` with `fail_on_blocked` (the default), and is annotated otherwise |
 
 ### What it can't see
 
@@ -598,6 +600,9 @@ Verification establishes where the image came from. Here is what it leaves uncov
   touched it afterwards. The script `report` runs is not part of that gap: it comes from the image,
   not from the container.
 
-  `report` does refuse to pass a log carrying no trace of a real proxy run, which catches wholesale
-  erasure but not a format-aware forgery. The effective defense is procedural: don't place an
-  untrusted step between `setup` and `report`.
+  `report` does refuse to pass a log that doesn't start where a real proxy run would, which catches
+  wholesale erasure, and a build flooding the proxy's logs until their earliest entries rotate out,
+  but not a format-aware forgery. A build large enough to genuinely outgrow the log's 100 MB
+  rotation budget trips the same check, for the same reason: its earliest traffic really is gone.
+  Against tampering the effective defense is procedural: don't place an untrusted step between
+  `setup` and `report`.
