@@ -16,7 +16,7 @@ export async function buildUniversalReportData(
     passed,
     blocked: blockedRawRows,
     blockedCount,
-    hasNonBuildcageContent,
+    logHeadIntact,
   } = await scanHaproxyLog(lines, isAudit);
   const blocked = annotateKnownBlocked(blockedRawRows, parameters.knownBlockedRules);
 
@@ -26,6 +26,6 @@ export async function buildUniversalReportData(
     passed,
     blocked,
     blockedCount,
-    logLooksPlausible: hasNonBuildcageContent,
+    logLooksPlausible: logHeadIntact,
   };
 }

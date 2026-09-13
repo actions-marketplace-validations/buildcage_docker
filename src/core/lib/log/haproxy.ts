@@ -11,27 +11,26 @@ export interface HaproxyLogScanResult {
   blocked: AggregatedEntry[];
   /** Raw BLOCKED line count, pre-aggregation — distinct from blocked.length. */
   blockedCount: number;
-  /** True iff a non-blank line didn't match the buildcage decision format —
-   *  see the module doc below for what this signals. */
-  hasNonBuildcageContent: boolean;
+  /** True iff the log opens with the startup marker. Anything else means its
+   *  beginning is gone, rotated away or erased. Only the marker counts:
+   *  HAProxy's own output appears mid-run and could stand in for it. */
+  logHeadIntact: boolean;
 }
 
 // The quoted field and reason are restricted to the charset the generators
 // actually emit (host/IP/port, and a kebab-case reason), and the line is
-// anchored at both ends -- a forged target or reason falls to
-// hasNonBuildcageContent instead of being parsed as a decision.
+// anchored at both ends, so a forged target or reason is never parsed as a
+// decision.
 const logPattern =
   /^\[[^\]]*\]\s+buildcage\s+\[(AUDIT|ALLOWED|BLOCKED)\]\s+\((\w+)\)\s+"([A-Za-z0-9._:-]+)"\s*([A-Za-z0-9-]*)\s*$/;
 
+/** Echoed before HAProxy starts, so it is always the log's first line (see
+ *  universal/files/s6-rc.d/haproxy/run). */
+const START_MARKER = "buildcage haproxy starting";
+
 /**
  * Single forward pass over the log: matching lines fold directly into
- * incremental aggregators (never collected into a flat array first), and
- * non-matching, non-blank lines flip hasNonBuildcageContent.
- *
- * A genuine HAProxy process always emits some non-buildcage-format output
- * of its own before any traffic occurs. A log with nothing but
- * forged/replayed decision lines — or nothing at all — lacks that, which is
- * a signal (not a guarantee) of tampering.
+ * incremental aggregators (never collected into a flat array first).
  *
  * `isAudit` picks which decision counts as "passed" (AUDIT vs ALLOWED); the
  * other one, if it somehow appears, is dropped rather than aggregated.
@@ -44,14 +43,17 @@ export async function scanHaproxyLog(
   const blocked = createIncrementalAggregator();
   const passedDecision = isAudit ? "AUDIT" : "ALLOWED";
   let blockedCount = 0;
-  let hasNonBuildcageContent = false;
+  let logHeadIntact: boolean | undefined;
 
   for await (const line of lines) {
     const m = line.match(logPattern);
     if (!m) {
-      if (line.trim() !== "") hasNonBuildcageContent = true;
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      logHeadIntact ??= trimmed.startsWith(START_MARKER);
       continue;
     }
+    logHeadIntact ??= false;
     const [, decision, ruleType, hostPort, reason] = m;
     const colonIdx = hostPort.lastIndexOf(":");
     let host: string;
@@ -77,6 +79,6 @@ export async function scanHaproxyLog(
     passed: passed.toSortedArray(),
     blocked: blocked.toSortedArray(),
     blockedCount,
-    hasNonBuildcageContent,
+    logHeadIntact: logHeadIntact ?? false,
   };
 }

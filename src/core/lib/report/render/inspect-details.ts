@@ -11,9 +11,9 @@ import { formatElapsedVariable } from "../elapsed-time.ts";
  * `startedAt` is when the proxy itself started (seconds since the epoch),
  * so every event reads as time elapsed since then rather than an absolute
  * clock reading nobody has a reference point for. Undefined only when the
- * log never showed a startup marker at all (logLooksPlausible false) --
- * that rare case falls back to the old absolute-time rendering rather than
- * inventing a start time it does not have.
+ * log never showed a startup marker at all; that rare case falls back to
+ * absolute-time rendering rather than inventing a start time it does not
+ * have.
  */
 export function renderInspectDetails(
   timeline: TrafficEvent[],

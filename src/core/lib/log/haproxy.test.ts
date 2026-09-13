@@ -85,52 +85,74 @@ describe("scanHaproxyLog", () => {
   });
 
   // ---------------------------------------------------------------------
-  // hasNonBuildcageContent
+  // logHeadIntact
   // ---------------------------------------------------------------------
-  it("hasNonBuildcageContent is false for empty log text", async () => {
+  it("logHeadIntact is false for empty log text", async () => {
     const result = await scanHaproxyLog("".split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.logHeadIntact).toBe(false);
   });
 
-  it("hasNonBuildcageContent is false when the log has only buildcage-decision lines", async () => {
+  it("logHeadIntact is false when the log has only buildcage-decision lines", async () => {
     const log = [
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
       '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTP) "b.com:80" not-allowed',
     ].join("\n");
     const result = await scanHaproxyLog(log.split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.logHeadIntact).toBe(false);
   });
 
-  it("hasNonBuildcageContent is true when the log contains HAProxy's own non-decision output", async () => {
+  it("logHeadIntact is true when the log opens with the startup marker", async () => {
     const log = [
+      "buildcage haproxy starting",
       "[NOTICE]   (1) : haproxy version is 2.9.0",
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
     ].join("\n");
     const result = await scanHaproxyLog(log.split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(true);
+    expect(result.logHeadIntact).toBe(true);
   });
 
-  it("hasNonBuildcageContent is true for a zero-traffic run thanks to the guaranteed startup marker", async () => {
+  it("logHeadIntact is false when HAProxy's own output stands where the marker should be", async () => {
+    // A flood provokes these, so one must not pass for a head that rotated away.
+    const log = [
+      "[ALERT]    (1) : proxy outbound_proxy reached process FD limit",
+      '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "b.com:443" not-allowed',
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.logHeadIntact).toBe(false);
+  });
+
+  it("logHeadIntact is true for a zero-traffic run thanks to the guaranteed startup marker", async () => {
     // See docker/universal/files/s6-rc.d/haproxy/run
     const result = await scanHaproxyLog(["buildcage haproxy starting"], false);
-    expect(result.hasNonBuildcageContent).toBe(true);
+    expect(result.logHeadIntact).toBe(true);
     expect(result.blockedCount).toBe(0);
   });
 
-  it("hasNonBuildcageContent ignores blank lines when deciding", async () => {
+  it("logHeadIntact ignores blank lines when deciding", async () => {
     const result = await scanHaproxyLog("\n\n  \n".split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.logHeadIntact).toBe(false);
+  });
+
+  it("logHeadIntact ignores the marker if it is not the first line", async () => {
+    // A later copy vouches for nothing: the part before it is still gone.
+    const log = [
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
+      "buildcage haproxy starting",
+      '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "b.com:443" not-allowed',
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.logHeadIntact).toBe(false);
+    expect(result.blockedCount).toBe(1);
   });
 
   // ---------------------------------------------------------------------
   // Log injection via an unsanitized target/reason
   // ---------------------------------------------------------------------
-  it("a quote inside the target field does not match, and counts as non-buildcage content", async () => {
+  it("a quote inside the target field does not match", async () => {
     const log =
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "evil"] buildcage [ALLOWED] (HTTPS) "a.com:443" r1';
     const result = await scanHaproxyLog(log.split("\n"), false);
     expect(result.passed.length).toBe(0);
-    expect(result.hasNonBuildcageContent).toBe(true);
   });
 
   it("a well-formed line with extra content appended after it does not match", async () => {
@@ -139,7 +161,6 @@ describe("scanHaproxyLog", () => {
     const result = await scanHaproxyLog(log.split("\n"), false);
     expect(result.passed.length).toBe(0);
     expect(result.blocked.length).toBe(0);
-    expect(result.hasNonBuildcageContent).toBe(true);
   });
 });
 

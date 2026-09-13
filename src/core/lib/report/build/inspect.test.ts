@@ -8,6 +8,8 @@ const ALLOWED =
 const REFUSED =
   "buildcage 1787471976 https POST https://evil.example.com/exfil?d=SECRET 403 0 ts=PR dst=1.2.3.4:443";
 const TLS_PASS = "buildcage 1787471977 pass tls sni=db.example.com 3421 ts=-- dst=10.0.0.9:5432";
+/** What the resolver service echoes before CoreDNS starts. */
+const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
 const PARAMS: GenReportParameters = {
   mode: "restrict",
@@ -128,13 +130,31 @@ describe("buildInspectReportData", () => {
     // An empty log means either "saw nothing" or "never ran"; only the marker
     // tells them apart, and reporting "nothing was blocked" for a proxy that
     // never started would be the dangerous reading.
-    const missing = await buildInspectReportData([], [], params());
+    const missing = await buildInspectReportData([], [DNS_START], params());
     expect(missing.logLooksPlausible).toBe(false);
     expect(missing.startedAt === undefined).toBe(true);
 
-    const present = await buildInspectReportData([START], [], params());
+    const present = await buildInspectReportData([START], [DNS_START], params());
     expect(present.logLooksPlausible).toBe(true);
     expect(present.startedAt).toBe(1787471970);
+  });
+
+  it("fails closed when a restart's marker is all that is left of the proxy log", async () => {
+    // startedAt still reads from the second marker, so only the head check
+    // notices the beginning is gone.
+    const r = await buildInspectReportData([ALLOWED, START], [DNS_START], params());
+    expect(r.startedAt).toBe(1787471970);
+    expect(r.logLooksPlausible).toBe(false);
+  });
+
+  it("fails closed when the resolver log lost its beginning, even with the proxy log whole", async () => {
+    // A refused name reaches no proxy, so the resolver log is its only trace.
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns allowed name=ok.example.com.",
+    ];
+    const r = await buildInspectReportData([START], dns, params());
+    expect(r.startedAt).toBe(1787471970);
+    expect(r.logLooksPlausible).toBe(false);
   });
 });
 

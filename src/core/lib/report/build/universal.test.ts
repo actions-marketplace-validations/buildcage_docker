@@ -54,9 +54,9 @@ describe("buildUniversalReportData", () => {
     expect(result.logLooksPlausible).toBe(false);
   });
 
-  it("logLooksPlausible is true for a genuinely quiet run (HAProxy's own startup noise, zero blocked)", async () => {
+  it("logLooksPlausible is true for a genuinely quiet run (the startup marker, zero blocked)", async () => {
     const log = [
-      "[NOTICE]   (1) : haproxy version is 2.9.0",
+      "buildcage haproxy starting",
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "good.com:443" -',
     ].join("\n");
     const result = await buildUniversalReportData(log.split("\n"), params());
@@ -73,6 +73,21 @@ describe("buildUniversalReportData", () => {
     expect(result.blockedCount).toBe(2);
     expect(result.blocked.length).toBe(1);
     expect(result.blocked[0].count).toBe(2);
+  });
+
+  it("logLooksPlausible is false when the log's oldest segments are gone", async () => {
+    // Rotation drops the startup marker first, then the earliest decisions.
+    const log = [
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "flood.com:443" -',
+      '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "noisy.example.com:443" not-allowed',
+    ].join("\n");
+    const result = await buildUniversalReportData(
+      log.split("\n"),
+      params({ knownBlockedRules: ["noisy.example.com:443"] }),
+    );
+    expect(result.blockedCount).toBe(1);
+    expect(result.blocked[0].expected).toBe(true);
+    expect(result.logLooksPlausible).toBe(false);
   });
 });
 

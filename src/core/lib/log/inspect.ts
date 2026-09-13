@@ -28,6 +28,10 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 const REQUEST = /^buildcage (\d+) (https?) (\S+) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+)$/;
 const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) sni=(\S+) (\d+) ts=(\S*) dst=(\S+):(\d+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
+/** Echoed before CoreDNS starts, so it is always the log's first line (see
+ *  inspect/files/s6-rc.d/coredns/run). s6-log stamps this log, hence the
+ *  suffix test. */
+const DNS_START_MARKER = "buildcage coredns starting";
 
 /** The marker the proxy prints once at startup. See hasProxyStarted. */
 const START_MARKER = "buildcage haproxy starting";
@@ -118,6 +122,14 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   return null;
 }
 
+/** What one pass over the resolver log yields. */
+export interface InspectDnsLogScan {
+  events: TrafficEvent[];
+  /** True iff the log's first non-blank line is the startup marker. See
+   *  scanInspectDnsLog. */
+  headIntact: boolean;
+}
+
 /** What one pass over the proxy log yields. */
 export interface InspectLogScan {
   events: TrafficEvent[];
@@ -125,6 +137,10 @@ export interface InspectLogScan {
    *  TrafficEvent.time's unit. Undefined exactly when hasProxyStarted would
    *  be false -- the marker line never showed up at all. */
   startedAt: number | undefined;
+  /** True iff the log opens with the startup marker. Stricter than
+   *  `startedAt`: a restart writes a second marker, which would otherwise
+   *  vouch for a beginning that had already rotated away. */
+  headIntact: boolean;
 }
 
 /**
@@ -140,18 +156,21 @@ export async function scanInspectLog(
 ): Promise<InspectLogScan> {
   const events: TrafficEvent[] = [];
   let startedAt: number | undefined;
+  let headIntact: boolean | undefined;
   for await (const line of lines) {
     const event = parseProxyLine(line, isAudit);
     if (event) {
+      headIntact ??= false;
       events.push(event);
       continue;
     }
-    if (startedAt === undefined) {
-      const match = START.exec(line.trim());
-      if (match) startedAt = Number(match[1]) / 1000;
-    }
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const match = START.exec(trimmed);
+    headIntact ??= match !== null;
+    if (match && startedAt === undefined) startedAt = Number(match[1]) / 1000;
   }
-  return { events, startedAt };
+  return { events, startedAt, headIntact: headIntact ?? false };
 }
 
 /**
@@ -179,14 +198,21 @@ export function hasProxyStarted(lines: Iterable<string>): boolean {
  * The time comes from s6-log rather than from CoreDNS, whose log plugin has no
  * timestamp replacement of its own. CoreDNS lowercases the name it logs, so a
  * name that carried information in its capitalisation is recorded without it.
+ *
+ * `headIntact` is false when the log doesn't open with the startup marker,
+ * meaning its beginning is gone and the earliest refused names with it. Only
+ * the marker counts: CoreDNS's `errors` plugin writes mid-run.
  */
 export async function scanInspectDnsLog(
   lines: AsyncIterable<string> | Iterable<string>,
   isAudit = false,
-): Promise<TrafficEvent[]> {
+): Promise<InspectDnsLogScan> {
   const seen = new Map<string, { time: number; allowed: boolean }>();
+  let headIntact: boolean | undefined;
   for await (const line of lines) {
-    const match = DNS.exec(line.trim());
+    const trimmed = line.trim();
+    if (trimmed !== "") headIntact ??= trimmed.endsWith(DNS_START_MARKER);
+    const match = DNS.exec(trimmed);
     if (!match) continue;
     const parsed = Date.parse(`${match[1].replace(" ", "T")}Z`);
     const time = Number.isNaN(parsed) ? 0 : parsed / 1000;
@@ -195,7 +221,7 @@ export async function scanInspectDnsLog(
     if (existing) existing.allowed ||= allowed;
     else seen.set(match[3], { time, allowed });
   }
-  return [...seen.entries()].map(([host, { time, allowed }]) => {
+  const events = [...seen.entries()].map(([host, { time, allowed }]) => {
     const event: TrafficEvent = {
       time,
       action: actionFor(!allowed, isAudit),
@@ -205,4 +231,5 @@ export async function scanInspectDnsLog(
     if (!allowed) event.reason = "dns-not-allowed";
     return event;
   });
+  return { events, headIntact: headIntact ?? false };
 }

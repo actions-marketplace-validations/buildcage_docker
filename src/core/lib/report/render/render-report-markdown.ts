@@ -32,6 +32,12 @@ export function renderReportMarkdown(
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
   let markdown = `## ${title}${isAudit ? " (audit mode)" : ""}\n\n`;
 
+  // The tables would otherwise read as the whole story.
+  if (!report.logLooksPlausible) {
+    markdown +=
+      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n\n";
+  }
+
   if (report.passed.length > 0) {
     markdown += `### ${heading}\n\n` + renderHostTable(report.passed) + "\n";
   }

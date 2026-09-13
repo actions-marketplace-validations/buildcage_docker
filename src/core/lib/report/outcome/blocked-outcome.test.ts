@@ -78,7 +78,7 @@ describe("determineBlockedOutcome", () => {
     ).toStrictEqual({ level: "error", shouldFail: true });
   });
 
-  describe("logLooksPlausible: false (log has no trace of a real proxy run)", () => {
+  describe("logLooksPlausible: false (the log is not a complete record of the run)", () => {
     it("fails closed when blockedCount is 0 and failOnBlocked is true", () => {
       expect(
         determineBlockedOutcome({
@@ -115,13 +115,38 @@ describe("determineBlockedOutcome", () => {
       ).toStrictEqual({ level: "notice", shouldFail: false });
     });
 
-    it("has no additional effect when blockedCount is already nonzero", () => {
+    it("fails closed even when every surviving row matched known_blocked_rules", () => {
+      // The rows that are gone are the ones that would have failed the step.
       expect(
         determineBlockedOutcome({
           isAudit: false,
           failOnBlocked: true,
           blockedCount: 3,
           blockedRows: [{ expected: true }, { expected: true }],
+          logLooksPlausible: false,
+        }),
+      ).toStrictEqual({ level: "error", shouldFail: true });
+    });
+
+    it("returns notice when blockedCount is nonzero and failOnBlocked is false", () => {
+      expect(
+        determineBlockedOutcome({
+          isAudit: false,
+          failOnBlocked: false,
+          blockedCount: 3,
+          blockedRows: [{ expected: true }],
+          logLooksPlausible: false,
+        }),
+      ).toStrictEqual({ level: "notice", shouldFail: false });
+    });
+
+    it("never fails in audit mode, even with blocked rows present", () => {
+      expect(
+        determineBlockedOutcome({
+          isAudit: true,
+          failOnBlocked: true,
+          blockedCount: 3,
+          blockedRows: [{ expected: true }],
           logLooksPlausible: false,
         }),
       ).toStrictEqual({ level: "notice", shouldFail: false });
@@ -224,6 +249,54 @@ describe("describeBlockedOutcome", () => {
       engineLabel: "sandbox",
     });
     expect(result.level).toBe("none");
+  });
+
+  it("leads with the incomplete log but keeps the count that did survive", () => {
+    const result = describeBlockedOutcome({
+      isAudit: false,
+      failOnBlocked: true,
+      blockedCount: 3,
+      blockedRows: [{ expected: true }],
+      logLooksPlausible: false,
+      engineLabel: "proxy",
+    });
+    expect(result).toStrictEqual({
+      level: "error",
+      shouldFail: true,
+      message:
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded)",
+    });
+  });
+
+  it("appends to audit's fixed-format notice instead of replacing it", () => {
+    const result = describeBlockedOutcome({
+      isAudit: true,
+      failOnBlocked: true,
+      blockedCount: 2,
+      blockedRows: [{ expected: true }],
+      logLooksPlausible: false,
+      engineLabel: "proxy",
+    });
+    expect(result.level).toBe("notice");
+    expect(result.shouldFail).toBe(false);
+    expect(result.message.startsWith("2 blocked connection(s) detected by buildcage proxy")).toBe(
+      true,
+    );
+    expect(result.message.includes("the logs are incomplete")).toBe(true);
+  });
+
+  it("names no count for an incomplete log that recorded none", () => {
+    const result = describeBlockedOutcome({
+      isAudit: false,
+      failOnBlocked: true,
+      blockedCount: 0,
+      blockedRows: [],
+      logLooksPlausible: false,
+      engineLabel: "sandbox",
+    });
+    expect(result.message).toBe(
+      "buildcage sandbox logs are incomplete, so this report is not a full record of what ran",
+    );
   });
 });
 
