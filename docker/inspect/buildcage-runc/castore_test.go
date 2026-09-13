@@ -156,6 +156,93 @@ func TestRemoveCAIsANoOpWhenTheBlockIsGone(t *testing.T) {
 	}
 }
 
+// filler is content removeCA has to leave alone, sized to the byte so a
+// marker lands at an exact offset.
+func filler(n int) string {
+	const line = "FILLER-LINE\n"
+	return strings.Repeat(line, n/len(line)+1)[:n]
+}
+
+func mustAppendString(t *testing.T, path, s string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A step can leave the bundle far larger than one window, so the block has to
+// come out exactly wherever it falls relative to a boundary.
+func TestRemoveCAStripsABlockAcrossWindowBoundaries(t *testing.T) {
+	cases := map[string]struct{ beginAt, caSize, after int }{
+		"well inside one window":            {17, 32, 0},
+		"begin marker ending a window":      {scanChunk - len(beginMarker), 32, scanChunk},
+		"begin marker opening a window":     {scanChunk, 32, scanChunk},
+		"begin marker over a read boundary": {scanChunk + len(beginMarker)/2, 32, 2 * scanChunk},
+		"a block wider than a window":       {64, 2 * scanChunk, scanChunk},
+		"spanning several windows":          {3 * scanChunk, 32, 3 * scanChunk},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.pem")
+			// appendCA opens the block with a newline, so the marker lands
+			// one byte past what is already there.
+			before, after := filler(c.beginAt-1), filler(c.after)
+			if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := appendCA(path, []byte(strings.Repeat("C", c.caSize))); err != nil {
+				t.Fatal(err)
+			}
+			mustAppendString(t, path, after)
+
+			if err := removeCA(path); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != before+after {
+				t.Fatalf("got %d bytes, want %d", len(got), len(before)+len(after))
+			}
+		})
+	}
+}
+
+// A step that rewrites the bundle can leave the block without the newlines
+// appendCA wrote around it, or as the whole file.
+func TestRemoveCAStripsABlockWithoutSurroundingNewlines(t *testing.T) {
+	block := beginMarker + "\nCA\n" + endMarker
+	cases := map[string]struct{ content, want string }{
+		"no newline on either side": {"HEAD" + block + "TAIL\n", "HEADTAIL\n"},
+		"the whole file":            {block, ""},
+		"at the end of the file":    {"HEAD\n" + block, "HEAD"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.pem")
+			if err := os.WriteFile(path, []byte(c.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := removeCA(path); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRemoveCARefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "host-secret")
