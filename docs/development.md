@@ -249,6 +249,7 @@ the most recent one.
 | `make test_unit`                                 | Every unit test, the QuickJS ones included (needs Docker)              |
 | `make test_integration_buildkit`                 | Every `test_integration_buildkit_*` target in turn                     |
 | `make test_integration_buildkit_{engine}_{mode}` | One engine and mode (start, build, verify, clean up)                   |
+| `make seccomp_profile`                           | Re-vendor the builder's seccomp profile from moby/profiles             |
 
 The integration set also holds `inspect_debian_{audit,restrict}` (an apt build that starts with no
 CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them unedited), and
@@ -280,6 +281,9 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   ├── compose.action.yaml   # Runtime compose file the action itself uses (verified, digest-pinned
 │   │                         # image ref), distinct from the top-level compose.yaml below
 │   ├── lib/                  # write-step-summary.ts, shared by both engines' report-action.node.ts
+│   ├── seccomp/              # builder.json, the builder container's seccomp profile (moby's own
+│   │                         # default plus what runc needs), and gen-profile.mjs that vendors it.
+│   │                         # Read by the Docker client on the runner, not copied into any image
 │   ├── universal/            # proxy_engine: universal. Dockerfile + BuildKit/haproxy/dnsmasq/
 │   │                         # s6-overlay config + scripts/report-action.node.ts (runs under Node
 │   │                         # on the runner, copied out of the image by the report action)
