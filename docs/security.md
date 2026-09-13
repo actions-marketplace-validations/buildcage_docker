@@ -14,6 +14,7 @@ configure the action, see the [README](../README.md).
 - [Universal Proxy Engine](#universal-proxy-engine)
 - [Explicit Proxy Engine](#explicit-proxy-engine) (deprecated)
 - [What buildkitd fetches itself](#what-buildkitd-fetches-itself)
+- [What the builder container runs with](#what-the-builder-container-runs-with)
 - [Hardening](#hardening)
 - [Image Provenance Verification](#image-provenance-verification)
 
@@ -392,6 +393,37 @@ is outside that model, as is an untrusted step elsewhere in the same job (see
 What covers this instead is ordinary supply chain practice: reviewing the Dockerfile, pinning base
 images by digest, and pinning the `# syntax=` frontend to a digest rather than a floating tag. See
 [Keep the rest of your supply chain practice](#keep-the-rest-of-your-supply-chain-practice) below.
+
+## What the builder container runs with
+
+A builder has to mount, create namespaces and manage cgroups, which is why the one
+`docker/setup-buildx-action` starts runs `--privileged`. Buildcage's does not. Against that
+container it is narrower on every axis but one; against a container started with no options at all
+it widens two.
+
+- **`SYS_ADMIN`, `NET_ADMIN` and `SYS_PTRACE`, on top of Docker's default set.** The BuildKit OCI
+  worker mounts, creates namespaces and manages a cgroup for each `RUN` step. `NET_ADMIN` covers
+  iptables and the CNI bridge under `universal` and `inspect`, and the proxy-network veth and netns
+  under `explicit`. runc reads `/proc/PID/ns/mnt` to set a step's mount namespace up.
+- **Seccomp is Docker's own default profile**, where `privileged` switches filtering off entirely.
+  That profile already permits `mount`, `umount2`, `unshare`, `setns` and `clone` to a
+  `CAP_SYS_ADMIN` holder, so the only additions are the two things it refuses at every capability
+  and runc still needs: `pivot_root`, and the three `keyctl` operations runc performs per step.
+  Everything outside the allowlist stays refused, including syscalls added to the kernel after the
+  profile was written.
+- **AppArmor is unconfined, as it also is under `privileged`.** `docker-default` refuses every
+  `mount` regardless of capabilities, so it cannot coexist with the `SYS_ADMIN` above, and a
+  replacement profile would have to be loaded into the host kernel, which an action cannot do
+  portably.
+- **The cgroup tree it can write is its own.** The container asks for a private cgroup namespace
+  explicitly rather than relying on the daemon's default, and remounts that namespace's
+  `/sys/fs/cgroup` read-write at startup, so the host's cgroup tree is neither visible nor writable.
+  `privileged` would expose the host's `/proc` and `/sys` as well. This is what makes a cgroup v2
+  host a requirement: under v1 the per-controller mounts cannot be reached that way, and startup
+  fails naming that rather than leaving an opaque failure at the first `RUN` step. Every
+  GitHub-hosted runner is v2.
+- **No device access, no Docker socket, no workspace mount.** `privileged` would grant the first of
+  those; the other two are simply never given.
 
 ## Hardening
 

@@ -34,6 +34,35 @@ func writeResolvConf(externalResolver string) error {
 	return os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0o644)
 }
 
+// remountCgroupRW makes /sys/fs/cgroup writable so buildkitd's OCI worker can
+// make a cgroup per RUN step. Remounting, rather than bind-mounting the host's
+// cgroupfs, keeps the writable tree inside this container's own cgroup
+// namespace. universal and inspect do the same from an s6 oneshot, which this
+// image has no equivalent of.
+func remountCgroupRW() error {
+	// A v1 host passes the remount below and still leaves its per-controller
+	// mounts read-only, so the exit status alone is not enough to go on.
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return fmt.Errorf("not a cgroup v2 mount, which buildcage requires: %w", err)
+	}
+
+	// busybox mount won't resolve a lone mountpoint against /proc/mounts, hence
+	// the source. The flags are restated because a remount drops the ones it
+	// omits.
+	out, err := exec.Command("mount",
+		"-o", "remount,rw,nosuid,nodev,noexec,relatime", "cgroup", "/sys/fs/cgroup").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Fail here rather than leave buildkitd to fail at the first RUN step.
+	const probe = "/sys/fs/cgroup/buildcage-probe"
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		return fmt.Errorf("still read-only after remounting it: %w", err)
+	}
+	return os.Remove(probe)
+}
+
 // generateSourcePolicy invokes the QuickJS policy generator (which reuses
 // core/shared/lib/rules.ts's wildcard/regex compiler) and writes its
 // stdout — a sourcepolicy.pb.Policy protobuf-JSON document — to outPath.

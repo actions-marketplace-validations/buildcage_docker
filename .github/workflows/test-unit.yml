@@ -83,6 +83,11 @@ jobs:
 
       - uses: ./.github/actions/verify-dist
 
+      - name: Check the builder's seccomp profile matches its pin
+        run: |
+          make seccomp_profile
+          git diff --exit-code -- docker/seccomp/builder.json
+
       - name: Run unit tests
         run: make test_unit
 

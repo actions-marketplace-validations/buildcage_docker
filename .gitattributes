@@ -1,2 +1,3 @@
 dist/*.cjs linguist-generated=true
 report/dist/*.cjs linguist-generated=true
+docker/seccomp/builder.json linguist-generated=true

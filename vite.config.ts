@@ -11,6 +11,10 @@ const generatedOutputs = ["dist/**", "report/dist/**"];
 // any of them, even ones that happen to be safe today.
 const fixtures = ["**/__fixtures__/**"];
 
+// Vendored from moby/profiles by `make seccomp_profile`. Reformatting it would
+// destroy the diff against upstream, which is how this file gets reviewed.
+const vendored = ["docker/seccomp/builder.json"];
+
 export default defineConfig({
   lint: {
     ignorePatterns: generatedOutputs,
@@ -22,7 +26,7 @@ export default defineConfig({
     },
   },
   fmt: {
-    ignorePatterns: [...generatedOutputs, ...fixtures, "MAINTAINERS.md"],
+    ignorePatterns: [...generatedOutputs, ...fixtures, ...vendored, "MAINTAINERS.md"],
   },
   staged: {
     "*.{ts,tsx,js,jsx,json,jsonc,yaml,yml,md}": "vp check --fix",

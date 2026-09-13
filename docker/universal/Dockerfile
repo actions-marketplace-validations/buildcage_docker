@@ -57,6 +57,10 @@ RUN apk add --no-cache \
 
 ENV S6_KEEP_ENV=1
 ENV S6_LOGGING=0
+# Every oneshot here sets something up that the cage depends on, so a failed one
+# has to take the container down rather than leave it running and apparently
+# healthy while buildkitd is silently absent.
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
 # envsubst
 COPY --from=deps /usr/bin/envsubst /usr/bin/envsubst

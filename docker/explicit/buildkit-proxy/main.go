@@ -50,6 +50,10 @@ func run() error {
 		}
 	}
 
+	if err := remountCgroupRW(); err != nil {
+		return fmt.Errorf("remounting /sys/fs/cgroup: %w", err)
+	}
+
 	if err := generateSourcePolicy(policyFile); err != nil {
 		return fmt.Errorf("generating source policy: %w", err)
 	}

@@ -67,13 +67,14 @@ runc (used only by the `run` action's proxy image, docker/Dockerfile)
 
 ------------------------------------------------------------------------------
 
-run/scripts/seccomp.json (used only by the `run` action)
+docker/seccomp/builder.json
 
-  This file is not part of the Docker image; it ships as part of the
-  action's own source and is loaded directly by run/src/lib/isolated-exec.js.
-  It is generated offline (not at image build time) from moby/profiles'
-  default seccomp profile, resolved against an empty capability set with
-  the exported `LoadProfile` function.
+  This file is not part of any Docker image; it ships as part of the action's
+  own source and is read by the Docker client on the runner, via the
+  `security_opt: seccomp=` entry in docker/compose.action.yaml. It is a
+  verbatim copy of moby/profiles' default seccomp profile, re-vendored offline
+  by `make seccomp_profile`, with entries appended for the syscalls runc needs
+  and that profile refuses at every capability.
 
   moby/profiles
     License : Apache License 2.0 (Apache-2.0)

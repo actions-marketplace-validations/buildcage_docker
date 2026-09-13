@@ -2,9 +2,9 @@ services:
   builder:
     container_name: ${BUILDER_NAME:-buildcage}
     image: ${BUILDCAGE_IMAGE_REF:-placeholder}
-    # Instead of privileged: true, grant only the minimum privileges required
-    # to run BuildKit and iptables. This avoids granting full device access
-    # and unrestricted /sys write permissions that privileged mode includes.
+    # Not privileged, unlike docker/setup-buildx-action's own builder: these
+    # three are all BuildKit needs, and device access and a writable host /proc
+    # and /sys stay out.
     #
     # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
     # iptables and CNI networking require NET_ADMIN.
@@ -13,17 +13,17 @@ services:
       - SYS_ADMIN
       - NET_ADMIN
       - SYS_PTRACE
-    # BuildKit/runc needs syscalls (mount, unshare, pivot_root) blocked by
-    # default seccomp and AppArmor profiles.
+    # AppArmor has to be off: docker-default refuses every mount regardless of
+    # capabilities, and a replacement profile would have to be loaded into the
+    # host kernel. Seccomp does not: builder.json is Docker's own default plus
+    # what runc needs (see docker/seccomp/gen-profile.mjs).
     security_opt:
-      - seccomp=unconfined
+      - seccomp=./seccomp/builder.json
       - apparmor=unconfined
-    # Share the host's cgroup namespace so BuildKit can manage cgroups for
-    # build containers. The volume mount makes /sys/fs/cgroup writable
-    # (read-only by default in non-privileged containers).
-    cgroup: host
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    # Pinned, not left to the daemon's default-cgroupns-mode: under `host` the
+    # remount in each engine's init-cgroup would land on the host's own cgroup
+    # tree.
+    cgroup: private
     environment:
       - PROXY_MODE=${PROXY_MODE:-restrict}
       - ALLOWED_HTTPS_RULES=${ALLOWED_HTTPS_RULES:-}

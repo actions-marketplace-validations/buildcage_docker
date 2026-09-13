@@ -40,6 +40,15 @@ setup_buildkit_% test_integration_buildkit_% example_% clean_buildkit report_bui
 help:
 	@grep -E '^[a-zA-Z_0-9-]+(-%)?:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
+# Renovate bumps this pin; CI then fails until `make seccomp_profile` has been
+# rerun, so the pin and the vendored profile can't drift apart.
+# renovate: datasource=go depName=github.com/moby/profiles/seccomp
+MOBY_PROFILES_SECCOMP_VERSION ?= v0.2.3
+
+.PHONY: seccomp_profile
+seccomp_profile: ## Regenerate the builder's seccomp profile from moby/profiles
+	@node docker/seccomp/gen-profile.mjs $(MOBY_PROFILES_SECCOMP_VERSION)
+
 # ===========================================================================
 # Unit tests
 # ===========================================================================
