@@ -20,6 +20,11 @@ cd "$(dirname "$0")/.."
 export COMPOSE_PROJECT_NAME
 export BUILDCAGE_BUILD_TEST_HOOKS=1
 
+# Both carry WORKTREE_SUFFIX when the Makefile drives this; CI leaves them unset.
+BUILDER_NAME="${BUILDER_NAME:-buildcage}"
+TEST_IMAGE="${TEST_IMAGE:-buildcage-test}"
+export BUILDER_NAME
+
 BASE_COMPOSE="compose.yaml:compose.test-inspect.yaml"
 OVERRIDE=$(mktemp -t buildcage-roundtrip-XXXXXX.yaml)
 trap 'rm -f "$OVERRIDE"' EXIT
@@ -28,14 +33,14 @@ start() {
   local mode="$1" compose="$2"
   COMPOSE_FILE="$compose" PROXY_ENGINE=inspect PROXY_MODE="$mode" \
     docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --build >/dev/null
-  docker buildx rm buildcage >/dev/null 2>&1 || true
-  docker buildx create --bootstrap --name buildcage \
-    --driver remote docker-container://buildcage >/dev/null
+  docker buildx rm "$BUILDER_NAME" >/dev/null 2>&1 || true
+  docker buildx create --bootstrap --name "$BUILDER_NAME" \
+    --driver remote "docker-container://$BUILDER_NAME" >/dev/null
 }
 
 build() {
-  docker buildx build --no-cache --builder buildcage --platform linux/arm64 \
-    --progress=plain -f "$1" test/ --load -t buildcage-test
+  docker buildx build --no-cache --builder "$BUILDER_NAME" --platform linux/arm64 \
+    --progress=plain -f "$1" test/ --load -t "$TEST_IMAGE"
 }
 
 echo ""
