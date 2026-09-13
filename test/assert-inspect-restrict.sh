@@ -186,6 +186,30 @@ else
 fi
 echo ""
 
+echo "[DNS] a reverse lookup is recorded without being judged:"
+# No rule can name a reverse zone, so calling one denied would put a row in the
+# report that writing a rule could never take away. The resolver still records
+# the lookup, under a verb of its own that the report layer does not read.
+if grep -qF "buildcage dns reverse name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+  pass "the reverse lookup was recorded under its own verb"
+else
+  fail "the reverse lookup was not recorded"
+fi
+if grep -qF "buildcage dns denied name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+  fail "the reverse lookup was recorded as a denied name"
+else
+  pass "the reverse lookup was not recorded as denied"
+fi
+# Only an address backwards is a reverse lookup. An invented name under the
+# same zone is judged like any other, or appending `.in-addr.arpa` would be a
+# way out of the report.
+if grep -qiF "buildcage dns denied name=SECRET-IN-A-NAME.in-addr.arpa" <<< "$DNS_LOG"; then
+  pass "an invented name under the reverse zone was still refused and recorded"
+else
+  fail "an invented name under the reverse zone was not recorded as refused"
+fi
+echo ""
+
 echo "[UDP] the echo server the build could not reach is reachable from beside it:"
 # Without this control, a build that reached nothing would pass even if the
 # fixture were simply dead.
@@ -254,6 +278,18 @@ if grep -qF "DNS secret-in-a-name.attacker.example -> dns-not-allowed" <<< "$REP
   pass "a refused name is in the timeline, having no other trace"
 else
   fail "the refused name is missing from the timeline"
+fi
+
+if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+  fail "a reverse lookup reached the report"
+else
+  pass "a reverse lookup is left out of the report entirely"
+fi
+
+if grep -qiF "secret-in-a-name.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+  pass "an invented name under the reverse zone still reaches the report"
+else
+  fail "an invented name under the reverse zone was dropped from the report too"
 fi
 
 # Listing a name that resolved doubles every line, and the request that

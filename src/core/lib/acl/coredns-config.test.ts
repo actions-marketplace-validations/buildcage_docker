@@ -8,9 +8,33 @@ function gen(options: Partial<Parameters<typeof generateCorednsConfig>[0]> = {})
   return generateCorednsConfig({ ...BASE, ...options }).config;
 }
 
-/** The CEL expression line, as it would reach CoreDNS. */
+/** The allowlist view's CEL expression line, as it would reach CoreDNS. */
 function exprLine(config: string): string {
-  return config.split("\n").find((l) => l.includes("name() matches")) ?? "";
+  return matchesLine(config, "view allowlist");
+}
+
+/** The CEL expression line of the view opened by `marker`. */
+function matchesLine(config: string, marker: string): string {
+  const start = config.indexOf(marker);
+  if (start < 0) return "";
+  return (
+    config
+      .slice(start)
+      .split("\n")
+      .find((l) => l.includes("name() matches")) ?? ""
+  );
+}
+
+/** The regex a CEL `matches` line carries, undoing its CEL escaping. */
+function regexOf(exprLine: string): RegExp {
+  const pattern = exprLine.replace(/\\\\/g, "\\");
+  return new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+}
+
+/** The reverse-zone block on its own, which every config emits first. */
+function reverseBlock(config: string): string {
+  const start = config.indexOf("in-addr.arpa ip6.arpa {");
+  return config.slice(start, config.indexOf("\n}\n", start) + 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -39,8 +63,7 @@ describe("allowlist scope", () => {
     // way dnsmasq's `/amazonaws.com/` would: that would misreport, as allowed,
     // every name beneath it.
     const config = gen({ urlRules: buildUrlRules("GET https://*.amazonaws.com/x") });
-    const pattern = exprLine(config).replace(/\\\\/g, "\\");
-    const regex = new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+    const regex = regexOf(exprLine(config));
     expect(regex.test("a.amazonaws.com.")).toBe(true);
     expect(regex.test("secret.deep.amazonaws.com.")).toBe(false);
     expect(regex.test("amazonaws.com.")).toBe(false);
@@ -48,8 +71,7 @@ describe("allowlist scope", () => {
 
   it("** crosses labels where the rule says so", () => {
     const config = gen({ urlRules: buildUrlRules("GET https://**.amazonaws.com/x") });
-    const pattern = exprLine(config).replace(/\\\\/g, "\\");
-    const regex = new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+    const regex = regexOf(exprLine(config));
     expect(regex.test("secret.deep.amazonaws.com.")).toBe(true);
   });
 
@@ -61,8 +83,9 @@ describe("allowlist scope", () => {
 
   it("combines every rule into one alternation", () => {
     const config = gen({ httpsRules: ["a.example.com:443", "b.example.com:443"] });
+    const allowlist = config.slice(config.indexOf("view allowlist"));
     expect(exprLine(config).includes("|")).toBe(true);
-    expect(config.split("\n").filter((l) => l.includes("name() matches")).length).toBe(1);
+    expect(allowlist.split("\n").filter((l) => l.includes("name() matches")).length).toBe(1);
   });
 
   it("does not repeat a host shared by several rules", () => {
@@ -155,7 +178,26 @@ describe("denied names", () => {
     const denyBlock = config.slice(config.indexOf("# Everything else"));
     const aaaaBlock = denyBlock.slice(denyBlock.indexOf("template IN AAAA"));
     expect(aaaaBlock.includes("answer")).toBe(false);
-    expect(config.includes("rcode NXDOMAIN")).toBe(false);
+    expect(denyBlock.includes("rcode NXDOMAIN")).toBe(false);
+  });
+
+  it("answers every other query type with NODATA rather than leaving it unhandled", () => {
+    // A type that reaches no template at all is answered SERVFAIL, which says
+    // the server is broken and the query worth retrying: musl waits out its
+    // whole resolver timeout on one. NODATA refuses it without the wait.
+    const denyBlock = config.slice(config.indexOf("# Everything else"));
+    const anyBlock = denyBlock.slice(denyBlock.indexOf("template IN ANY"));
+    expect(denyBlock.includes("template IN ANY")).toBe(true);
+    expect(anyBlock.includes("answer")).toBe(false);
+  });
+
+  it("keeps the A template ahead of the catch-all, which matches every type", () => {
+    // CoreDNS takes the first template that matches, so the order in the file
+    // is what stops IN ANY from answering an A query with NODATA.
+    const denyBlock = config.slice(config.indexOf("# Everything else"));
+    expect(denyBlock.indexOf("template IN A {") < denyBlock.indexOf("template IN ANY {")).toBe(
+      true,
+    );
   });
 
   it("labels the two paths distinguishably in the log", () => {
@@ -227,6 +269,59 @@ describe("audit mode", () => {
 
   it("needs no allowlist expression, since nothing is refused", () => {
     expect(config.includes("view allowlist")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reverse lookups. No rule can name a reverse zone, so the only question these
+// answer is how the lookup ends -- and SERVFAIL, what an unhandled query gets,
+// costs musl its whole five-second resolver timeout every time.
+// ---------------------------------------------------------------------------
+describe("reverse lookups", () => {
+  for (const mode of ["audit", "restrict"] as const) {
+    it(`answers PTR with NXDOMAIN in ${mode} mode, so the caller gives up at once`, () => {
+      const block = reverseBlock(gen({ httpsRules: ["a.example.com:443"], mode }));
+      expect(block.includes("template IN PTR")).toBe(true);
+      expect(block.includes("rcode NXDOMAIN")).toBe(true);
+    });
+  }
+
+  it("carries an SOA, so the refusal is cacheable rather than re-asked each time", () => {
+    expect(reverseBlock(gen({})).includes("IN SOA ns.buildcage.invalid.")).toBe(true);
+  });
+
+  it("records the lookup under a verb of its own, neither allowed nor denied", () => {
+    // inspect.ts reads the allowed and denied verbs only, which is what keeps
+    // this out of the report: a row for a reverse zone could never be taken
+    // away by writing a rule, there being no rule that can name one.
+    const block = reverseBlock(gen({ httpsRules: ["a.example.com:443"] }));
+    expect(block.includes('"buildcage dns reverse name={name}"')).toBe(true);
+    expect(block.includes("dns allowed")).toBe(false);
+    expect(block.includes("dns denied")).toBe(false);
+  });
+
+  it("answers anything else under those zones like any other name", () => {
+    // Only PTR is refused. A name that merely sits under in-addr.arpa still
+    // resolves to the proxy, so the request that follows is recorded with its
+    // full URL the way one for any other name is.
+    expect(reverseBlock(gen({})).includes('answer "{{ .Name }} 60 IN A 172.20.0.1"')).toBe(true);
+  });
+
+  it("never forwards, no more than any other block does", () => {
+    expect(reverseBlock(gen({})).includes("forward")).toBe(false);
+  });
+
+  it("takes only names that really are an address backwards", () => {
+    // The verb this block logs under is one the report layer drops, so without
+    // the view an exfiltration attempt would vanish from the report by having
+    // `.in-addr.arpa` appended to it. Everything else under these zones misses
+    // the view and falls through to the blocks below, which judge it as usual.
+    const regex = regexOf(matchesLine(gen({}), "view reverse"));
+    expect(regex.test("1.0.20.172.in-addr.arpa.")).toBe(true);
+    expect(regex.test("0.20.172.in-addr.arpa.")).toBe(true);
+    expect(regex.test("8.b.d.0.1.0.0.2.ip6.arpa.")).toBe(true);
+    expect(regex.test("secret-data.in-addr.arpa.")).toBe(false);
+    expect(regex.test("1.2.3.4.in-addr.arpa.attacker.example.")).toBe(false);
   });
 });
 
