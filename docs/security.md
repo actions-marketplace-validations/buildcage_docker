@@ -104,11 +104,29 @@ What each kind of rule decides, and what stays undecrypted:
   the one the build chose. Destination spoofing is removed rather than merely detected.
 - **A resolved name may not land on an internal address.** An allowlisted name that resolves to
   loopback, link-local (AWS/GCP/Azure IMDS), CGNAT (Alibaba IMDS), the IETF protocol block (Oracle
-  IMDS), or the proxy's own address is refused with 403, so a name under an attacker's control
-  (or DNS for an allowlisted domain that has been compromised) cannot turn the proxy into a route to
-  cloud metadata. RFC1918 is deliberately exempt: a name pointing at an internal mirror is a real,
-  intended setup. An address named directly in a rule is exempt too, having been asked for rather
-  than arrived at.
+  IMDS), the proxy's own address, or **an address the runner itself holds** is refused with 403, so
+  a name under an attacker's control (or DNS for an allowlisted domain that has been compromised)
+  cannot turn the proxy into a route to cloud metadata or back to the runner. The rest of RFC1918 is
+  deliberately exempt: a name pointing at an internal mirror is a real, intended setup. An address
+  named directly in a rule is exempt too, having been asked for rather than arrived at.
+
+  The list comes from two places, because neither sees all of it: the action reads the runner's
+  interfaces before starting the builder, and the engine adds the gateway of the network Docker then
+  put it on, which did not exist when the action looked. Both halves are needed. A published
+  container port is DNAT'd, so it answers on every address the runner holds; guarding only the
+  gateway would leave `docker0` as an equivalent way in, and guarding only what the action saw
+  would leave the gateway itself open.
+
+  Three consequences worth knowing:
+
+  - If the runner is itself a container (Docker-in-Docker), only that container's addresses are
+    visible, not the real host's.
+  - **An internal mirror running on the runner itself is no longer reachable by name.** Name it with
+    `allowed_ip_rules` instead, which never goes through this guard. The same applies to a public
+    name that resolves to the runner's own public address, which a self-hosted runner may well have:
+    it is refused as `internal-address` like any other, and `allowed_ip_rules` is the way through.
+  - An address the runner gains _after_ the builder starts is not covered, the list being read once
+    at startup.
 
   This guard is about a _name_ landing somewhere it never should. It has nothing to do with, and
   never restricts, a rule whose host is itself a literal address (an `https`/`http` rule that names
@@ -154,7 +172,7 @@ What each kind of rule decides, and what stays undecrypted:
 | Sends an allowed name while aiming elsewhere            | Reaches the address the proxy resolved, not the one the build chose                                                                                                                      |
 | Puts an address in the Host header                      | Taken as the destination only if a rule names it; the rules decide either way                                                                                                            |
 | Points `/etc/hosts` at an address of its choosing       | Same: the build's own address is discarded                                                                                                                                               |
-| Allowlists a name that resolves to an internal address  | **403**: the resolved address is refused if it is loopback, link-local, the proxy itself, or another never-public range                                                                  |
+| Allowlists a name that resolves to an internal address  | **403**: the resolved address is refused if it is loopback, link-local, the proxy itself, an address the runner holds, or another never-public range                                     |
 | Reaches an allowed host presenting a wrong certificate  | **503**: the origin's certificate is checked when the proxy connects                                                                                                                     |
 | Speaks a protocol that is not TLS on any port           | Classified by its first bytes, so it is parsed as HTTP if it is HTTP                                                                                                                     |
 | Ignores the proxy variables entirely                    | No effect: interception is at the network level, not opt-in                                                                                                                              |
@@ -233,8 +251,8 @@ network, so what it fetches for itself is never filtered: see
   name always reaches the server that name belongs to.
 - **A resolved name may not land on an internal address.** The same guard as
   [`inspect`](#inspect-proxy-engine)'s (see [What it actually stops](#what-it-actually-stops)):
-  loopback, link-local, CGNAT, the IETF protocol block, and the proxy's own address are all refused
-  (`internal-address` in the report). Unlike `inspect`, there's no literal-address exemption to carve
+  loopback, link-local, CGNAT, the IETF protocol block, the proxy's own address, and the runner's
+  own addresses are all refused (`internal-address` in the report). Unlike `inspect`, there's no literal-address exemption to carve
   out here, since a connection to a bare address never reaches this guard at all: it skips DNS and
   `do-resolve` entirely on a separate code path; `allowed_ip_rules` is the always-uninspected path for
   a destination named directly.
@@ -258,7 +276,7 @@ network, so what it fetches for itself is never filtered: see
 | What the build does                                    | What happens                                                                                                                                                                             |
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Sets an allowed name in the SNI while aiming elsewhere | Reaches the server the proxy resolved that name to, not the one the build chose                                                                                                          |
-| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, or another never-public range, in `audit` too                                     |
+| Allowlists a name that resolves to an internal address | Refused: the resolved address is checked and rejected if it is loopback, link-local, the proxy itself, an address the runner holds, or another never-public range, in `audit` too        |
 | Uses ECH to conceal the real SNI                       | Reaches whatever the outer SNI resolved to, and that outer name still has to be allowed; the type 65 record carrying ECHConfig is never returned either                                  |
 | Encodes data into DNS queries                          | Answered locally and never forwarded; an outside resolver is unreachable                                                                                                                 |
 | Tunnels over ICMP, raw UDP, or QUIC                    | Dropped before the proxy; only TCP is redirected to it                                                                                                                                   |

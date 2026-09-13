@@ -24,6 +24,25 @@ assert_log_contains() {
   fi
 }
 
+# Only the container can see this gateway, and no other assertion covers it.
+assert_own_gateway_guarded() {
+  local service="$1"
+  local gw guarded
+  gw=$(docker compose exec -T "$service" ip -4 route show default | awk '{print $3}' | head -1)
+  if [ -z "$gw" ]; then
+    echo "  FAIL  [own gateway] $service has no default route to check"
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+  guarded=$(docker compose exec -T "$service" cat /etc/haproxy/rules/host_addrs.lst)
+  if grep -qx "$gw" <<< "$guarded"; then
+    echo "  PASS  [own gateway] $gw is in the internal-address guard"
+  else
+    echo "  FAIL  [own gateway] $gw is missing from the internal-address guard"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
 assert_log_not_matching() {
   local marker="$1"
   local host_port="$2"

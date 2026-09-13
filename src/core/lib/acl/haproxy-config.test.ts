@@ -212,6 +212,32 @@ describe("load-bearing directives", () => {
     expect(acl.trim().endsWith("172.20.0.1")).toBe(true);
   });
 
+  it("extends the internal set with the runner's own addresses, as a second acl of the same name", () => {
+    // RFC1918 is allowed on purpose for an internal mirror, so without this an
+    // allowlisted name resolving to the runner reaches its published ports.
+    // A file, not more words: HAProxy truncates a long acl line silently.
+    const withHost = gen({ ...FULL, hostAddressFile: "/etc/haproxy/rules/host_addrs.lst" });
+    const guards = withHost
+      .split("\n")
+      .filter(
+        (l) =>
+          l.trim().startsWith("acl dst_internal ") || l.trim().startsWith("acl pass_dst_internal "),
+      );
+    // Three guard sites: the passthrough path and both inspected stages.
+    expect(guards.length).toBe(6);
+    const byFile = guards.filter((l) => l.includes("-m ip -f /etc/haproxy/rules/host_addrs.lst"));
+    expect(byFile.length).toBe(3);
+    // Both declarations of a name must judge the same sample to OR meaningfully.
+    for (const line of guards) expect(line.includes("var(txn.dst)")).toBe(true);
+  });
+
+  it("emits no host-address acl when no file is given, rather than an unreadable path", () => {
+    // The universal engine's own template carries the equivalent line; this
+    // generator is only ever called by init-inspect-cfg, which always writes
+    // the file, so an absent path means the two are out of step.
+    expect(config.includes("-m ip -f")).toBe(false);
+  });
+
   it("exempts an explicitly-named address, which was asked for not arrived at", () => {
     // allowed_ip_rules and an address in allowed_url_rules stay reachable.
     expect(config.includes("if dst_internal !host_is_address")).toBe(true);
@@ -636,6 +662,12 @@ describe("passthrough", () => {
     });
     expect(config.includes("set-var(txn.pass) int(1) if tls29_sni tls29_port")).toBe(true);
     expect(longestLineWords(config) <= MAX_LINE_WORDS).toBe(true);
+  });
+
+  it("keeps the internal guard off the line-length cliff however many host addresses there are", () => {
+    // The point of the pattern file: addresses live in it, not on the acl line.
+    const withHost = gen({ ...FULL, hostAddressFile: "/etc/haproxy/rules/host_addrs.lst" });
+    expect(longestLineWords(withHost) <= MAX_LINE_WORDS).toBe(true);
   });
 
   it("refuses an address pattern rather than approximating a range", () => {

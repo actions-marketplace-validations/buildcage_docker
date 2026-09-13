@@ -295,6 +295,14 @@ RUN echo "=== [SSRF via allowlisted name] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: reached an internal address" && exit 1)
 
+# [SSRF - an allowlisted name resolving back to the runner]
+# Allowlisted, but resolves to an address HOST_ADDRESSES names as the runner's.
+# RFC1918 is exempt on purpose, so only that list refuses it.
+RUN echo "=== [SSRF back to the runner] ===" && \
+    CODE=$($C --insecure https://runner.example.com/) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "403" ] || (echo "FAILED: reached the runner" && exit 1)
+
 # [Direct address, no ip rule]
 RUN echo "=== [Direct address] ===" && \
     CODE=$($C http://10.200.0.101/) && \

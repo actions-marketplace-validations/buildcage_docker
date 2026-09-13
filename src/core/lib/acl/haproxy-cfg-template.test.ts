@@ -35,9 +35,14 @@ async function readUniversalTemplate(): Promise<string> {
   return content;
 }
 
+/** Every `acl <name> ...` line in the template, in order. */
+function aclLines(template: string, aclName: string): string[] {
+  return template.split("\n").filter((l) => l.trim().startsWith(`acl ${aclName} `));
+}
+
 /** The address list of one `acl dst_internal... var(...) -m ip <addrs>` line. */
 function extractGuardAddresses(template: string, aclName: string): string[] {
-  const line = template.split("\n").find((l) => l.trim().startsWith(`acl ${aclName} `));
+  const line = aclLines(template, aclName)[0];
   if (line === undefined) {
     throw new Error(`template has no "acl ${aclName}" line`);
   }
@@ -60,6 +65,18 @@ describe("universal engine's internal-address guard stays in sync with INTERNAL_
       const addrs = extractGuardAddresses(TEMPLATE, aclName);
       const expected = [...INTERNAL_RANGES, PROXY_GATEWAY].slice().sort();
       expect(addrs.slice().sort()).toStrictEqual(expected);
+    });
+
+    it(`${aclName} is declared a second time against the runner's own addresses`, () => {
+      // Declaring the name twice ORs the two, so the runner's addresses extend
+      // the guard without lengthening the line above. Losing this line would
+      // leave the whole of RFC1918 reachable again, silently.
+      const lines = aclLines(TEMPLATE, aclName);
+      expect(lines.length).toBe(2);
+      expect(lines[1].includes("-m ip -f /etc/haproxy/rules/host_addrs.lst")).toBe(true);
+      // Both declarations must judge the same thing to OR meaningfully.
+      const fetchOf = (line: string) => line.trim().split(/\s+/)[2];
+      expect(fetchOf(lines[1])).toBe(fetchOf(lines[0]));
     });
   }
 });

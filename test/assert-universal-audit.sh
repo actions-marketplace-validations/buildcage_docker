@@ -24,6 +24,8 @@ echo ""
 echo "[BLOCKED] expected (internal-address guard, unconditional even in audit):"
 assert_log_contains BLOCKED "internal.wildcard.example.com:443" "internal-address"
 assert_log_contains BLOCKED "internal.wildcard.example.com:80" "internal-address"
+assert_log_contains BLOCKED "runner.wildcard.example.com:443" "internal-address"
+assert_log_contains BLOCKED "runner.wildcard.example.com:80" "internal-address"
 echo ""
 
 echo "[ALLOWED] must not exist:"
@@ -34,6 +36,10 @@ echo "[reachability] the listeners must not be reachable from the compose networ
 assert_no_tcp_connect test-server builder 10024
 assert_no_tcp_connect test-server builder 53
 assert_no_dns_answer test-server builder
+echo ""
+
+echo "[own gateway] the address this container routes through must be guarded too:"
+assert_own_gateway_guarded builder
 echo ""
 
 assert_results

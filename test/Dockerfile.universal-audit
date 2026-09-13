@@ -38,6 +38,15 @@ RUN echo "=== [HTTP - SSRF via internal address] ===" && \
     echo "Testing internal.wildcard.example.com (HTTP, should be blocked even in audit mode)..." && \
     (wget -q -O /dev/null --timeout=5 http://internal.wildcard.example.com/ && echo "✗ internal.wildcard.example.com HTTP: ALLOWED (unexpected)" && exit 1) || echo "✓ internal.wildcard.example.com HTTP: BLOCKED (expected)"
 
+# [SSRF - the runner itself, blocked in audit too]
+RUN echo "=== [HTTPS - SSRF back to the runner] ===" && \
+    echo "Testing runner.wildcard.example.com (HTTPS, should be blocked even in audit mode)..." && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=5 https://runner.wildcard.example.com/ && echo "✗ runner.wildcard.example.com: ALLOWED (unexpected)" && exit 1) || echo "✓ runner.wildcard.example.com: BLOCKED (expected)"
+
+RUN echo "=== [HTTP - SSRF back to the runner] ===" && \
+    echo "Testing runner.wildcard.example.com (HTTP, should be blocked even in audit mode)..." && \
+    (wget -q -O /dev/null --timeout=5 http://runner.wildcard.example.com/ && echo "✗ runner.wildcard.example.com HTTP: ALLOWED (unexpected)" && exit 1) || echo "✓ runner.wildcard.example.com HTTP: BLOCKED (expected)"
+
 # [HTTPS - dns-failed (NXDOMAIN)]
 RUN echo "=== [HTTPS - dns-failed] ===" && \
     echo "Testing nxdomain.wildcard.example.com (HTTPS, should be blocked by dns failure)..." && \

@@ -99,6 +99,15 @@ else
 fi
 echo ""
 
+echo "[SSRF] an allowlisted name resolving back to the runner is refused too:"
+if grep -qE "^buildcage [0-9]+ https GET https://runner\.example\.com/ 403 [0-9]+ ts=PR dst=10\.200\.0\.199:443$" <<< "$PROXY_LOG"; then
+  pass "the resolved runner address was refused despite being RFC1918"
+else
+  fail "the runner's own addresses did not reach the internal-destination guard"
+  grep -E "runner\.example\.com" <<< "$PROXY_LOG" || true
+fi
+echo ""
+
 echo "[address destination] reached without asking any resolver:"
 if grep -qE "^buildcage [0-9]+ http GET http://10\.200\.0\.100/pub-by-addr/x 200 [0-9]+ ts=-- dst=10\.200\.0\.100:80$" <<< "$PROXY_LOG"; then
   pass "a rule naming an address reached it, and the path rule still applied"
@@ -358,6 +367,17 @@ if docker compose exec -T test-server timeout 5 nslookup example.com builder 2>/
   fail "builder:53/udp answered a query from test-server"
 else
   pass "builder:53/udp did not answer a query from test-server"
+fi
+echo ""
+
+echo "[own gateway] the address this container routes through must be guarded too:"
+# Only the container can see this gateway, and no other assertion covers it.
+OWN_GW=$(docker compose exec -T builder ip -4 route show default | awk '{print $3}' | head -1)
+if [ -n "$OWN_GW" ] &&
+  docker compose exec -T builder cat /etc/haproxy/rules/host_addrs.lst | grep -qx "$OWN_GW"; then
+  pass "$OWN_GW is in the internal-address guard"
+else
+  fail "${OWN_GW:-(no default route)} is missing from the internal-address guard"
 fi
 echo ""
 
