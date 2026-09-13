@@ -7947,7 +7947,8 @@ async function main() {
 		ALLOWED_URL_RULES: urlRules.join("\n"),
 		ALLOWED_TLS_RULES: tlsRules.join("\n"),
 		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
-		BUILDCAGE_IMAGE_REF: imageRef
+		BUILDCAGE_IMAGE_REF: imageRef,
+		EXTERNAL_RESOLVER: ""
 	};
 	try {
 		(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({
