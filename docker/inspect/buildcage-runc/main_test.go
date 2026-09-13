@@ -11,25 +11,30 @@ import (
 // process usually can't write the real host path.
 func useTempLog(t *testing.T) {
 	t.Helper()
-	old := logFile
+	oldFile, oldTag := logFile, logTag
 	logFile = filepath.Join(t.TempDir(), "runc.log")
-	t.Cleanup(func() { logFile = old })
+	logTag = "[this-step]"
+	ownLog.Reset()
+	t.Cleanup(func() {
+		logFile, logTag = oldFile, oldTag
+		ownLog.Reset()
+	})
 }
 
-// One file carries every step of every build, so a failure must report the
-// failing step's lines and no one else's.
-func TestDumpLogSinceCoversOnlyThisInvocation(t *testing.T) {
+// A failure must report the failing step's lines and no one else's, however
+// the concurrent steps ended up interleaved on disk.
+func TestDumpOwnLogCoversOnlyThisInvocation(t *testing.T) {
 	useTempLog(t)
-	logf("an earlier step on this builder")
-	from := logSize()
+	appendToSharedLog(t, "[another-step] an earlier step on this builder\n")
 	logf("CA write-back failed for %s: %v", "/etc/ssl/certs", "rsync exit status 23")
+	appendToSharedLog(t, "[another-step] a neighbouring step, still running\n")
 
 	var out strings.Builder
-	dumpLogSince(&out, from)
+	dumpOwnLog(&out)
 
 	got := out.String()
-	if strings.Contains(got, "an earlier step") {
-		t.Errorf("the dump reached back into an earlier step:\n%s", got)
+	if strings.Contains(got, "another-step") {
+		t.Errorf("the dump picked up a neighbouring step's lines:\n%s", got)
 	}
 	if !strings.Contains(got, "rsync exit status 23") {
 		t.Errorf("the dump left out this step's own failure:\n%s", got)
@@ -40,34 +45,53 @@ func TestDumpLogSinceCoversOnlyThisInvocation(t *testing.T) {
 }
 
 // Nothing to report means no output at all, not a bare header.
-func TestDumpLogSinceWithNothingToReport(t *testing.T) {
+func TestDumpOwnLogWithNothingToReport(t *testing.T) {
 	useTempLog(t)
 
 	var out strings.Builder
-	dumpLogSince(&out, logSize())
+	dumpOwnLog(&out)
 	if out.String() != "" {
-		t.Errorf("expected no output before the log exists, got %q", out.String())
+		t.Errorf("expected no output before anything was logged, got %q", out.String())
 	}
 
-	logf("an earlier step on this builder")
+	appendToSharedLog(t, "[another-step] an earlier step on this builder\n")
 	out.Reset()
-	dumpLogSince(&out, logSize())
+	dumpOwnLog(&out)
 	if out.String() != "" {
 		t.Errorf("a step that logged nothing should report nothing, got %q", out.String())
 	}
 }
 
-func TestLogSizeIgnoresAMissingLog(t *testing.T) {
+// The shared file is what's left to read after the fact, so every line in it
+// has to name the step that wrote it.
+func TestLogfTagsEachSharedLine(t *testing.T) {
 	useTempLog(t)
-	if got := logSize(); got != 0 {
-		t.Errorf("logSize() = %d for a log that does not exist yet, want 0", got)
-	}
-	logf("first line")
-	info, err := os.Stat(logFile)
+	logf("no CA at %s (%v); running without injection", "/opt/buildcage/ca.pem", "file does not exist")
+	logf("injection failed for %s: %v", "/run/bundle", "permission denied")
+
+	content, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := logSize(); got != info.Size() {
-		t.Errorf("logSize() = %d, want %d", got, info.Size())
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("wrote %d lines to the shared log, want 2:\n%s", len(lines), content)
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, logTag+" ") {
+			t.Errorf("line %q is not tagged with %s", line, logTag)
+		}
+	}
+}
+
+func appendToSharedLog(t *testing.T, line string) {
+	t.Helper()
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line); err != nil {
+		t.Fatal(err)
 	}
 }
