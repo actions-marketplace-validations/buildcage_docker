@@ -98,6 +98,16 @@ RUN echo "=== [HTTP - SSRF via allowlisted name] ===" && \
     echo "Testing internal.wildcard.example.com (HTTP, should be blocked)..." && \
     (wget -q -O /dev/null --timeout=5 http://internal.wildcard.example.com/ && echo "✗ internal.wildcard.example.com HTTP: ALLOWED (unexpected)" && exit 1) || echo "✓ internal.wildcard.example.com HTTP: BLOCKED (expected)"
 
+# [SSRF - allowlisted name resolving to a runner address]
+# RFC1918 is exempt on purpose, so only the runner's address list refuses it.
+RUN echo "=== [HTTPS - SSRF back to the runner] ===" && \
+    echo "Testing runner.wildcard.example.com (HTTPS, should be blocked)..." && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=5 https://runner.wildcard.example.com/ && echo "✗ runner.wildcard.example.com: ALLOWED (unexpected)" && exit 1) || echo "✓ runner.wildcard.example.com: BLOCKED (expected)"
+
+RUN echo "=== [HTTP - SSRF back to the runner] ===" && \
+    echo "Testing runner.wildcard.example.com (HTTP, should be blocked)..." && \
+    (wget -q -O /dev/null --timeout=5 http://runner.wildcard.example.com/ && echo "✗ runner.wildcard.example.com HTTP: ALLOWED (unexpected)" && exit 1) || echo "✓ runner.wildcard.example.com HTTP: BLOCKED (expected)"
+
 # [HTTPS - missing-sni (TLS ClientHello without SNI extension)]
 RUN echo "=== [HTTPS - missing-sni] ===" && \
     echo "Testing TLS connection without SNI (should be blocked)..." && \

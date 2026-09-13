@@ -33,6 +33,8 @@ services:
       - ALLOWED_URL_RULES=${ALLOWED_URL_RULES:-}
       - ALLOWED_TLS_RULES=${ALLOWED_TLS_RULES:-}
       - KNOWN_BLOCKED_RULES=${KNOWN_BLOCKED_RULES:-}
+      # Runner addresses the engine refuses as a resolved destination.
+      - HOST_ADDRESSES=${HOST_ADDRESSES:-}
       - PROXY_ENGINE=${PROXY_ENGINE:-universal}
     # `--wait` would otherwise return on "running" alone, which says nothing
     # about buildkitd. buildctl works in all three engines. No restart policy

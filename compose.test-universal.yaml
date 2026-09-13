@@ -5,6 +5,9 @@ services:
       - TEST_NET_ADDR=10.200.0.2/24
       - TEST_NET_SUBNET=${TEST_NET_SUBNET:-10.210.0.0/24}
       - EXTERNAL_RESOLVER=10.200.0.53
+      # These tests drive compose directly, so this stands in for what the
+      # action computes. Nothing answers on it, so only the guard can block it.
+      - HOST_ADDRESSES=10.200.0.199
       - ALLOWED_HTTPS_RULES=allowed.example.com:443 allowed.example.com:8443 *.wildcard.example.com:443 *.wildcard.example.com:8443 registry.npmjs.org:443
       - ALLOWED_HTTP_RULES=allowed.example.com:80 allowed.example.com:8080 *.wildcard.example.com:80 *.wildcard.example.com:8080
     # Wrapped here rather than in the image: the builder is the product image

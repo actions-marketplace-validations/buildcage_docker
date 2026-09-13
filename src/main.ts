@@ -8,6 +8,7 @@ import { ActionError, errorMessage } from "#core/lib/errors.ts";
 import { buildACLRules, parseRulesOrThrow } from "#core/lib/acl/rules.ts";
 import { buildUrlRules } from "#core/lib/acl/url-rules.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
+import { listHostIpv4Addresses } from "./lib/host-addresses.ts";
 import {
   verifyImageDigestOrThrow,
   type VerifyImageDigestOptions,
@@ -138,6 +139,9 @@ async function main(): Promise<void> {
     // resolver the builder uses is the action's choice, not whatever an earlier
     // step left in the job environment.
     EXTERNAL_RESOLVER: "",
+    // Completed engine-side with the compose network's gateway, which does not
+    // exist yet here. See lib/host-addresses.ts.
+    HOST_ADDRESSES: listHostIpv4Addresses().join(" "),
   };
 
   try {

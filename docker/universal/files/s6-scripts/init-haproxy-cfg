@@ -27,6 +27,17 @@ else
     echo "$ALLOWED_IP_RULES"    | qjs --std -m /opt/buildcage/scripts/convert-rule.js > /etc/haproxy/rules/allowed_ips.lst
 fi
 
+# Addresses the runner itself holds, refused as a resolved destination by the
+# template's internal-address acl. HOST_ADDRESSES is what the action read off
+# the runner; the routing table adds the compose network's gateway, a runner
+# address the action could not see yet. A file because HAProxy silently
+# truncates an acl line past MAX_LINE_ARGS.
+{
+    for addr in $HOST_ADDRESSES; do echo "$addr"; done
+    ip -4 route show | awk '{ for (i = 1; i < NF; i++) if ($i == "via") print $(i + 1) }'
+} | sort -u > /etc/haproxy/rules/host_addrs.lst
+echo "Guarded runner addresses: $(tr '\n' ' ' < /etc/haproxy/rules/host_addrs.lst)"
+
 # Generate nameserver lines from EXTERNAL_RESOLVER (comma-separated IPs).
 # When unset/empty, fall back to the container's own /etc/resolv.conf via
 # HAProxy's parse-resolv-conf instead of hardcoding a specific resolver.

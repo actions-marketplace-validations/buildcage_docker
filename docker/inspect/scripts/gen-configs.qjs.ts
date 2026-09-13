@@ -8,8 +8,8 @@
  *
  * Usage:
  *   qjs --std -m gen-configs.js <haproxy_out> <corefile_out> <proxy_address> \
- *     <upstream_resolvers> <mode> <https_rules> <http_rules> <ip_rules> \
- *     <tls_rules> <url_rules>
+ *     <host_address_file> <upstream_resolvers> <mode> <https_rules> \
+ *     <http_rules> <ip_rules> <tls_rules> <url_rules>
  *
  * Host and IP rules are whitespace separated, URL rules newline separated
  * (each carries a method and a space).
@@ -24,6 +24,7 @@ const [
   haproxyOut,
   corefileOut,
   proxyAddress,
+  hostAddressFile,
   upstreamsInput,
   mode,
   httpsInput,
@@ -42,6 +43,9 @@ function writeFile(path: string, content: string): void {
 
 try {
   if (!proxyAddress) throw new Error("no proxy address given");
+  // init-inspect-cfg always writes the file, so a missing path is a caller
+  // mismatch rather than an empty address list.
+  if (!hostAddressFile) throw new Error("no host address file given");
 
   const upstreams = splitRuleTokens(upstreamsInput);
   if (upstreams.length === 0) throw new Error("no upstream resolver given");
@@ -61,6 +65,7 @@ try {
     mode: mode === "audit" ? "audit" : "restrict",
     resolverAddress: upstreams,
     proxyAddress,
+    hostAddressFile,
   });
   const coredns = generateCorednsConfig({
     httpsRules,

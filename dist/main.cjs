@@ -23,8 +23,9 @@ let events = require("events");
 events = __toESM(events, 1);
 let node_crypto = require("node:crypto"), child_process = require("child_process");
 child_process = __toESM(child_process, 1), require("timers");
-let node_fs = require("node:fs"), node_os = require("node:os");
+let node_os = require("node:os");
 node_os = __toESM(node_os, 1);
+let node_fs = require("node:fs");
 //#endregion
 //#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
 var __awaiter$6 = function(thisArg, _arguments, P, generator) {
@@ -786,6 +787,27 @@ function checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules 
 		return;
 	}
 	throw new SetupError(`${reason} In restrict mode that means ${list} would not actually be enforced — the build would look protected but isn't. Switch to proxy_engine: inspect, or remove ${list} from your workflow.`, "INVALID_PROXY_ENGINE");
+}
+//#endregion
+//#region src/lib/host-addresses.ts
+/**
+* Every IPv4 address the runner itself holds, refused by the engine as a
+* resolved destination.
+*
+* The guard allows RFC1918 so that a name pointing at an internal mirror keeps
+* working (see INTERNAL_RANGES in core/lib/acl/haproxy-rules.ts). The runner is
+* the one part of RFC1918 that is never a mirror. A published container port
+* answers on every address the runner holds, so the whole list is needed and
+* not just the gateway.
+*
+* Only the runner can see docker0 and the other bridges, which is why this does
+* not run in the container. The compose network's own gateway is missing here
+* and the engine's init script supplies it. Loopback is left to 127.0.0.0/8.
+*/
+function listHostIpv4Addresses({ networkInterfaces: list = node_os.networkInterfaces } = {}) {
+	let found = /* @__PURE__ */ new Set();
+	for (let infos of Object.values(list())) for (let info of infos ?? []) (info.family === "IPv4" || info.family === 4) && (info.internal || found.add(info.address));
+	return [...found].sort();
 }
 //#endregion
 //#region src/core/lib/provenance/errors.ts
@@ -7998,7 +8020,8 @@ async function main() {
 		ALLOWED_TLS_RULES: tlsRules.join("\n"),
 		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
 		BUILDCAGE_IMAGE_REF: imageRef,
-		EXTERNAL_RESOLVER: ""
+		EXTERNAL_RESOLVER: "",
+		HOST_ADDRESSES: listHostIpv4Addresses().join(" ")
 	};
 	try {
 		(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({

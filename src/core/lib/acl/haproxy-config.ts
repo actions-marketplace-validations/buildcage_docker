@@ -44,6 +44,13 @@ export interface HaproxyConfigOptions extends RuleInputs {
    * INTERNAL_RANGES.
    */
   proxyAddress?: string;
+  /**
+   * Pattern file of the runner's own addresses, added to the
+   * internal-destination guard. A file because HAProxy truncates an acl line
+   * past MAX_LINE_ARGS silently and the address count is environment-dependent.
+   * Omitted, no such acl is emitted.
+   */
+  hostAddressFile?: string;
   caSignFile?: string;
   defaultCertFile?: string;
   systemCaFile?: string;
@@ -286,6 +293,10 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
   // The proxy's own address, not the upstream(s) a name is resolved against:
   // see the resolverAddress/proxyAddress doc comments above.
   const dstInternalAddrs = [...INTERNAL_RANGES, ...(opts.proxyAddress ? [opts.proxyAddress] : [])];
+  // Repeating an acl name ORs it with the first declaration, leaving the inline
+  // list above untouched.
+  const hostAddrAcl = (name: string, expr: string): string[] =>
+    opts.hostAddressFile ? [`    acl ${name} ${expr} -m ip -f ${opts.hostAddressFile}`] : [];
 
   const l: string[] = [];
   l.push(
@@ -419,6 +430,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         "    tcp-request content set-dst var(txn.dst) if { var(txn.dst) -m found }",
         // Same internal-destination guard as the inspected path; see INTERNAL_RANGES.
         `    acl pass_dst_internal var(txn.dst) -m ip ${dstInternalAddrs.join(" ")}`,
+        ...hostAddrAcl("pass_dst_internal", "var(txn.dst)"),
         "    tcp-request content reject if { var(txn.tlsrule) -m found } pass_dst_internal",
       );
     }
@@ -529,6 +541,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         "    # A resolved destination may not be internal; see INTERNAL_RANGES. An",
         "    # address named in a rule is exempt.",
         `    acl dst_internal var(txn.dst) -m ip ${dstInternalAddrs.join(" ")}`,
+        ...hostAddrAcl("dst_internal", "var(txn.dst)"),
         "    http-request deny deny_status 403 if dst_internal !host_is_address",
         "",
       );
