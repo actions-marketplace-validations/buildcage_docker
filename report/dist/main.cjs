@@ -13998,9 +13998,7 @@ var init_config = __esmMin((() => {
 				case "enum":
 					val = 0;
 					break;
-				case "message":
-					val = field.V.T().create();
-					break;
+				case "message": val = field.V.T().create();
 			}
 			return [key, val];
 		}
@@ -14211,9 +14209,7 @@ var init_config = __esmMin((() => {
 					case "enum":
 						msg[name] = 0;
 						break;
-					case "map":
-						msg[name] = {};
-						break;
+					case "map": msg[name] = {};
 				}
 			}
 		}
