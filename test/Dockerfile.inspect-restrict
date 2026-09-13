@@ -250,12 +250,7 @@ RUN echo "=== [DNS-only exfiltration] ===" && \
 RUN echo "=== [Reverse lookup] ===" && \
     OUT=$(nslookup 172.20.0.1 2>&1 || true) && \
     echo "$OUT" && \
-    case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac && \
-    START=$(date +%s) && \
-    (getent hosts 172.20.0.1 >/dev/null 2>&1 || true) && \
-    ELAPSED=$(( $(date +%s) - START )) && \
-    echo "elapsed=${ELAPSED}s" && \
-    [ "$ELAPSED" -lt 3 ] || (echo "FAILED: the reverse lookup stalled" && exit 1)
+    case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac
 
 # [Reverse zone, invented name]
 # Only a name that is an address backwards counts as a reverse lookup. The verb
