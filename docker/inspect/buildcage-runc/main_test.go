@@ -8,8 +8,7 @@ import (
 )
 
 // useTempLog points logf and the dump at a file the test owns, since a test
-// process usually can't write the real host path, and gives the test a log
-// buffer and a tag of its own.
+// process usually can't write the real host path.
 func useTempLog(t *testing.T) {
 	t.Helper()
 	oldFile, oldTag := logFile, logTag
@@ -22,9 +21,8 @@ func useTempLog(t *testing.T) {
 	})
 }
 
-// One file carries every step of every build and BuildKit runs them
-// concurrently, so a failure must report the failing step's lines and no one
-// else's, however they ended up interleaved on disk.
+// A failure must report the failing step's lines and no one else's, however
+// the concurrent steps ended up interleaved on disk.
 func TestDumpOwnLogCoversOnlyThisInvocation(t *testing.T) {
 	useTempLog(t)
 	appendToSharedLog(t, "[another-step] an earlier step on this builder\n")

@@ -35,10 +35,9 @@ const (
 // instead of the real host path.
 var logFile = "/var/log/buildcage/runc.log"
 
-// One file carries every step of every build and BuildKit runs steps
-// concurrently, so each line is tagged with the step that wrote it and kept in
-// memory as well. Bounding the dump by an offset into the shared file instead
-// would sweep up whatever a neighbouring step appended in the meantime.
+// One file carries every step of every build, and BuildKit runs steps
+// concurrently: an offset into it bounds nothing, and a line in it says nothing
+// about which step wrote it.
 var (
 	logTag = fmt.Sprintf("[pid %d]", os.Getpid())
 	ownLog strings.Builder
@@ -66,9 +65,8 @@ func logf(format string, a ...any) {
 	_, _ = io.WriteString(f, line)
 }
 
-// dumpOwnLog copies this invocation's own lines onto w. Nothing collects the
-// log from the builder container, so without this a failure reaches the build
-// log as a bare non-zero exit.
+// Nothing collects the log from the builder container, so without this a
+// failure reaches the build log as a bare non-zero exit.
 func dumpOwnLog(w io.Writer) {
 	if ownLog.Len() == 0 {
 		return
