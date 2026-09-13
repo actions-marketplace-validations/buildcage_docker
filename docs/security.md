@@ -418,7 +418,9 @@ it widens two.
 - **The cgroup tree it can write is its own.** The container keeps Docker's default private cgroup
   namespace and remounts that namespace's `/sys/fs/cgroup` read-write at startup, so the host's
   cgroup tree is neither visible nor writable. `privileged` would expose the host's `/proc` and
-  `/sys` as well.
+  `/sys` as well. This is what makes a cgroup v2 host a requirement: under v1 the per-controller
+  mounts cannot be reached that way, and the builder's startup says so in its own log rather than
+  leaving an opaque failure at the first `RUN` step. Every GitHub-hosted runner is v2.
 - **No device access, no Docker socket, no workspace mount.** `privileged` would grant the first of
   those; the other two are simply never given.
 
