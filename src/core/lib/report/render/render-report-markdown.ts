@@ -36,7 +36,9 @@ export function renderReportMarkdown(
   // The tables would otherwise read as the whole story.
   if (!report.logLooksPlausible) {
     markdown +=
-      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n\n";
+      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n" +
+      "> Its earliest log entries are gone: either something removed them, or the run outgrew the\n" +
+      "> 100 MB of log kept.\n\n";
   }
 
   if (report.passed.length > 0) {

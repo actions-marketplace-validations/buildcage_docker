@@ -121,8 +121,14 @@ export function describeBlockedOutcome({
   // Plural: inspect has a resolver log too, and either can be the truncated one.
   const incomplete = `buildcage ${engineLabel} logs are incomplete, so this report is not a full record of what ran`;
   // No longer the whole count, hence "still recorded".
-  const message = blockedCount
+  const counted = blockedCount
     ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
     : incomplete;
+  // Both readings, because only one of them is the reader's to act on and it
+  // is also the likelier one to land here.
+  const message =
+    `${counted}. Their earliest entries are gone: either something removed them, or the run ` +
+    "made enough requests to outgrow the 100 MB of log kept. Splitting a run that large across " +
+    "steps stays under it.";
   return { ...outcome, message };
 }

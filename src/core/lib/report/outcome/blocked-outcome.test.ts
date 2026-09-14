@@ -264,7 +264,7 @@ describe("describeBlockedOutcome", () => {
       level: "error",
       shouldFail: true,
       message:
-        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded)",
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded). Their earliest entries are gone: either something removed them, or the run made enough requests to outgrow the 100 MB of log kept. Splitting a run that large across steps stays under it.",
     });
   });
 
@@ -294,8 +294,8 @@ describe("describeBlockedOutcome", () => {
       logLooksPlausible: false,
       engineLabel: "sandbox",
     });
-    expect(result.message).toBe(
-      "buildcage sandbox logs are incomplete, so this report is not a full record of what ran",
+    expect(result.message).toMatch(
+      /^buildcage sandbox logs are incomplete, so this report is not a full record of what ran\. /,
     );
   });
 });
