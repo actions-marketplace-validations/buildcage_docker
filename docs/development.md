@@ -246,10 +246,10 @@ Times are relative to when the proxy started. A refusal names its reason rather 
 verified.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
-archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The report reads every archive, oldest first,
-then `current`, so early traffic is never dropped just because a later part of the same run pushed
-the log past a rotation. Reading `current` by hand, as above, only shows what has accumulated since
-the most recent one.
+archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The
+report reads every archive, oldest first, then `current`, so early traffic is never dropped just
+because a later part of the same run pushed the log past a rotation. Reading `current` by hand, as
+above, only shows what has accumulated since the most recent one.
 
 ## Makefile Commands
 
