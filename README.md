@@ -139,6 +139,12 @@ Each pair builds the same Dockerfile with and without rules:
 - If something in the build pins a certificate or carries its own trust store (the JVM is the usual
   case), use `proxy_engine: universal` instead. See [Engines](#engines).
 
+> [!NOTE]
+> The builder is a container on the runner itself, so this action needs a Linux runner with a
+> working Docker installation, on Docker Engine 25.0 or later with Compose v2.20.2 or later, and on
+> a host using cgroup v2. GitHub-hosted `ubuntu-*` runners meet all three. A self-hosted runner that
+> doesn't fails while the builder starts, before any `RUN` step runs.
+
 ## Inputs
 
 Every input is optional.
