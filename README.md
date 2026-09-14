@@ -263,6 +263,11 @@ A port is required on every rule.
 | `*.example.com:8443` | Any single-level subdomain of `example.com` on port 8443 only |
 | `example.com:*`      | `example.com` on any port                                     |
 
+`known_blocked_rules` is the exception: a rule there that names no port is read as `:*`. It is
+matched against rows of the report rather than against connections, and a row for a name the
+resolver refused has no port at all, nothing having been connected to. `telemetry.example.com` and
+`telemetry.example.com:*` are the same rule.
+
 ### IP addresses: `allowed_ip_rules`
 
 Connections made straight to an address never go through DNS, so they are allowed separately from
