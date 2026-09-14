@@ -109,8 +109,7 @@ describe("scanInspectLog", () => {
   });
 
   it("reads a request line whose URL runs to thousands of bytes", async () => {
-    // The proxy's log line is sized to hold the longest request haproxy itself
-    // accepts, so a signed URL never costs the report the whole event.
+    // The log line is sized to hold the longest request haproxy accepts.
     const url = `https://example.com/x?token=${"a".repeat(15000)}`;
     const [e] = await parse([`buildcage 1 https GET 403 0 ts=PR dst=1.1.1.1:443 ${url}`]);
     expect(e.url).toBe(url);
@@ -118,9 +117,8 @@ describe("scanInspectLog", () => {
   });
 
   it("counts a line that opens as ours but cannot be read", async () => {
-    // A write past a pipe's atomic size can land half-written, joining the next
-    // line onto what got through. The result still opens with our own prefix,
-    // which is what makes it countable rather than invisible.
+    // What a half-written write leaves: the next line joined onto what got
+    // through, still opening with our own prefix.
     const { events, unparsed } = await scanInspectLog([ALLOWED, ALLOWED.slice(0, 60) + REFUSED]);
     expect(events.length).toBe(1);
     expect(unparsed).toBe(1);
@@ -130,8 +128,7 @@ describe("scanInspectLog", () => {
     const lines = [
       "[NOTICE] (1) : haproxy version is 3.4.3",
       "buildcage haproxy starting 1787471970000",
-      // What the marker would be if qjs failed to print the stamp. Still no
-      // evidence that any traffic went unrecorded.
+      // The marker without its stamp, if qjs failed to print one.
       "buildcage haproxy starting",
       ALLOWED,
     ];

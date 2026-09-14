@@ -76,9 +76,8 @@ export async function buildInspectReportData(
     // collapses them into.
     blockedCount: blockedRows.length,
     // A refused name is only ever in the resolver log, so either log losing
-    // its beginning loses evidence the other cannot vouch for. A line the proxy
-    // wrote and this cannot read is the same kind of gap, mid-log instead of at
-    // the start: it may well have been a refusal.
+    // its beginning loses evidence the other cannot vouch for. A line this
+    // cannot read is the same gap mid-log: it may well have been a refusal.
     logLooksPlausible: proxyHeadIntact && dnsHeadIntact && unparsed === 0,
     startedAt,
     timeline,

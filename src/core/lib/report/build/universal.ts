@@ -27,9 +27,8 @@ export async function buildUniversalReportData(
     passed,
     blocked,
     blockedCount,
-    // A decision line this cannot read is a decision the report is missing, and
-    // it may well have been a refusal, so it counts the same as a log whose
-    // beginning is gone.
+    // A decision line this cannot read may well have been a refusal, so it
+    // counts the same as a log whose beginning is gone.
     logLooksPlausible: logHeadIntact && unparsed === 0,
   };
 }

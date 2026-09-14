@@ -1,8 +1,6 @@
-// The proxy writes these lines and this parser reads them, but nothing else
-// holds the two together: a field moved on one side and not the other leaves a
-// report that says a build reached nothing at all. This renders the log-format
-// the generator actually emits and reads it back with the parser the report
-// actually uses, so the two can only drift by failing here first.
+// The proxy writes these lines and this parser reads them, with nothing else
+// holding the two together: a field moved on one side and not the other leaves
+// a report that says the build reached nothing at all.
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
 import { generateHaproxyConfig } from "../acl/haproxy-config.ts";
 import { scanInspectLog } from "./inspect.ts";
@@ -16,13 +14,11 @@ const OPTIONS = {
   proxyAddress: "172.20.0.1",
 };
 
-/** Long enough that the rendered line passes haproxy's own 1024-byte default,
- *  which is the length that used to lose the event entirely. */
+/** Long enough that the rendered line passes haproxy's own 1024-byte default. */
 const PATH = `/pkg.tgz?token=${"a".repeat(1200)}`;
 
 /** One representative value per log-format token. A token with no value here
- *  throws rather than rendering blank: a new field has to be given a sample,
- *  or this test would quietly stop covering the line it appears on. */
+ *  throws, so a new field cannot quietly go uncovered. */
 const SAMPLES: Record<string, string> = {
   "%[date(0,ms)]": "1787471975123",
   "%HM": "GET",
@@ -72,8 +68,7 @@ describe("the generated log-format and this parser describe the same line", () =
 
   it("reads every field of a request line back out of where it was written", async () => {
     const line = render(HTTPS);
-    // Guards the sample itself: a shorter path would not reach the length that
-    // broke this in the first place.
+    // Guards the sample itself, which has to reach past the default line length.
     expect(line.length > 1024).toBe(true);
 
     const { events, unparsed } = await scanInspectLog([line]);

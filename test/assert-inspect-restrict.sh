@@ -67,17 +67,14 @@ fi
 echo ""
 
 echo "[long URL] a URL the size a signed one really is, recorded whole:"
-# The marker is the last thing on the line, so finding it proves nothing was
-# cut. Cut lines matched nothing at all, which took the refusal out of the
-# report and out of the fail_on_blocked decision with it.
+# The marker is the last thing on the line, so finding it proves nothing was cut.
 if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ dst=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$PROXY_LOG"; then
   pass "the whole ~1.3KB line was recorded, tail included"
 else
   fail "the long URL was cut or dropped"
   grep -c "end=TAIL-MARKER" <<< "$PROXY_LOG" || true
 fi
-# Independent of the pattern above: without the length limit no line can pass
-# 1023 bytes at all.
+# Independent of the pattern above: without the length limit, nothing can.
 LONGEST=$(grep -E "^buildcage [0-9]+ https? " <<< "$PROXY_LOG" | awk '{print length($0)}' | sort -n | tail -1)
 if [ "${LONGEST:-0}" -gt 1024 ]; then
   pass "the log carries a line past haproxy's 1024-byte default ($LONGEST bytes)"
@@ -296,8 +293,7 @@ else
   fail "a refusal is missing its reason or its URL"
 fi
 
-# The summary is where a reader looks first, so a URL long enough to have been
-# cut has to arrive there whole too.
+# The summary is where a reader looks first.
 if grep -qF "end=TAIL-MARKER -> not-allowed" <<< "$REPORT_MARKDOWN"; then
   pass "the ~1.3KB refused URL reached the summary with its tail"
 else
@@ -357,7 +353,7 @@ if [ -n "$TRAFFIC" ] \
         // Filtering is on action, never on status: a refusal has no status.
         (r) => r.action === "block" && r.method === "POST" && r.status === undefined,
         (r) => r.action === "block" && (r.url || "").includes("token=SECRET-VALUE"),
-        // A URL long enough to have been cut out of the report entirely.
+        // Long enough to be cut by the default line length.
         (r) => r.action === "block" && (r.url || "").endsWith("end=TAIL-MARKER"),
         (r) => r.action === "allow" && r.protocol === "https" && r.status === 200 && r.bytes > 0,
         // Only inspect can report these two at all.

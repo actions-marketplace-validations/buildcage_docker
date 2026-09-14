@@ -148,8 +148,7 @@ describe("buildInspectReportData", () => {
   });
 
   it("fails closed on a proxy line it cannot read, wherever the log begins", async () => {
-    // Only a cut or spliced line looks like this, and it may well have been a
-    // refusal: what survived says nothing about what the rest of it said.
+    // What survived says nothing about what the rest of the line said.
     const unreadable = REFUSED.slice(0, 40);
     const r = await buildInspectReportData([START, ALLOWED, unreadable], [DNS_START], params());
     expect(r.logLooksPlausible).toBe(false);

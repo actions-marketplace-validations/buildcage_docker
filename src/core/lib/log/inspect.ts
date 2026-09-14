@@ -20,24 +20,19 @@
  * the only record of a refused name, which never reaches the proxy. Any other
  * line is HAProxy's or CoreDNS's own output and is skipped.
  *
- * The URL and the SNI are last on their lines because the build chooses how
- * long they are, so anything that cuts a line costs only their tail while the
- * decision, the status and the destination survive. Nothing should cut one:
- * haproxy's own `len` is above the longest request it accepts and s6-log's
- * line limit is above that again (see haproxy-config.ts and the haproxy-log
- * `run` script). What is left is a write larger than a pipe's atomic size
- * landing half-written, which joins two lines into one; `unparsed` below
- * counts that rather than letting it pass as nothing having happened. A line
- * the pipe dropped whole leaves no trace at all and cannot be counted.
+ * The URL and the SNI are last because the build chooses their length: a cut
+ * line costs their tail, not the decision. Nothing should cut one, since both
+ * the configured line length and s6-log's split are above the longest request
+ * haproxy accepts, so `unparsed` counts what arrives unreadable anyway rather
+ * than skipping it. A line the log pipe dropped whole leaves no trace at all.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
-// Both stay anchored at the end, and the trailing field stays \S+ rather than
-// .+: two lines joined by a half-written write would otherwise parse as one
-// event with a nonsense URL instead of being counted as unreadable.
+// The trailing field stays \S+ rather than .+: two lines joined by a
+// half-written write would otherwise parse as one event instead of counting.
 const REQUEST = /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+) (\S+)$/;
 const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
@@ -46,8 +41,8 @@ const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
  *  suffix test. */
 const DNS_START_MARKER = "buildcage coredns starting";
 
-/** What every line the proxy writes for us opens with, startup marker
- *  included. HAProxy's own [NOTICE]/[WARNING] output never does. */
+/** What every line the proxy writes for us opens with. HAProxy's own
+ *  [NOTICE]/[WARNING] output never does. */
 const LINE_PREFIX = "buildcage ";
 
 /** The marker the proxy prints once at startup. See hasProxyStarted. */
@@ -158,9 +153,8 @@ export interface InspectLogScan {
    *  `startedAt`: a restart writes a second marker, which would otherwise
    *  vouch for a beginning that had already rotated away. */
   headIntact: boolean;
-  /** Lines that announce themselves as the proxy's own yet match none of the
-   *  formats above. Each one is an event the report cannot account for, so the
-   *  caller treats any at all as a log it cannot vouch for. */
+  /** Lines that open as the proxy's own yet match no format above. Each is an
+   *  event the report cannot account for. */
   unparsed: number;
 }
 
@@ -191,9 +185,8 @@ export async function scanInspectLog(
     const match = START.exec(trimmed);
     headIntact ??= match !== null;
     if (match && startedAt === undefined) startedAt = Number(match[1]) / 1000;
-    // The startup marker is excluded by its own prefix rather than by `match`:
-    // its stamp comes from qjs, and a qjs that failed would leave the prefix
-    // alone on the line, which is not evidence that traffic went unrecorded.
+    // Excluded by prefix rather than by `match`: a qjs that failed to print
+    // the stamp would leave the marker bare, which is not a missing event.
     if (trimmed.startsWith(LINE_PREFIX) && !trimmed.startsWith(START_MARKER)) unparsed++;
   }
   return { events, startedAt, headIntact: headIntact ?? false, unparsed };

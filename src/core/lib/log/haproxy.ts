@@ -15,9 +15,8 @@ export interface HaproxyLogScanResult {
    *  beginning is gone, rotated away or erased. Only the marker counts:
    *  HAProxy's own output appears mid-run and could stand in for it. */
   logHeadIntact: boolean;
-  /** Decision lines that carry the marker below yet match none of the format
-   *  above. Each one is a decision the report cannot account for, so the caller
-   *  treats any at all as a log it cannot vouch for. */
+  /** Lines carrying the marker below yet matching no format above. Each is a
+   *  decision the report cannot account for. */
   unparsed: number;
 }
 
@@ -33,8 +32,7 @@ const logPattern =
 const START_MARKER = "buildcage haproxy starting";
 
 /** What a decision line carries and nothing else does: the startup marker has
- *  no bracket after the name, and HAProxy's own output never names us. A cut
- *  or spliced decision line still keeps this, since only its tail is lost. */
+ *  no bracket after the name. A cut line keeps it, only its tail being lost. */
 const DECISION_MARKER = "buildcage [";
 
 /**

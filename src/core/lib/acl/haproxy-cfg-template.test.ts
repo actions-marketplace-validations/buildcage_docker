@@ -84,10 +84,7 @@ describe("universal engine's internal-address guard stays in sync with INTERNAL_
 describe("universal engine's log line is sized like the inspect engine's", () => {
   it("raises the line length haproxy would otherwise cut at 1024", () => {
     // The template is not generated, so haproxy-config.ts's own `len` says
-    // nothing about this file. A cut line matches no pattern the report knows,
-    // which takes the decision it carried out of the report entirely. `len`
-    // ahead of `format` is not a preference: the arguments are positional and
-    // the other order is a fatal config error.
+    // nothing about this file. A cut line matches nothing the report knows.
     expect(TEMPLATE.includes("log stdout len 16384 format raw local0")).toBe(true);
   });
 });

@@ -124,16 +124,13 @@ describe("load-bearing directives", () => {
   });
 
   it("sizes a log line for the longest request it accepts", () => {
-    // HAProxy's own default is 1024, which a single signed URL already passes.
-    // A cut line matches nothing, so the event it carried leaves no trace at
-    // all. `len` ahead of `format` is not a preference: the arguments are
-    // positional and the other order is a fatal config error.
+    // A cut line matches nothing, so the event it carried leaves no trace. The
+    // token order is load-bearing: the other one is rejected outright.
     expect(config.includes("log stdout len 16384 format raw local0")).toBe(true);
   });
 
   it("puts the one field the build sizes at the end of every line it logs", () => {
-    // Then whatever cuts a line can only cost the tail of a URL or of a name,
-    // never the decision, the status or the destination ahead of it.
+    // Whatever cuts a line then costs a URL's tail, not the decision.
     const formats = config.split("\n").filter((line) => line.includes('log-format "buildcage'));
     expect(formats.length).toBe(3);
     expect(

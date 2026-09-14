@@ -53,8 +53,7 @@ describe("scanHaproxyLog", () => {
   });
 
   it("counts a decision line it cannot read, since it may have been a refusal", async () => {
-    // What a line looks like when a write past a pipe's atomic size landed
-    // half-written and the next line was joined onto it.
+    // What a half-written write leaves: the next line joined onto it.
     const log = [
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "example.com:443" rule1',
       '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "bad.com:4[2024-01-01T00:00:02] buildcage [BLOCKED] (HTTPS) "worse.com:443" not-allowed',
