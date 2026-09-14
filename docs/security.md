@@ -456,8 +456,13 @@ it widens two.
   host a requirement: under v1 the per-controller mounts cannot be reached that way, and startup
   fails naming that rather than leaving an opaque failure at the first `RUN` step. Every
   GitHub-hosted runner is v2.
-- **No device access, no Docker socket, no workspace mount.** `privileged` would grant the first of
-  those; the other two are simply never given.
+- **No Docker socket, no workspace mount, and devices refused by the device cgroup.** The first two
+  are simply never given; the third is what `privileged` would undo, since it allows every device
+  outright. The device cgroup is a filter rather than an absence, and lifting it takes
+  `CAP_SYS_ADMIN` in the builder itself, which is a question only for a `RUN` step that has already
+  broken out of runc. Seccomp cannot settle that question: BuildKit's runc manages a device filter
+  for each `RUN` step, so the builder needs the calls that manage one. A step still confined by runc
+  never reaches this layer at all.
 
 ## Hardening
 
