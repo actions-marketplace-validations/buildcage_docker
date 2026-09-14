@@ -466,10 +466,18 @@ with `fail_on_blocked: true`, and a `::notice::` is emitted instead of `::error:
 blocked connection still fails the step. Once `known_blocked_rules` is set, the Blocked Hosts table
 gains an **Expected** column (✅) marking the matched rows.
 
+Under `inspect` and `explicit` the matched rows are also folded into one row per rule, named after
+the rule and counting the hosts behind it (`*.example.com:* (12 hosts)`), below the rows nothing
+matched. A rule covering noisy traffic then costs the table one line however many hosts it names,
+which matters most when the noise puts its payload in the name itself and every request brings a new
+long hostname. The individual hosts stay in **Communication details**, so `universal`, whose report
+has no such section, folds nothing.
+
 A name the build looked up and never connected to gets a row of its own, with `DNS` as the rule kind
-and no port. Under `inspect` that is the only trace of a name the build reached for and did not use,
-which is how a rule wider than the build needs shows up. A name that was connected to has no such
-row: the request is already there.
+and no port (folded like any other row when a `known_blocked_rules` rule matches it). Under
+`inspect` that is the only trace of a name the build reached for and did not use, which is how a
+rule wider than the build needs shows up. A name that was connected to has no such row: the request
+is already there.
 
 ### Blocked service names
 
@@ -483,8 +491,8 @@ fails the step.
    `discovery` instead and leaves the table, and the build may connect to that host. This is the
    useful one whenever the build was trying to reach the service.
 2. **List the service name in `known_blocked_rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
-   The row is marked Expected and stops failing the step. Nothing else changes, and the host stays
-   unreachable.
+   The row is marked Expected, folded under that rule, and stops failing the step. Nothing else
+   changes, and the host stays unreachable.
 
 Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
 it reads as permission to reach something that nothing can connect to, and the record still does not

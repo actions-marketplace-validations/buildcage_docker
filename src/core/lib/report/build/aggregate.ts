@@ -7,6 +7,9 @@ export type BlockedRow = AggregatedEntry;
 
 export interface AnnotatedBlockedRow extends BlockedRow {
   expected: boolean;
+  /** The rule that matched, port-completed, for the report to group rows by.
+   *  Undefined exactly when `expected` is false. */
+  expectedBy?: string;
 }
 
 export interface ExpectedFlag {
@@ -14,22 +17,30 @@ export interface ExpectedFlag {
 }
 
 /**
- * Tag each aggregated blocked-hosts row with `expected: boolean` — true iff
- * its `host:port` matches at least one known_blocked_rules pattern.
+ * Tag each aggregated blocked-hosts row with whether its `host:port` matches a
+ * known_blocked_rules pattern, and with the rule that matched it.
  *
  * knownBlockedRules is as returned by parseAndValidateKnownBlockedRules. A
  * missing port is completed here too, so a value set straight in the
- * environment behaves like one that came through the action's input.
+ * environment behaves like one that came through the action's input, and
+ * `expectedBy` reports the completed text rather than the shorthand.
  */
 export function annotateKnownBlocked(
   blockedRows: BlockedRow[],
   knownBlockedRules: string[],
 ): AnnotatedBlockedRow[] {
-  const matchers = knownBlockedRules.map((rule) => new RegExp(convertRule(completeRulePort(rule))));
-  return blockedRows.map((row) => ({
-    ...row,
-    expected: matchers.some((re) => re.test(targetOf(row))),
-  }));
+  const matchers = knownBlockedRules.map((rule) => {
+    const completed = completeRulePort(rule);
+    return { rule: completed, re: new RegExp(convertRule(completed)) };
+  });
+  return blockedRows.map((row) => {
+    // Which of several covering rules a row is grouped under is arbitrary, so
+    // it is the one written earliest.
+    const matched = matchers.find(({ re }) => re.test(targetOf(row)));
+    return matched
+      ? { ...row, expected: true, expectedBy: matched.rule }
+      : { ...row, expected: false };
+  });
 }
 
 /**

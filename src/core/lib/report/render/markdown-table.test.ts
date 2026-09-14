@@ -67,11 +67,14 @@ describe("markdownTable", () => {
       expect(oneCell("a`b`c")).toBe("| a\\`b\\`c |");
     });
 
-    it("leaves emphasis markers alone, the universal engine's own filler being one", () => {
+    it("leaves underscores alone, the universal engine's own filler being one", () => {
       expect(oneCell("x__-__T__buildcage__ALLOWED___HTTPS___f.example.com:443")).toBe(
         "| x__-__T__buildcage__ALLOWED___HTTPS___f.example.com:443 |",
       );
-      expect(oneCell("a*b*c")).toBe("| a*b*c |");
+    });
+
+    it("escapes asterisks, so a rule pattern is not read as emphasis", () => {
+      expect(oneCell("**.example.com:*")).toBe("| \\*\\*.example.com:\\* |");
     });
 
     it("escapes a backslash without double-escaping what follows", () => {

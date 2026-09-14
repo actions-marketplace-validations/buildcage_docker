@@ -60,6 +60,19 @@ describe("annotateKnownBlocked", () => {
     expect(result[0].count).toBe(3);
   });
 
+  it("names the rule that matched, with its port completed", () => {
+    expect(annotateKnownBlocked([row()], ["*.example.com"])[0].expectedBy).toBe("*.example.com:*");
+  });
+
+  it("leaves expectedBy unset when no rule matched", () => {
+    expect(annotateKnownBlocked([row()], ["other.example.com:443"])[0].expectedBy).toBe(undefined);
+  });
+
+  it("names the first of several matching rules", () => {
+    const result = annotateKnownBlocked([row()], ["*.example.com:443", "evil.example.com:443"]);
+    expect(result[0].expectedBy).toBe("*.example.com:443");
+  });
+
   it("annotates each row independently across a mixed list", () => {
     const result = annotateKnownBlocked(
       [row({ host: "known.example.com" }), row({ host: "unknown.example.com" })],

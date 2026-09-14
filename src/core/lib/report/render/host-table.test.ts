@@ -61,6 +61,22 @@ describe("a host carrying markdown syntax", () => {
   });
 });
 
+describe("a row carrying its own Host text", () => {
+  it("shows that text instead of host:port, for a row standing for several", () => {
+    const md = renderHostTable([
+      {
+        host: "*.sury.org:*",
+        port: "-",
+        ruleType: "DNS",
+        reason: "dns-not-allowed",
+        count: 12,
+        display: "*.sury.org:* (12 hosts)",
+      },
+    ]);
+    expect(md.includes("| \\*.sury.org:\\* (12 hosts) | DNS | 12 |")).toBe(true);
+  });
+});
+
 describe("a row with no port", () => {
   it("shows the name alone, since a refused name was never connected to", () => {
     const md = renderHostTable([
