@@ -340,6 +340,15 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
   `expose-experimental-directives` in `src/core/lib/acl/haproxy-config.ts`) resolves `..` in the
   path before ACLs see it, and `do-resolve` + `set-dst` resolve the requested name and rewrite the
   connection's destination to it, run only after the ACL check for that request has already passed.
+
+  What those two resolve against is the container's own `/etc/resolv.conf`, through HAProxy's
+  `parse-resolv-conf`, as in `universal`. On a runner that file is Docker's embedded DNS forwarding
+  to the runner's own resolvers, so a name only an internal resolver knows resolves, and the query
+  follows the runner's own DNS policy. `EXTERNAL_RESOLVER` names upstreams explicitly instead; it
+  is not an action input, and only the integration tests set it, to reach their own fixture
+  resolver. Either way HAProxy's resolvers do no search-domain expansion, so a rule has to name a
+  host in full.
+
 - **CoreDNS** answers every query with the proxy's own address, allowed or not, using an `expr`
   plugin view compiled from the same host patterns HAProxy's own ACLs use, so what's logged as
   `allowed` matches exactly what HAProxy would actually let through:

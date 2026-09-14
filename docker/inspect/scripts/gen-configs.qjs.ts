@@ -12,7 +12,8 @@
  *     <http_rules> <ip_rules> <tls_rules> <url_rules>
  *
  * Host and IP rules are whitespace separated, URL rules newline separated
- * (each carries a method and a space).
+ * (each carries a method and a space). An empty <upstream_resolvers> means the
+ * container's own /etc/resolv.conf.
  */
 import * as std from "qjs:std";
 import { generateHaproxyConfig } from "#core/lib/acl/haproxy-config.js";
@@ -48,8 +49,6 @@ try {
   if (!hostAddressFile) throw new Error("no host address file given");
 
   const upstreams = splitRuleTokens(upstreamsInput);
-  if (upstreams.length === 0) throw new Error("no upstream resolver given");
-
   const httpsRules = splitRuleTokens(httpsInput);
   const httpRules = splitRuleTokens(httpInput);
   const ipRules = splitRuleTokens(ipInput);
@@ -64,6 +63,7 @@ try {
     urlRules,
     mode: mode === "audit" ? "audit" : "restrict",
     resolverAddress: upstreams,
+    useResolvConf: upstreams.length === 0,
     proxyAddress,
     hostAddressFile,
   });
