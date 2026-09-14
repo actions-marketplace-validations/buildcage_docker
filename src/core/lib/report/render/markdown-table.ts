@@ -16,8 +16,10 @@ const alignMarker = (align?: Align): string => ALIGN_MARKERS[align ?? "left"] ??
  * angle brackets do the same to what the cell means, turning a host into a link
  * or raw HTML.
  *
- * Emphasis markers (`*`, `_`) are deliberately not escaped. They change nothing
- * but weight, and `_` is what the universal engine substitutes for every
+ * `*` is escaped because a cell can carry a rule pattern, where `**.example.com:*`
+ * would otherwise render as a lone `*` and an emphasized remainder, reading as a
+ * different pattern than the one written. `_` is left alone: it emphasizes
+ * nothing mid-word, and it is what the universal engine substitutes for every
  * character a host may not carry, so escaping it would bury the one row a
  * reviewer reads closely in backslashes.
  *
@@ -27,7 +29,7 @@ const alignMarker = (align?: Align): string => ALIGN_MARKERS[align ?? "left"] ??
 function escapeCell(value: string | number | undefined): string {
   if (value === undefined) return "";
   return String(value)
-    .replace(/[\\`[\]<>|]/g, "\\$&")
+    .replace(/[\\`[\]<>|*]/g, "\\$&")
     .replace(/\r?\n/g, " ");
 }
 
