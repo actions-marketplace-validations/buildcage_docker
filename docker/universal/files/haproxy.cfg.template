@@ -1,5 +1,8 @@
 global
-    log stdout format raw local0
+    # len before format: these arguments are positional, and the other order is
+    # a fatal config error. The default of 1024 cuts a line, and a cut line
+    # stops parsing entirely, taking the decision it carried out of the report.
+    log stdout len 16384 format raw local0
     maxconn 2048
     user haproxy
     group haproxy

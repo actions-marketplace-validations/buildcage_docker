@@ -14,7 +14,7 @@ esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
 
 assert_logged() {
   local method="$1" url="$2"
-  if grep -qE "^buildcage [0-9]+ https? ${method} $(esc "$url") 200 " <<< "$PROXY_LOG"; then
+  if grep -qE "^buildcage [0-9]+ https? ${method} 200 [0-9]+ ts=\S* dst=\S+ $(esc "$url")$" <<< "$PROXY_LOG"; then
     pass "$method $url"
   else
     fail "$method $url -- no 200 recorded"
@@ -34,7 +34,7 @@ assert_logged GET "https://blocked.example.com/exfil?token=SECRET-VALUE"
 echo ""
 
 echo "[audit enforces nothing]:"
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ \\S+ (403|502) " <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ (403|502) " <<< "$PROXY_LOG"; then
   fail "something was refused in audit mode"
   grep -E "(403|502) " <<< "$PROXY_LOG" || true
 else
@@ -43,8 +43,8 @@ fi
 echo ""
 
 echo "[undeclared ports] classified by content, with no port declared as either:"
-if grep -qE "dst=10\.200\.0\.100:9443$" <<< "$PROXY_LOG" \
-  && grep -qE "dst=10\.200\.0\.100:9080$" <<< "$PROXY_LOG"; then
+if grep -qE "dst=10\.200\.0\.100:9443 " <<< "$PROXY_LOG" \
+  && grep -qE "dst=10\.200\.0\.100:9080 " <<< "$PROXY_LOG"; then
   pass "TLS on 9443 and plaintext on 9080 both reached the origin on their own port"
 else
   fail "an undeclared port did not survive to the origin connection"

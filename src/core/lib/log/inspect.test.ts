@@ -5,14 +5,14 @@ import type { TrafficEvent } from "./traffic-event.ts";
 // Lines exactly as the generated configuration emits them. The timestamp is
 // milliseconds since the epoch (HAProxy's date(0,ms)).
 const ALLOWED =
-  "buildcage 1787471975123 https GET https://registry.npmjs.org/pkg 200 708 ts=-- dst=104.16.1.34:443";
+  "buildcage 1787471975123 https GET 200 708 ts=-- dst=104.16.1.34:443 https://registry.npmjs.org/pkg";
 const REFUSED =
-  "buildcage 1787471976000 https POST https://evil.example.com/exfil?d=SECRET 403 0 ts=PR dst=1.2.3.4:443";
+  "buildcage 1787471976000 https POST 403 0 ts=PR dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
 const PLAIN =
-  "buildcage 1787471977000 http POST http://a.example.com:8080/x 201 12 ts=-- dst=10.0.0.5:8080";
+  "buildcage 1787471977000 http POST 201 12 ts=-- dst=10.0.0.5:8080 http://a.example.com:8080/x";
 const TLS_PASS =
-  "buildcage 1787471978000 pass tls sni=db.example.com 3421 ts=-- dst=10.200.0.100:5432";
-const TCP_PASS = "buildcage 1787471979000 pass tcp sni=- 900 ts=-- dst=10.0.0.5:5432";
+  "buildcage 1787471978000 pass tls 3421 ts=-- dst=10.200.0.100:5432 sni=db.example.com";
+const TCP_PASS = "buildcage 1787471979000 pass tcp 900 ts=-- dst=10.0.0.5:5432 sni=-";
 
 /** scanInspectLog accepts a plain array, so tests pass one and read events. */
 async function parse(lines: string[], isAudit = false): Promise<TrafficEvent[]> {
@@ -52,16 +52,16 @@ describe("scanInspectLog", () => {
     // load answers 503. Counting those would fail a build where nothing was
     // blocked, since fail_on_blocked defaults to true.
     const relayed = [
-      "buildcage 1 https GET https://reg.example.com/pkg 403 120 ts=-- dst=1.1.1.1:443",
-      "buildcage 2 https GET https://reg.example.com/pkg 503 90 ts=-- dst=1.1.1.1:443",
+      "buildcage 1 https GET 403 120 ts=-- dst=1.1.1.1:443 https://reg.example.com/pkg",
+      "buildcage 2 https GET 503 90 ts=-- dst=1.1.1.1:443 https://reg.example.com/pkg",
     ];
     expect((await parse(relayed)).some((e) => e.action === "block")).toBe(false);
   });
 
   it("tells the two kinds of refusal apart by their status", async () => {
     const lines = [
-      "buildcage 1 https GET https://a.com/ 502 0 ts=PR dst=0.0.0.0:443",
-      "buildcage 2 https GET https://b.com/ 503 0 ts=SC dst=1.1.1.1:443",
+      "buildcage 1 https GET 502 0 ts=PR dst=0.0.0.0:443 https://a.com/",
+      "buildcage 2 https GET 503 0 ts=SC dst=1.1.1.1:443 https://b.com/",
     ];
     const reasons = (await parse(lines)).map((e) => e.reason);
     expect(reasons[0]).toBe("dns-failed");
@@ -106,6 +106,36 @@ describe("scanInspectLog", () => {
       "[WARNING] (1) : config : something",
     ];
     expect((await parse(lines)).length).toBe(1);
+  });
+
+  it("reads a request line whose URL runs to thousands of bytes", async () => {
+    // The proxy's log line is sized to hold the longest request haproxy itself
+    // accepts, so a signed URL never costs the report the whole event.
+    const url = `https://example.com/x?token=${"a".repeat(15000)}`;
+    const [e] = await parse([`buildcage 1 https GET 403 0 ts=PR dst=1.1.1.1:443 ${url}`]);
+    expect(e.url).toBe(url);
+    expect(e.action).toBe("block");
+  });
+
+  it("counts a line that opens as ours but cannot be read", async () => {
+    // A write past a pipe's atomic size can land half-written, joining the next
+    // line onto what got through. The result still opens with our own prefix,
+    // which is what makes it countable rather than invisible.
+    const { events, unparsed } = await scanInspectLog([ALLOWED, ALLOWED.slice(0, 60) + REFUSED]);
+    expect(events.length).toBe(1);
+    expect(unparsed).toBe(1);
+  });
+
+  it("counts neither haproxy's own output nor the startup marker", async () => {
+    const lines = [
+      "[NOTICE] (1) : haproxy version is 3.4.3",
+      "buildcage haproxy starting 1787471970000",
+      // What the marker would be if qjs failed to print the stamp. Still no
+      // evidence that any traffic went unrecorded.
+      "buildcage haproxy starting",
+      ALLOWED,
+    ];
+    expect((await scanInspectLog(lines)).unparsed).toBe(0);
   });
 
   it("reads the startup marker's own millisecond epoch", async () => {

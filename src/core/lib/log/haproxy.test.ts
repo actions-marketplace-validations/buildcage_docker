@@ -48,6 +48,22 @@ describe("scanHaproxyLog", () => {
     const result = await scanHaproxyLog(log.split("\n"), false);
     expect(result.passed.length).toBe(0);
     expect(result.blocked.length).toBe(0);
+    // Neither line claims to be a decision of ours, so neither is a gap.
+    expect(result.unparsed).toBe(0);
+  });
+
+  it("counts a decision line it cannot read, since it may have been a refusal", async () => {
+    // What a line looks like when a write past a pipe's atomic size landed
+    // half-written and the next line was joined onto it.
+    const log = [
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "example.com:443" rule1',
+      '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "bad.com:4[2024-01-01T00:00:02] buildcage [BLOCKED] (HTTPS) "worse.com:443" not-allowed',
+      "buildcage haproxy starting 1787471970000",
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.passed.length).toBe(1);
+    expect(result.blocked.length).toBe(0);
+    expect(result.unparsed).toBe(1);
   });
 
   it("aggregates repeated BLOCKED lines into one row, but keeps blockedCount raw", async () => {

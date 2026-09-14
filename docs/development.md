@@ -216,8 +216,22 @@ docker compose exec builder cat /var/log/haproxy/current
 docker compose exec builder cat /var/log/coredns/current
 ```
 
-HAProxy's log carries one line per request, oldest first, with its method, full URL, status and
-size. Refusals are interleaved with the rest, since nothing here can be attributed to a `RUN` step
+HAProxy's log carries one line per request, oldest first, with its method, status, size, and its
+full URL last:
+
+```
+buildcage 1787471975123 https GET 200 708 ts=-- dst=104.16.1.34:443 https://registry.npmjs.org/express
+buildcage 1787471976000 pass tls 3421 ts=-- dst=10.200.0.100:5432 sni=db.example.com
+```
+
+The URL and the SNI come last because a build decides how long they are: every field the report
+needs to place an event then sits ahead of anything that could cut the line short. The line is
+sized for the longest request HAProxy will accept, so nothing should cut one; a line that arrives
+unreadable anyway is counted, and the report says it is not a full record rather than passing off
+what survived as everything. A line the log pipe dropped whole leaves no trace and cannot be
+counted.
+
+Refusals are interleaved with the rest, since nothing here can be attributed to a `RUN` step
 the way `explicit`'s per-step breakdown can:
 
 ```
@@ -232,7 +246,7 @@ Times are relative to when the proxy started. A refusal names its reason rather 
 verified.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
-archive once it crosses 1MB, up to 100 archives kept. The report reads every archive, oldest first,
+archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The report reads every archive, oldest first,
 then `current`, so early traffic is never dropped just because a later part of the same run pushed
 the log past a rotation. Reading `current` by hand, as above, only shows what has accumulated since
 the most recent one.

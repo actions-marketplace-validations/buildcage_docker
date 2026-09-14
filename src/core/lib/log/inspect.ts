@@ -2,8 +2,8 @@
  * Parsers for the `inspect` engine's two logs, whose formats are emitted by
  * haproxy-config.ts and coredns-config.ts. Four kinds of line:
  *
- *   buildcage <ms> <https|http> <method> <url> <status> <bytes> ts=<st> dst=<addr>:<port>
- *   buildcage <ms> pass <tls|tcp> sni=<name|-> <bytes> ts=<st> dst=<addr>:<port>
+ *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> dst=<addr>:<port> <url>
+ *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> dst=<addr>:<port> sni=<name|->
  *   <timestamp>  [INFO] buildcage dns <allowed|denied> name=<name>.
  *   buildcage haproxy starting <ms>
  *
@@ -19,19 +19,36 @@
  * The passthrough line is the only record of undecrypted traffic; the dns line
  * the only record of a refused name, which never reaches the proxy. Any other
  * line is HAProxy's or CoreDNS's own output and is skipped.
+ *
+ * The URL and the SNI are last on their lines because the build chooses how
+ * long they are, so anything that cuts a line costs only their tail while the
+ * decision, the status and the destination survive. Nothing should cut one:
+ * haproxy's own `len` is above the longest request it accepts and s6-log's
+ * line limit is above that again (see haproxy-config.ts and the haproxy-log
+ * `run` script). What is left is a write larger than a pipe's atomic size
+ * landing half-written, which joins two lines into one; `unparsed` below
+ * counts that rather than letting it pass as nothing having happened. A line
+ * the pipe dropped whole leaves no trace at all and cannot be counted.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
-const REQUEST = /^buildcage (\d+) (https?) (\S+) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+)$/;
-const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) sni=(\S+) (\d+) ts=(\S*) dst=(\S+):(\d+)$/;
+// Both stay anchored at the end, and the trailing field stays \S+ rather than
+// .+: two lines joined by a half-written write would otherwise parse as one
+// event with a nonsense URL instead of being counted as unreadable.
+const REQUEST = /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+) (\S+)$/;
+const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
 /** Echoed before CoreDNS starts, so it is always the log's first line (see
  *  inspect/files/s6-rc.d/coredns/run). s6-log stamps this log, hence the
  *  suffix test. */
 const DNS_START_MARKER = "buildcage coredns starting";
+
+/** What every line the proxy writes for us opens with, startup marker
+ *  included. HAProxy's own [NOTICE]/[WARNING] output never does. */
+const LINE_PREFIX = "buildcage ";
 
 /** The marker the proxy prints once at startup. See hasProxyStarted. */
 const START_MARKER = "buildcage haproxy starting";
@@ -80,42 +97,42 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
 
   const request = REQUEST.exec(trimmed);
   if (request) {
-    const refused = isRefusal(request[7]);
+    const refused = isRefusal(request[6]);
     const event: TrafficEvent = {
       time: Number(request[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: request[2] as "http" | "https",
-      host: hostOf(request[4]),
-      port: Number(request[9]),
+      host: hostOf(request[9]),
+      port: Number(request[8]),
       method: request[3],
-      url: request[4],
-      destination: `${request[8]}:${request[9]}`,
+      url: request[9],
+      destination: `${request[7]}:${request[8]}`,
     };
-    if (refused) event.reason = reasonForStatus(Number(request[5]));
+    if (refused) event.reason = reasonForStatus(Number(request[4]));
     else {
-      event.status = Number(request[5]);
-      event.bytes = Number(request[6]);
+      event.status = Number(request[4]);
+      event.bytes = Number(request[5]);
     }
     return event;
   }
 
   const pass = PASSTHROUGH.exec(trimmed);
   if (pass) {
-    const refused = isRefusal(pass[5]);
+    const refused = isRefusal(pass[4]);
     // An ip rule names an address and carries no SNI, so the address is the
     // only identity such a connection has.
-    const sni = pass[3];
+    const sni = pass[7];
     const event: TrafficEvent = {
       time: Number(pass[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: pass[2] as "tls" | "tcp",
-      host: sni === "-" ? pass[6] : sni,
-      port: Number(pass[7]),
-      destination: `${pass[6]}:${pass[7]}`,
+      host: sni === "-" ? pass[5] : sni,
+      port: Number(pass[6]),
+      destination: `${pass[5]}:${pass[6]}`,
     };
     // Never decrypted, so there is no status to report either way.
     if (refused) event.reason = "not-allowed";
-    else event.bytes = Number(pass[4]);
+    else event.bytes = Number(pass[3]);
     return event;
   }
 
@@ -141,6 +158,10 @@ export interface InspectLogScan {
    *  `startedAt`: a restart writes a second marker, which would otherwise
    *  vouch for a beginning that had already rotated away. */
   headIntact: boolean;
+  /** Lines that announce themselves as the proxy's own yet match none of the
+   *  formats above. Each one is an event the report cannot account for, so the
+   *  caller treats any at all as a log it cannot vouch for. */
+  unparsed: number;
 }
 
 /**
@@ -157,6 +178,7 @@ export async function scanInspectLog(
   const events: TrafficEvent[] = [];
   let startedAt: number | undefined;
   let headIntact: boolean | undefined;
+  let unparsed = 0;
   for await (const line of lines) {
     const event = parseProxyLine(line, isAudit);
     if (event) {
@@ -169,8 +191,12 @@ export async function scanInspectLog(
     const match = START.exec(trimmed);
     headIntact ??= match !== null;
     if (match && startedAt === undefined) startedAt = Number(match[1]) / 1000;
+    // The startup marker is excluded by its own prefix rather than by `match`:
+    // its stamp comes from qjs, and a qjs that failed would leave the prefix
+    // alone on the line, which is not evidence that traffic went unrecorded.
+    if (trimmed.startsWith(LINE_PREFIX) && !trimmed.startsWith(START_MARKER)) unparsed++;
   }
-  return { events, startedAt, headIntact: headIntact ?? false };
+  return { events, startedAt, headIntact: headIntact ?? false, unparsed };
 }
 
 /**

@@ -17,6 +17,7 @@ export async function buildUniversalReportData(
     blocked: blockedRawRows,
     blockedCount,
     logHeadIntact,
+    unparsed,
   } = await scanHaproxyLog(lines, isAudit);
   const blocked = annotateKnownBlocked(blockedRawRows, parameters.knownBlockedRules);
 
@@ -26,6 +27,9 @@ export async function buildUniversalReportData(
     passed,
     blocked,
     blockedCount,
-    logLooksPlausible: logHeadIntact,
+    // A decision line this cannot read is a decision the report is missing, and
+    // it may well have been a refusal, so it counts the same as a log whose
+    // beginning is gone.
+    logLooksPlausible: logHeadIntact && unparsed === 0,
   };
 }
