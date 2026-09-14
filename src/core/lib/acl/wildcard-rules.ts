@@ -3,7 +3,12 @@
  * Converts wildcard patterns to regex strings for HAProxy ACLs.
  */
 
-import { anchorRawRegex, splitRawRegexHost } from "./partial-wildcard.ts";
+import {
+  anchorRawRegex,
+  endsAnchored,
+  splitDomainFromPortPattern,
+  splitRawRegexHost,
+} from "./partial-wildcard.ts";
 
 /**
  * Split a whitespace-separated rules string into individual rule tokens.
@@ -29,6 +34,37 @@ export function buildRules(rulesInput: string): string[] {
 export function parseAndValidateRules(rulesInput: string | undefined): string[] {
   const rules = splitRuleTokens(rulesInput);
   rules.forEach(convertRule); // validate eagerly; throws on bad syntax
+  return rules;
+}
+
+/**
+ * `known_blocked_rules` only: give a rule that names no port the `:*` the
+ * syntax otherwise requires.
+ *
+ * Every other rule input is matched against a connection, where the port is
+ * part of what is being permitted. This one is matched against a row of the
+ * report, and a row for a name the resolver refused has no port at all,
+ * nothing having been connected to. Requiring one there means writing a port
+ * that was never involved, which is every DNS row.
+ */
+export function completeRulePort(rule: string): string {
+  if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
+  const regex = rule.slice(1);
+  if (splitDomainFromPortPattern(regex).portPattern !== null) return rule;
+  // Appended after a closing anchor the port would match nothing, so the
+  // anchor comes off and convertRule's anchorRawRegex puts it back.
+  return `~${endsAnchored(regex) ? regex.slice(0, -1) : regex}:\\d+`;
+}
+
+/**
+ * Split+validate `known_blocked_rules`, completing a missing port first. The
+ * completed text is what is returned, so everything downstream sees one shape.
+ *
+ * @throws {Error} if any rule has invalid wildcard/regex syntax
+ */
+export function parseAndValidateKnownBlockedRules(rulesInput: string | undefined): string[] {
+  const rules = splitRuleTokens(rulesInput).map(completeRulePort);
+  rules.forEach(convertRule);
   return rules;
 }
 

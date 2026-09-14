@@ -5,7 +5,11 @@ import * as core from "@actions/core";
 
 import { SetupError } from "./lib/errors.ts";
 import { ActionError, errorMessage } from "#core/lib/errors.ts";
-import { buildACLRules, parseRulesOrThrow } from "#core/lib/acl/rules.ts";
+import {
+  buildACLRules,
+  parseKnownBlockedRulesOrThrow,
+  parseRulesOrThrow,
+} from "#core/lib/acl/rules.ts";
 import { buildUrlRules } from "#core/lib/acl/url-rules.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
 import { listHostIpv4Addresses } from "./lib/host-addresses.ts";
@@ -95,7 +99,7 @@ async function main(): Promise<void> {
     httpRulesInput: core.getInput("allowed_http_rules"),
     ipRulesInput: core.getInput("allowed_ip_rules"),
   });
-  const knownBlockedRules = parseRulesOrThrow(core.getInput("known_blocked_rules"));
+  const knownBlockedRules = parseKnownBlockedRulesOrThrow(core.getInput("known_blocked_rules"));
   // Only inspect can enforce on a method or a path, so these are compiled here
   // purely to fail on a typo at setup rather than inside the container.
   const urlRulesInput = core.getInput("allowed_url_rules");

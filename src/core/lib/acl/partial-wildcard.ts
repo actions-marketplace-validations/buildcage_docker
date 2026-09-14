@@ -173,7 +173,7 @@ export function checkRawRegexHalf(
 }
 
 /** True if `regex` ends in a `$` that is an anchor rather than a literal. */
-function endsAnchored(regex: string): boolean {
+export function endsAnchored(regex: string): boolean {
   if (!regex.endsWith("$")) return false;
   let backslashes = 0;
   for (let i = regex.length - 2; i >= 0 && regex[i] === "\\"; i--) backslashes++;

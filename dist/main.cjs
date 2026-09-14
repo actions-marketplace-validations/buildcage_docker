@@ -560,6 +560,31 @@ function parseAndValidateRules(rulesInput) {
 	return rules.forEach(convertRule), rules;
 }
 /**
+* `known_blocked_rules` only: give a rule that names no port the `:*` the
+* syntax otherwise requires.
+*
+* Every other rule input is matched against a connection, where the port is
+* part of what is being permitted. This one is matched against a row of the
+* report, and a row for a name the resolver refused has no port at all,
+* nothing having been connected to. Requiring one there means writing a port
+* that was never involved, which is every DNS row.
+*/
+function completeRulePort(rule) {
+	if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
+	let regex = rule.slice(1);
+	return splitDomainFromPortPattern(regex).portPattern === null ? `~${endsAnchored(regex) ? regex.slice(0, -1) : regex}:\\d+` : rule;
+}
+/**
+* Split+validate `known_blocked_rules`, completing a missing port first. The
+* completed text is what is returned, so everything downstream sees one shape.
+*
+* @throws {Error} if any rule has invalid wildcard/regex syntax
+*/
+function parseAndValidateKnownBlockedRules(rulesInput) {
+	let rules = splitRuleTokens(rulesInput).map(completeRulePort);
+	return rules.forEach(convertRule), rules;
+}
+/**
 * Convert a single rule (wildcard or `~`-prefixed regex) to a regex string.
 *
 * The `~` case reuses the `inspect` engine's own validator (a port is always
@@ -611,6 +636,17 @@ var InvalidRulesError = class extends ActionError {};
 function parseRulesOrThrow(rulesInput) {
 	try {
 		return parseAndValidateRules(rulesInput);
+	} catch (e) {
+		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
+	}
+}
+/**
+* Same, for `known_blocked_rules`, whose missing ports are completed rather
+* than rejected; see completeRulePort.
+*/
+function parseKnownBlockedRulesOrThrow(rulesInput) {
+	try {
+		return parseAndValidateKnownBlockedRules(rulesInput);
 	} catch (e) {
 		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
 	}
@@ -8068,7 +8104,7 @@ async function main() {
 		httpsRulesInput: getInput("allowed_https_rules"),
 		httpRulesInput: getInput("allowed_http_rules"),
 		ipRulesInput: getInput("allowed_ip_rules")
-	}), knownBlockedRules = parseRulesOrThrow(getInput("known_blocked_rules")), urlRulesInput = getInput("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput("known_blocked_rules")), urlRulesInput = getInput("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
 	checkUrlAndTlsRuleSupport({
 		proxyEngine,
 		proxyMode,

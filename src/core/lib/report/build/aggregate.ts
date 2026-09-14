@@ -1,4 +1,4 @@
-import { convertRule } from "#core/lib/acl/wildcard-rules.ts";
+import { completeRulePort, convertRule } from "#core/lib/acl/wildcard-rules.ts";
 import { parseIdentifier } from "#core/lib/log/parse-identifier.ts";
 import { aggregate, type AggregatedEntry } from "#core/lib/log/aggregate.ts";
 import type { AllowedRequest } from "#core/lib/log/proxy-request-text.ts";
@@ -17,13 +17,15 @@ export interface ExpectedFlag {
  * Tag each aggregated blocked-hosts row with `expected: boolean` — true iff
  * its `host:port` matches at least one known_blocked_rules pattern.
  *
- * knownBlockedRules is as returned by parseAndValidateRules.
+ * knownBlockedRules is as returned by parseAndValidateKnownBlockedRules. A
+ * missing port is completed here too, so a value set straight in the
+ * environment behaves like one that came through the action's input.
  */
 export function annotateKnownBlocked(
   blockedRows: BlockedRow[],
   knownBlockedRules: string[],
 ): AnnotatedBlockedRow[] {
-  const matchers = knownBlockedRules.map((rule) => new RegExp(convertRule(rule)));
+  const matchers = knownBlockedRules.map((rule) => new RegExp(convertRule(completeRulePort(rule))));
   return blockedRows.map((row) => ({
     ...row,
     expected: matchers.some((re) => re.test(targetOf(row))),
