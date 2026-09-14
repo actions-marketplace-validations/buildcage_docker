@@ -61,12 +61,20 @@ else
     URL_RULES="$ALLOWED_URL_RULES"
 fi
 
+# Unset, HAProxy reads the container's own /etc/resolv.conf, so a name resolves
+# against the runner's own DNS rather than a hardcoded public one.
+if [ -z "$EXTERNAL_RESOLVER" ]; then
+    echo "init-inspect-cfg: resolver=(default, via /etc/resolv.conf)"
+else
+    echo "init-inspect-cfg: resolver=$EXTERNAL_RESOLVER"
+fi
+
 qjs --std -m /opt/buildcage/scripts/gen-configs.js \
     /etc/haproxy/haproxy.cfg \
     /etc/coredns/Corefile \
     "$GATEWAY" \
     "$HOST_ADDR_FILE" \
-    "${EXTERNAL_RESOLVER:-1.1.1.1 8.8.8.8}" \
+    "$EXTERNAL_RESOLVER" \
     "${PROXY_MODE:-restrict}" \
     "$HTTPS_RULES" \
     "$HTTP_RULES" \

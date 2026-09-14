@@ -39,6 +39,12 @@ export interface HaproxyConfigOptions extends RuleInputs {
    */
   resolverAddress?: string[];
   /**
+   * Resolve through the container's own /etc/resolv.conf rather than named
+   * upstreams, so a name resolves against the runner's own DNS. Ignored when
+   * resolverAddress names upstreams of its own.
+   */
+  useResolvConf?: boolean;
+  /**
    * The proxy's own address (the CoreDNS/gateway address), excluded from a
    * resolved destination like every other internal range; see
    * INTERNAL_RANGES.
@@ -269,8 +275,8 @@ function ruleBlock(rules: CompiledRule[], mode: string, scheme: "https" | "http"
 /**
  * Generate a haproxy.cfg from buildcage's rules.
  *
- * @throws {Error} if a host rule has invalid wildcard syntax, or if
- *   resolverAddress is given without proxyAddress
+ * @throws {Error} if a host rule has invalid wildcard syntax, or if a resolver
+ *   is configured without proxyAddress
  */
 export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): GeneratedHaproxyConfig {
   const opts = { ...DEFAULTS, ...options };
@@ -283,12 +289,17 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
   } = compileRuleSet(options);
 
   const resolvers = opts.resolverAddress ?? [];
+  const useResolvConf = resolvers.length === 0 && opts.useResolvConf === true;
+  // Every block below reads this rather than resolvers.length: one left behind
+  // would drop do-resolve on the resolv.conf path alone, sending the request
+  // wherever the client's own address said.
+  const hasResolver = resolvers.length > 0 || useResolvConf;
   // Required together, not just individually optional: without proxyAddress
   // here, a name do-resolve sends back to the proxy's own gateway would not
   // be caught by the internal-address guard below, silently rather than
   // loudly. This must fail closed instead of falling through.
-  if (resolvers.length > 0 && !opts.proxyAddress) {
-    throw new Error("proxyAddress is required whenever resolverAddress is given");
+  if (hasResolver && !opts.proxyAddress) {
+    throw new Error("proxyAddress is required whenever a resolver is configured");
   }
   // The proxy's own address, not the upstream(s) a name is resolved against:
   // see the resolverAddress/proxyAddress doc comments above.
@@ -332,17 +343,22 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     "",
   );
 
-  if (resolvers.length > 0) {
+  if (hasResolver) {
     l.push(
       "# Real resolution happens once a request has already passed the rule",
       "# ACLs below; the build's own resolver (CoreDNS) never gives out a real",
       "# answer, so this is the only place a name becomes an address.",
       "resolvers buildcage",
-      ...resolvers.map((addr, i) => `    nameserver ns${i + 1} ${addr}:53`),
+      ...(useResolvConf
+        ? ["    parse-resolv-conf"]
+        : resolvers.map((addr, i) => `    nameserver ns${i + 1} ${addr}:53`)),
       "    resolve_retries 3",
       "    timeout resolve 3s",
       "    timeout retry 1s",
       "    hold valid 30s",
+      // The 512-byte default truncates an answer carrying many records, and a
+      // truncated answer resolves nothing.
+      "    accepted_payload_size 8192",
       "",
     );
   }
@@ -407,7 +423,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
       "    tcp-request content set-var(txn.proto) str(tcp) unless { req.ssl_hello_type 1 }",
     );
 
-    if (tlsHosts.length > 0 && resolvers.length > 0) {
+    if (tlsHosts.length > 0 && hasResolver) {
       // Resolve the SNI ourselves and connect there, as for an inspected
       // request: an SNI is not a destination, so a ClientHello with an allowed
       // name must not become a tunnel to an address of the build's choosing.
@@ -530,7 +546,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     // for never triggers a real DNS query -- do-resolve is the only place a
     // real query leaves this proxy, and it must never run ahead of a deny.
     l.push(...ruleBlock(rules, opts.mode ?? "restrict", scheme));
-    if (resolvers.length > 0) {
+    if (hasResolver) {
       l.push(
         "    # Connect where WE resolve the Host, discarding the client's address,",
         "    # so a forged Host or doctored /etc/hosts cannot choose the target.",

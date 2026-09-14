@@ -325,6 +325,51 @@ describe("resolves only once a request already passed the rules", () => {
     expect(config.includes("nameserver ns2 8.8.8.8:53")).toBe(true);
   });
 
+  it("accepts an answer past the 512-byte default, which would resolve nothing", () => {
+    // An internal zone often serves enough records to pass it, and a
+    // truncated answer is no answer at all.
+    expect(config.includes("    accepted_payload_size 8192")).toBe(true);
+  });
+
+  it("falls back to the container's own resolv.conf, not a public resolver", () => {
+    const resolvConf = gen({ ...FULL, resolverAddress: [], useResolvConf: true });
+    expect(resolvConf.includes("    parse-resolv-conf")).toBe(true);
+    expect(resolvConf.includes("nameserver ns1")).toBe(false);
+  });
+
+  it("still resolves on both listeners when it does, rather than trusting the client", () => {
+    // do-resolve sits behind the same flag the nameserver lines do. Missed
+    // here, set-dst would never run and the connection would go wherever the
+    // client's own address said.
+    const resolvConf = gen({ ...FULL, resolverAddress: [], useResolvConf: true });
+    for (const frontend of ["https_in", "http_in"]) {
+      const segment = frontendSegment(resolvConf, frontend);
+      expect(segment.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)")).toBe(true);
+    }
+    expect(resolvConf.includes("tcp-request content do-resolve(txn.dst,buildcage,ipv4)")).toBe(
+      true,
+    );
+  });
+
+  it("prefers named upstreams over resolv.conf when both are given", () => {
+    const both = gen({ ...FULL, useResolvConf: true });
+    expect(both.includes("nameserver ns1 1.1.1.1:53")).toBe(true);
+    expect(both.includes("parse-resolv-conf")).toBe(false);
+  });
+
+  it("refuses to resolve through resolv.conf without the proxy's own address", () => {
+    // The internal-address guard is built from proxyAddress, so resolving
+    // without one has to fail closed.
+    expect(() =>
+      generateHaproxyConfig({
+        ...FULL,
+        resolverAddress: [],
+        proxyAddress: undefined,
+        useResolvConf: true,
+      }),
+    ).toThrow(/proxyAddress is required/);
+  });
+
   it("sets the resolved destination before the internal-address check, not after", () => {
     // %[dst] in the log-format reads whatever set-dst last wrote. CoreDNS
     // never hands the build a real address (see coredns-config.ts), so a
