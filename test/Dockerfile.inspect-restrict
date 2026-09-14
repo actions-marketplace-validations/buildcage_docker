@@ -184,6 +184,16 @@ RUN echo "=== [Blocked host] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
+# [Blocked host - a URL the size a signed one really is]
+# A release asset's signed URL runs to about a kilobyte, past the length
+# haproxy cuts a log line at by default. The marker is last on the logged line,
+# so an assertion finding it proves the whole line was recorded.
+RUN echo "=== [Blocked host, long URL] ===" && \
+    PAD=$(awk 'BEGIN{s="";while(length(s)<1200)s=s "A";print s}') && \
+    CODE=$($C "https://blocked.example.com/exfil?pad=$PAD&end=TAIL-MARKER") && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
+
 # [Allowlisted name that does not resolve]
 # CoreDNS answers every name with the proxy's own address regardless of
 # whether it is allowed, so the build's own lookup always succeeds and this

@@ -3,9 +3,9 @@ import { annotateKnownBlocked } from "./aggregate.ts";
 import type { GenReportParameters, UniversalReportData } from "../types.ts";
 
 /**
- * Pure — no I/O; the caller (report-action.node.ts) fetches lines/parameters
- * itself. An empty input naturally yields passed:[]/blocked:[]/blockedCount:0,
- * so no special-case branch is needed.
+ * Pure — no I/O; the caller fetches the lines and the parameters itself. An
+ * empty input naturally yields passed:[]/blocked:[]/blockedCount:0, so no
+ * special-case branch is needed.
  */
 export async function buildUniversalReportData(
   lines: AsyncIterable<string> | Iterable<string>,
@@ -17,6 +17,7 @@ export async function buildUniversalReportData(
     blocked: blockedRawRows,
     blockedCount,
     logHeadIntact,
+    unparsed,
   } = await scanHaproxyLog(lines, isAudit);
   const blocked = annotateKnownBlocked(blockedRawRows, parameters.knownBlockedRules);
 
@@ -26,6 +27,8 @@ export async function buildUniversalReportData(
     passed,
     blocked,
     blockedCount,
-    logLooksPlausible: logHeadIntact,
+    // A decision line this cannot read may well have been a refusal, so it
+    // counts the same as a log whose beginning is gone.
+    logLooksPlausible: logHeadIntact && unparsed === 0,
   };
 }

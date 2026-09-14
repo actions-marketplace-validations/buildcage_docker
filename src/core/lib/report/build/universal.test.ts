@@ -64,6 +64,16 @@ describe("buildUniversalReportData", () => {
     expect(result.logLooksPlausible).toBe(true);
   });
 
+  it("logLooksPlausible is false when a decision line could not be read", async () => {
+    const log = [
+      "buildcage haproxy starting",
+      '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "bad.com:4',
+    ].join("\n");
+    const result = await buildUniversalReportData(log.split("\n"), params());
+    expect(result.blockedCount).toBe(0);
+    expect(result.logLooksPlausible).toBe(false);
+  });
+
   it("blockedCount counts raw events, not aggregated rows", async () => {
     const log = [
       '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "bad.com:443" not-allowed',

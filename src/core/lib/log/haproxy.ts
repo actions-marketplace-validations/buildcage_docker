@@ -15,6 +15,9 @@ export interface HaproxyLogScanResult {
    *  beginning is gone, rotated away or erased. Only the marker counts:
    *  HAProxy's own output appears mid-run and could stand in for it. */
   logHeadIntact: boolean;
+  /** Lines carrying the marker below yet matching no format above. Each is a
+   *  decision the report cannot account for. */
+  unparsed: number;
 }
 
 // The quoted field and reason are restricted to the charset the generators
@@ -27,6 +30,10 @@ const logPattern =
 /** Echoed before HAProxy starts, so it is always the log's first line (see
  *  universal/files/s6-rc.d/haproxy/run). */
 const START_MARKER = "buildcage haproxy starting";
+
+/** What a decision line carries and nothing else does: the startup marker has
+ *  no bracket after the name. A cut line keeps it, only its tail being lost. */
+const DECISION_MARKER = "buildcage [";
 
 /**
  * Single forward pass over the log: matching lines fold directly into
@@ -44,6 +51,7 @@ export async function scanHaproxyLog(
   const passedDecision = isAudit ? "AUDIT" : "ALLOWED";
   let blockedCount = 0;
   let logHeadIntact: boolean | undefined;
+  let unparsed = 0;
 
   for await (const line of lines) {
     const m = line.match(logPattern);
@@ -51,6 +59,7 @@ export async function scanHaproxyLog(
       const trimmed = line.trim();
       if (trimmed === "") continue;
       logHeadIntact ??= trimmed.startsWith(START_MARKER);
+      if (trimmed.includes(DECISION_MARKER)) unparsed++;
       continue;
     }
     logHeadIntact ??= false;
@@ -80,5 +89,6 @@ export async function scanHaproxyLog(
     blocked: blocked.toSortedArray(),
     blockedCount,
     logHeadIntact: logHeadIntact ?? false,
+    unparsed,
   };
 }

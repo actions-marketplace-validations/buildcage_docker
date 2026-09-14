@@ -1,5 +1,8 @@
 global
-    log stdout format raw local0
+    # At the default of 1024 a long line is cut, and a cut line matches nothing
+    # at all, taking the decision it carried out of the report. len must
+    # precede format, or the config is rejected.
+    log stdout len 16384 format raw local0
     maxconn 2048
     user haproxy
     group haproxy

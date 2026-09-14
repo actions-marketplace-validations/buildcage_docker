@@ -44,7 +44,7 @@ export async function buildInspectReportData(
   // dependency between them) -- read concurrently rather than paying their
   // combined latency serially.
   const [
-    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact },
+    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact, unparsed },
     { events: dnsEvents, headIntact: dnsHeadIntact },
   ] = await Promise.all([
     scanInspectLog(proxyLines, isAudit),
@@ -76,8 +76,9 @@ export async function buildInspectReportData(
     // collapses them into.
     blockedCount: blockedRows.length,
     // A refused name is only ever in the resolver log, so either log losing
-    // its beginning loses evidence the other cannot vouch for.
-    logLooksPlausible: proxyHeadIntact && dnsHeadIntact,
+    // its beginning loses evidence the other cannot vouch for. A line this
+    // cannot read is the same gap mid-log: it may well have been a refusal.
+    logLooksPlausible: proxyHeadIntact && dnsHeadIntact && unparsed === 0,
     startedAt,
     timeline,
   };

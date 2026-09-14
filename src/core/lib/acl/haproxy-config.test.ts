@@ -123,6 +123,33 @@ describe("load-bearing directives", () => {
     expect(config.includes("http-request set-var(txn.pathq) 'pathq,regsub(")).toBe(true);
   });
 
+  it("sizes a log line for the longest request it accepts", () => {
+    // A cut line matches nothing, so the event it carried leaves no trace. The
+    // token order is load-bearing: the other one is rejected outright.
+    expect(config.includes("log stdout len 16384 format raw local0")).toBe(true);
+  });
+
+  it("puts the one field the build sizes at the end of every line it logs", () => {
+    // Whatever cuts a line then costs a URL's tail, not the decision.
+    const formats = config.split("\n").filter((line) => line.includes('log-format "buildcage'));
+    expect(formats.length).toBe(3);
+    expect(
+      formats.every(
+        (line) => line.endsWith('%[var(txn.pathq)]"') || line.endsWith('sni=%[var(txn.sni)]"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("records a passthrough's name, size and destination, its only trace", () => {
+    // Nothing decrypts one, so there is no request line to fall back on.
+    expect(
+      config.includes(
+        'log-format "buildcage %[date(0,ms)] pass %[var(txn.proto)] %B ts=%ts ' +
+          'dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"',
+      ),
+    ).toBe(true);
+  });
+
   it("strips whitespace, quotes and control chars from the Host header and the path before logging them", () => {
     // Both are attacker-controlled; ACL matching still runs on the untouched
     // req.hdr(host)/path fetches, only the logged copies are sanitized. Unlike
@@ -715,9 +742,11 @@ describe("audit mode", () => {
   });
 
   it("still records the time, the method and the full URL", () => {
-    expect(audit.includes('log-format "buildcage %[date(0,ms)] https %HM https://')).toBe(true);
-    expect(audit.includes('log-format "buildcage %[date(0,ms)] http %HM http://')).toBe(true);
-    expect(audit.includes("%[var(txn.pathq)]")).toBe(true);
+    expect(audit.includes('log-format "buildcage %[date(0,ms)] https %HM %ST %B ts=%ts')).toBe(
+      true,
+    );
+    expect(audit.includes('log-format "buildcage %[date(0,ms)] http %HM %ST %B ts=%ts')).toBe(true);
+    expect(audit.includes("https://%[capture.req.hdr(0)]%[var(txn.pathq)]")).toBe(true);
   });
 
   it("still connects only where it resolved the name", () => {
