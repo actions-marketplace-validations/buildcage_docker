@@ -131,14 +131,68 @@ describe("renderInspectDetails", () => {
     expect(md.includes("\\_")).toBe(false);
   });
 
+  it("names the record type a discovery lookup asked for, and says it got nothing", () => {
+    // SRV going unanswered costs apt nothing; TXT going unanswered is why a
+    // `mongodb+srv://` connection never got its options.
+    const md2 = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "discovery",
+          protocol: "dns",
+          host: "_http._tcp.deb.debian.org",
+          queryType: "SRV",
+        },
+      ],
+      t,
+    );
+    expect(md2.includes("DNS SRV _http._tcp.deb.debian.org")).toBe(true);
+    expect(md2.includes("no data (SRV is never served)")).toBe(true);
+    // Neither allowed nor refused, so it carries neither mark.
+    expect(md2.includes("🚫")).toBe(false);
+    expect(md2.includes("✅")).toBe(false);
+  });
+
+  it("shows a discovery lookup even though the host it belongs to connected", () => {
+    // Nothing connects to `_service._proto.<host>`, so this is not the
+    // connection to the plain name said twice.
+    const md2 = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "discovery",
+          protocol: "dns",
+          host: "_http._tcp.deb.debian.org",
+          queryType: "SRV",
+        },
+        {
+          time: t + 1,
+          action: "allow",
+          protocol: "http",
+          host: "deb.debian.org",
+          method: "GET",
+          url: "http://deb.debian.org/debian/InRelease",
+          status: 200,
+          bytes: 100,
+        },
+      ],
+      t,
+    );
+    expect((md2.split("```")[1] ?? "").trim().split("\n").length).toBe(2);
+  });
+
   it("renders nothing at all when there was no traffic", () => {
     expect(renderInspectDetails([], t)).toBe("");
   });
 
-  it("renders nothing when only resolved names were seen", () => {
-    expect(
-      renderInspectDetails([{ time: t, action: "allow", protocol: "dns", host: "a.com" }], t),
-    ).toBe("");
+  it("keeps a name that resolved and was never connected to", () => {
+    // Its own sole trace: a rule wide enough to cover something the build
+    // only looked at is exactly what an audit run is meant to surface.
+    const only = renderInspectDetails(
+      [{ time: t, action: "allow", protocol: "dns", host: "a.com" }],
+      t,
+    );
+    expect(only.includes("DNS a.com -> resolved")).toBe(true);
   });
 });
 

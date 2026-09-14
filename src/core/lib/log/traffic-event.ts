@@ -3,8 +3,14 @@
  * the log parser (inspect.ts) and consumed by the report layer.
  */
 
-/** What a rule permitted, or would have permitted had one been enforced. */
-export type TrafficAction = "allow" | "block" | "audit";
+/**
+ * What a rule permitted, or would have permitted had one been enforced.
+ *
+ * `discovery` is none of those: no rule decided it and none could. Folding it
+ * into `block` would put a row in the report no rule could take away, and fail
+ * a build under fail_on_blocked over a lookup that harmed nothing.
+ */
+export type TrafficAction = "allow" | "block" | "audit" | "discovery";
 
 export type TrafficProtocol = "https" | "http" | "tls" | "tcp" | "dns";
 
@@ -18,6 +24,9 @@ export interface TrafficEvent {
   host: string;
   /** Absent for dns, which connects to nothing. */
   port?: number;
+  /** dns only, and only where the type is the point: a discovery lookup, or a
+   *  refused service name. */
+  queryType?: string;
   /** http and https only. */
   method?: string;
   /** http and https only. Absolute, query string included. */
@@ -32,16 +41,40 @@ export interface TrafficEvent {
   destination?: string;
 }
 
+/** The hosts a run connected to, for isRedundantDns. CoreDNS lowercases what it
+ *  logs, HAProxy repeats the authority verbatim, so both sides are folded. */
+export interface ConnectedHosts {
+  any: Set<string>;
+  blocked: Set<string>;
+}
+
+/** Index a timeline once. The check below runs for every lookup, and rescanning
+ *  the whole timeline for each would be quadratic. */
+export function connectedHosts(timeline: TrafficEvent[]): ConnectedHosts {
+  const connected: ConnectedHosts = { any: new Set(), blocked: new Set() };
+  for (const event of timeline) {
+    if (event.protocol === "dns") continue;
+    const host = event.host.toLowerCase();
+    connected.any.add(host);
+    if (event.action === "block") connected.blocked.add(host);
+  }
+  return connected;
+}
+
 /**
- * A blocked DNS-only lookup is worth keeping on its own -- it is the sole
- * trace of a name the build never actually connected to -- but once the same
- * host also shows up as a blocked request elsewhere in the timeline, the DNS
- * line says nothing that request does not already say, and only doubles the
- * row.
+ * A lookup is the sole trace of a name the build never connected to, and worth
+ * keeping for that. Once a connection to the same name also appears, it says
+ * nothing that connection does not and only doubles the row.
+ *
+ * A refused lookup takes a refused connection to cover it. An allowed request
+ * for a name the resolver refused would mean the two disagreed about that host,
+ * which is worth a reader seeing rather than collapsing away.
+ *
+ * A discovery lookup is never redundant: it asks about `_service._proto.<host>`,
+ * which nothing connects to, and its query type is the point of the row.
  */
-export function isRedundantBlockedDns(event: TrafficEvent, timeline: TrafficEvent[]): boolean {
-  if (event.protocol !== "dns" || event.action !== "block") return false;
-  return timeline.some(
-    (e) => e !== event && e.protocol !== "dns" && e.host === event.host && e.action === "block",
-  );
+export function isRedundantDns(event: TrafficEvent, connected: ConnectedHosts): boolean {
+  if (event.protocol !== "dns" || event.action === "discovery") return false;
+  const host = event.host.toLowerCase();
+  return event.action === "block" ? connected.blocked.has(host) : connected.any.has(host);
 }

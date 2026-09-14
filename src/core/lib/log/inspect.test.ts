@@ -223,6 +223,64 @@ describe("scanInspectDnsLog", () => {
     expect((await scanInspectDnsLog([])).headIntact).toBe(false);
   });
 
+  it("reads a discovery lookup as its own kind of event, neither allowed nor blocked", async () => {
+    const { events } = await scanInspectDnsLog([
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns discovery name=_http._tcp.deb.debian.org. type=SRV",
+    ]);
+    expect(events.length).toBe(1);
+    expect(events[0].action).toBe("discovery");
+    expect(events[0].host).toBe("_http._tcp.deb.debian.org");
+    expect(events[0].queryType).toBe("SRV");
+    // No rule refused it, so there is no reason to give for one.
+    expect(events[0].reason === undefined).toBe(true);
+  });
+
+  it("keeps a discovery lookup apart per type, the type being the point of it", async () => {
+    // `mongodb+srv://` asks both, and only the TXT explains a connection that
+    // never got its options.
+    const { events } = await scanInspectDnsLog([
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns discovery name=_mongodb._tcp.c0.example.net. type=SRV",
+      "2026-08-23 16:45:00.100000000  [INFO] buildcage dns discovery name=_mongodb._tcp.c0.example.net. type=SRV",
+      "2026-08-23 16:45:00.200000000  [INFO] buildcage dns discovery name=_mongodb._tcp.c0.example.net. type=TXT",
+    ]);
+    expect(events.length).toBe(2);
+    expect(events.map((e) => e.queryType).join(",")).toBe("SRV,TXT");
+  });
+
+  it("reads a refused service name as a refusal that names its own remedy", async () => {
+    // Which names are service names is decided in the Corefile; this only
+    // reads the verb it logged them under.
+    const { events } = await scanInspectDnsLog([
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns service-denied name=_mongodb._tcp.c0.example.net. type=SRV",
+    ]);
+    expect(events.length).toBe(1);
+    expect(events[0].action).toBe("block");
+    expect(events[0].reason).toBe("dns-service-not-allowed");
+    expect(events[0].queryType).toBe("SRV");
+  });
+
+  it("reports a refused service name once, whatever it was asked as", async () => {
+    // getaddrinfo(AF_UNSPEC) asks A and AAAA for one name; the report is about
+    // the name, so it keeps the type it was first asked as.
+    const { events } = await scanInspectDnsLog([
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns service-denied name=_a._tcp.x.example. type=A",
+      "2026-08-23 16:45:00.100000000  [INFO] buildcage dns service-denied name=_a._tcp.x.example. type=AAAA",
+    ]);
+    expect(events.length).toBe(1);
+    expect(events[0].queryType).toBe("A");
+  });
+
+  it("calls a discovery lookup the same thing in audit mode", async () => {
+    // No rule decided it either way, so there is nothing for audit to soften.
+    const { events } = await scanInspectDnsLog(
+      [
+        "2026-08-23 16:45:00.000000000  [INFO] buildcage dns discovery name=_a._tcp.x.example. type=SRV",
+      ],
+      true,
+    );
+    expect(events[0].action).toBe("discovery");
+  });
+
   it("headIntact is false when coredns' own output stands where the marker should be", async () => {
     // The errors plugin writes mid-run, so a flood can leave one of these first.
     const noise = [

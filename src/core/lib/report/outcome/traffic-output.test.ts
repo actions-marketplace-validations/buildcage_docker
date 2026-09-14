@@ -45,10 +45,27 @@ const EVENTS: TrafficEvent[] = [
     reason: "dns-not-allowed",
   },
   { time: t + 4, action: "allow", protocol: "dns", host: "a.example.com" },
+  {
+    time: t + 5,
+    action: "discovery",
+    protocol: "dns",
+    host: "_http._tcp.deb.debian.org",
+    queryType: "SRV",
+  },
 ];
 
 describe("buildTrafficRecords", () => {
   const records = buildTrafficRecords(EVENTS, t);
+
+  it("carries a discovery lookup with the record type it asked for", () => {
+    // The summary keeps these out of its tables, so the artifact is the only
+    // place a machine reader finds them.
+    const r = records[records.length - 1];
+    expect(r.action).toBe("discovery");
+    expect(r.protocol).toBe("dns");
+    expect(r.queryType).toBe("SRV");
+    expect(r.port === undefined).toBe(true);
+  });
 
   it("carries the fields that apply to a request", () => {
     const r = records[0];
@@ -112,10 +129,10 @@ describe("buildTrafficRecords", () => {
     expect(dns.bytes === undefined).toBe(true);
   });
 
-  it("keeps names that merely resolved, unlike the summary", () => {
-    // Read by machines, where the volume costs nothing and a name resolved but
-    // never connected to is how a too-wide rule being probed shows up.
-    expect(records.filter((r) => r.protocol === "dns").length).toBe(2);
+  it("keeps a name the build connected on, which the summary folds away", () => {
+    // Read by machines, where the volume costs nothing. The summary drops a
+    // lookup the request that followed already accounts for; this keeps both.
+    expect(records.filter((r) => r.protocol === "dns").length).toBe(3);
   });
 
   it("orders by time, so the list reads as the sequence the build made", () => {
@@ -140,7 +157,7 @@ describe("writeTrafficFile", () => {
     writeTrafficFile(file, buildTrafficRecords(EVENTS, t));
     const text = readFileSync(file, "utf8");
     expect(text.includes('\n  {\n    "time"')).toBe(true);
-    expect(JSON.parse(text).length).toBe(5);
+    expect(JSON.parse(text).length).toBe(6);
   });
 });
 

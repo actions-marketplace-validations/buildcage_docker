@@ -369,6 +369,33 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
   under `in-addr.arpa` or `ip6.arpa`, `SECRET-DATA.in-addr.arpa` included, misses the view and
   falls through to the blocks above, so appending a reverse suffix is no way out of the report.
 
+  Service-discovery names get a block of the same shape, logging
+  `buildcage dns discovery name=... type=...`. No rule can permit one: this resolver returns no
+  discovery record to anybody, so reporting the lookup as denied would put a row in the report that
+  no rule could ever take away, and fail the build under `fail_on_blocked` over a lookup the caller
+  falls back from on its own. apt asks for `_http._tcp.<repo>` on every repository it fetches from,
+  which is how this shows up in practice. The report keeps these out of both host tables and shows
+  them in the timeline instead, carrying the query type, which is the difference between a fallback
+  nobody notices and a `mongodb+srv://` connection that fails outright.
+
+  Its view is what stops that verb from becoming a hiding place. Three things have to hold: the name
+  is shaped like a service name, the host below it is one the rules allow, and the type is one of
+  the four defined at such a name (`SRV`, `TXT`, `TLSA`, `URI`). A type nobody has taught the block
+  about is not one to exempt on a guess.
+
+  Every other service name gets a block of its own after the allowlist, logging
+  `buildcage dns service-denied name=... type=...`. Note that only this second block sits after the
+  allowlist: the discovery block sits before it, so a service name under an allowed host reads as
+  `discovery` even when a rule names it outright. That is the more accurate of the two, the record
+  being unserved either way. It is a refusal like any other, kept apart only
+  so the report can name the remedy: the host below the name, never the name itself, which no rule
+  can make resolve. That becomes `dns-service-not-allowed` in the Blocked Hosts table. Sitting after
+  the allowlist is what leaves a name someone did write a rule for reading as allowed.
+
+  Between them, these two blocks are the only place a service name is recognised. The report reads
+  the verbs they log under, so nothing in `src/core/lib/log/` or `src/core/lib/report/` has to know
+  the shape, and the two cannot drift apart.
+
 - **`buildcage-runc`** (`docker/inspect/buildcage-runc/`) wraps BuildKit's own `buildkit-runc`,
   selected via `[worker.oci] binary` in `buildkitd.toml`. For the subcommands that carry an OCI
   bundle, it sets the CA-trust environment variables (see

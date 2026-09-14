@@ -1,5 +1,5 @@
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
-import { isRedundantBlockedDns, type TrafficEvent } from "./traffic-event.ts";
+import { connectedHosts, isRedundantDns, type TrafficEvent } from "./traffic-event.ts";
 
 function event(
   partial: Partial<TrafficEvent> & Pick<TrafficEvent, "protocol" | "action" | "host">,
@@ -7,48 +7,90 @@ function event(
   return { time: 0, ...partial };
 }
 
-describe("isRedundantBlockedDns", () => {
-  it("is redundant once a blocked request for the same host also appears", () => {
+/** The check as a caller makes it: index the timeline, then ask about one event. */
+function redundant(subject: TrafficEvent, timeline: TrafficEvent[]): boolean {
+  return isRedundantDns(subject, connectedHosts(timeline));
+}
+
+describe("isRedundantDns", () => {
+  it("is redundant once a refused request for the same host also appears", () => {
     const dns = event({ protocol: "dns", action: "block", host: "notallowed.example.com" });
     const request = event({ protocol: "https", action: "block", host: "notallowed.example.com" });
-    expect(isRedundantBlockedDns(dns, [dns, request])).toBe(true);
+    expect(redundant(dns, [dns, request])).toBe(true);
   });
 
-  it("is not redundant when the DNS block is its only trace", () => {
+  it("is not redundant when the lookup is its only trace", () => {
     const dns = event({
       protocol: "dns",
       action: "block",
       host: "secret-in-a-name.attacker.example",
     });
-    expect(isRedundantBlockedDns(dns, [dns])).toBe(false);
+    expect(redundant(dns, [dns])).toBe(false);
   });
 
-  it("is not made redundant by a blocked request for a different host", () => {
+  it("is not made redundant by a request for a different host", () => {
     const dns = event({ protocol: "dns", action: "block", host: "a.example.com" });
     const request = event({ protocol: "https", action: "block", host: "b.example.com" });
-    expect(isRedundantBlockedDns(dns, [dns, request])).toBe(false);
+    expect(redundant(dns, [dns, request])).toBe(false);
   });
 
-  it("only a blocked non-dns record for the same host counts, not an allowed one", () => {
+  it("keeps a refused lookup that an allowed request contradicts", () => {
+    // The resolver and the proxy disagreeing about a host is worth seeing, not
+    // collapsing away.
     const dns = event({ protocol: "dns", action: "block", host: "a.example.com" });
     const request = event({ protocol: "https", action: "allow", host: "a.example.com" });
-    expect(isRedundantBlockedDns(dns, [dns, request])).toBe(false);
+    expect(redundant(dns, [dns, request])).toBe(false);
+  });
+
+  it("drops a resolved lookup once anything connected on it", () => {
+    const dns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
+    const request = event({ protocol: "https", action: "allow", host: "a.example.com" });
+    expect(redundant(dns, [dns, request])).toBe(true);
+  });
+
+  it("matches a host the request spelled with different case", () => {
+    // CoreDNS lowercases what it logs, HAProxy repeats the authority verbatim.
+    const dns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
+    const request = event({ protocol: "https", action: "allow", host: "A.Example.COM" });
+    expect(redundant(dns, [dns, request])).toBe(true);
   });
 
   it("ignores a second DNS record for the same host", () => {
-    // Two refused DNS records (e.g. the plain name and a search-domain
-    // variant of it) do not make each other redundant -- only a non-dns
-    // block does.
+    // Two records for one name (the plain name and a search-domain variant of
+    // it, say) do not make each other redundant. Only a connection does.
     const dns1 = event({ protocol: "dns", action: "block", host: "blocked.example.com" });
     const dns2 = event({ protocol: "dns", action: "block", host: "blocked.example.com" });
-    expect(isRedundantBlockedDns(dns1, [dns1, dns2])).toBe(false);
+    expect(redundant(dns1, [dns1, dns2])).toBe(false);
   });
 
-  it("does not apply to a non-dns or non-blocked event", () => {
+  it("never applies to a discovery lookup, whose name nothing connects to", () => {
+    // A service name resolves to the proxy like any other, so a client that
+    // did connect to one must not take the row carrying the type away.
+    const lookup = event({
+      protocol: "dns",
+      action: "discovery",
+      host: "_http._tcp.deb.debian.org",
+      queryType: "SRV",
+    });
+    const request = event({ protocol: "http", action: "allow", host: "_http._tcp.deb.debian.org" });
+    expect(redundant(lookup, [lookup, request])).toBe(false);
+  });
+
+  it("does not apply to a non-dns event", () => {
     const request = event({ protocol: "https", action: "block", host: "a.example.com" });
-    const allowedDns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
-    expect(isRedundantBlockedDns(request, [request])).toBe(false);
-    expect(isRedundantBlockedDns(allowedDns, [allowedDns, request])).toBe(false);
+    expect(redundant(request, [request])).toBe(false);
+  });
+});
+
+describe("connectedHosts", () => {
+  it("indexes only what was connected to, lowercased and split by outcome", () => {
+    const connected = connectedHosts([
+      event({ protocol: "https", action: "allow", host: "Allowed.Example.COM" }),
+      event({ protocol: "https", action: "block", host: "Refused.Example.COM" }),
+      event({ protocol: "dns", action: "block", host: "lookup.example.com" }),
+    ]);
+    expect([...connected.any].sort().join(",")).toBe("allowed.example.com,refused.example.com");
+    expect([...connected.blocked].join(",")).toBe("refused.example.com");
   });
 });
 

@@ -146,11 +146,12 @@ if [ -n "$TRAFFIC" ] \
   && echo "$TRAFFIC" | node -e '
       const rows = JSON.parse(require("fs").readFileSync(0, "utf8"));
       const requests = rows.filter((r) => r.protocol === "https" || r.protocol === "http");
-      // audit makes no allow decision, so saying "allow" would claim one.
+      // audit makes no allow decision, so saying "allow" would claim one. A
+      // discovery lookup is decided by no rule at all, in either mode.
       const ok = requests.some((r) => r.method === "POST")
         && requests.some((r) => (r.url || "").includes(":9080/"))
         && requests.every((r) => r.status === 200)
-        && rows.every((r) => r.action === "audit");
+        && rows.every((r) => r.action === "audit" || r.action === "discovery");
       process.exit(ok ? 0 : 1);
     '; then
   pass "valid JSON, every record audited, covering each method and port observed"

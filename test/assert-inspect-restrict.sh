@@ -216,6 +216,27 @@ else
 fi
 echo ""
 
+echo "[DNS] a service-discovery lookup is recorded without being judged:"
+# No discovery record is ever served, so no rule could make this lookup
+# succeed and a denied row for it would fail a build that worked.
+if grep -qF "buildcage dns discovery name=_http._tcp.allowed.example.com. type=SRV" <<< "$DNS_LOG"; then
+  pass "the service-discovery lookup was recorded under its own verb, with its type"
+else
+  fail "the service-discovery lookup was not recorded"
+fi
+if grep -qF "buildcage dns denied name=_http._tcp.allowed.example.com" <<< "$DNS_LOG"; then
+  fail "the service-discovery lookup was recorded as a denied name"
+else
+  pass "the service-discovery lookup was not recorded as denied"
+fi
+# Only a service name under a host the rules allow is treated that way, or
+# prefixing `_a._tcp.` to an exfiltration name would be a way out.
+if grep -qiF "buildcage dns service-denied name=_mongodb._tcp.secret-in-a-name.attacker.example" <<< "$DNS_LOG"; then
+  pass "a service name under a host no rule allows was still refused and recorded"
+else
+  fail "a service name under a host no rule allows was not recorded as refused"
+fi
+
 echo "[DNS] a reverse lookup is recorded without being judged:"
 # No rule can name a reverse zone, so calling one denied would put a row in the
 # report that writing a rule could never take away. The resolver still records
@@ -329,6 +350,26 @@ else
   fail "an invented name under the reverse zone was dropped from the report too"
 fi
 
+# The lookup no rule could permit stays out of the blocked table; the timeline
+# carries it instead, with the type.
+if grep -qE '_http\._tcp\.allowed\.example\.com.*dns-(service-)?not-allowed' <<< "$REPORT_MARKDOWN"; then
+  fail "a service-discovery lookup under an allowed host was reported as blocked"
+else
+  pass "a service-discovery lookup under an allowed host was not reported as blocked"
+fi
+if grep -qF "DNS SRV _http._tcp.allowed.example.com -> no data" <<< "$REPORT_MARKDOWN"; then
+  pass "the service-discovery lookup is in the timeline, with its type"
+else
+  fail "the service-discovery lookup is missing from the timeline"
+fi
+# The refusal names its own remedy: the host below the name, which is what a
+# rule can be written against.
+if grep -qiF "dns-service-not-allowed" <<< "$REPORT_MARKDOWN"; then
+  pass "a refused service name is reported with a reason of its own"
+else
+  fail "a refused service name was reported as an ordinary refused name"
+fi
+
 # Listing a name that resolved doubles every line, and the request that
 # followed already says it did.
 if grep -qE 'DNS allowed\.example\.com ->' <<< "$REPORT_MARKDOWN"; then
@@ -363,7 +404,7 @@ if [ -n "$TRAFFIC" ] \
         // Only inspect can report these two at all.
         (r) => r.protocol === "tls" && r.host === "tlspass.example.com" && r.bytes > 0,
         (r) => r.protocol === "dns" && r.action === "block" && r.reason === "dns-not-allowed",
-        // Unlike the summary, the JSON keeps names that merely resolved.
+        // The JSON keeps a lookup the summary folds into the request that followed.
         (r) => r.protocol === "dns" && r.action === "allow",
       ];
       const ok = need.every((f) => rows.some(f))

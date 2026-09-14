@@ -5,7 +5,18 @@
  *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> dst=<addr>:<port> <url>
  *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> dst=<addr>:<port> sni=<name|->
  *   <timestamp>  [INFO] buildcage dns <allowed|denied> name=<name>.
+ *   <timestamp>  [INFO] buildcage dns discovery name=<name>. type=<qtype>
+ *   <timestamp>  [INFO] buildcage dns service-denied name=<name>. type=<qtype>
  *   buildcage haproxy starting <ms>
+ *
+ * The discovery line is a lookup no rule decided: a `_service._proto.<host>`
+ * name is answered NODATA whatever the rules say. It becomes an event, never
+ * an allowed or blocked one.
+ *
+ * The service-denied line is a refusal like any other, kept apart so the report
+ * can name the remedy: the host below the name, never the name itself. Which
+ * names are service names is decided in the Corefile alone, so nothing here
+ * recognises the shape.
  *
  * A fifth, `buildcage dns reverse name=<name>.`, is deliberately none of them:
  * no rule can name a reverse zone, so an event for it would be a report row no
@@ -36,6 +47,8 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 const REQUEST = /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+) (\S+)$/;
 const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
+const DNS_DISCOVERY = /^(\S+ \S+)\s+.*buildcage dns discovery name=(\S+?)\.? type=(\S+)$/;
+const DNS_SERVICE_DENIED = /^(\S+ \S+)\s+.*buildcage dns service-denied name=(\S+?)\.? type=(\S+)$/;
 /** Echoed before CoreDNS starts, so it is always the log's first line (see
  *  inspect/files/s6-rc.d/coredns/run). s6-log stamps this log, hence the
  *  suffix test. */
@@ -49,6 +62,12 @@ const LINE_PREFIX = "buildcage ";
 const START_MARKER = "buildcage haproxy starting";
 /** Same marker, capturing the millisecond epoch it was printed with. */
 const START = /^buildcage haproxy starting (\d+)$/;
+
+/** The resolver log's timestamp, in seconds since the epoch. */
+function timeOf(stamp: string): number {
+  const parsed = Date.parse(`${stamp.replace(" ", "T")}Z`);
+  return Number.isNaN(parsed) ? 0 : parsed / 1000;
+}
 
 /**
  * Whether buildcage ended the exchange, rather than an origin answering.
@@ -214,6 +233,10 @@ export function hasProxyStarted(lines: Iterable<string>): boolean {
  * reached for, not how many times a resolver was consulted. An allowed answer
  * is decisive, so an AAAA refusal cannot mask an A that resolved.
  *
+ * A discovery lookup is kept per name and type: the same name asked as SRV and
+ * as TXT are two different things. A refused service name is kept per name
+ * like any other refusal, carrying the first type it was asked as.
+ *
  * The time comes from s6-log rather than from CoreDNS, whose log plugin has no
  * timestamp replacement of its own. CoreDNS lowercases the name it logs, so a
  * name that carried information in its capitalisation is recorded without it.
@@ -227,18 +250,38 @@ export async function scanInspectDnsLog(
   isAudit = false,
 ): Promise<InspectDnsLogScan> {
   const seen = new Map<string, { time: number; allowed: boolean }>();
+  const discovery = new Map<string, { time: number; host: string; queryType: string }>();
+  const service = new Map<string, { time: number; host: string; queryType: string }>();
   let headIntact: boolean | undefined;
   for await (const line of lines) {
     const trimmed = line.trim();
     if (trimmed !== "") headIntact ??= trimmed.endsWith(DNS_START_MARKER);
     const match = DNS.exec(trimmed);
-    if (!match) continue;
-    const parsed = Date.parse(`${match[1].replace(" ", "T")}Z`);
-    const time = Number.isNaN(parsed) ? 0 : parsed / 1000;
-    const allowed = match[2] === "allowed";
-    const existing = seen.get(match[3]);
-    if (existing) existing.allowed ||= allowed;
-    else seen.set(match[3], { time, allowed });
+    if (match) {
+      const time = timeOf(match[1]);
+      const allowed = match[2] === "allowed";
+      const existing = seen.get(match[3]);
+      if (existing) existing.allowed ||= allowed;
+      else seen.set(match[3], { time, allowed });
+      continue;
+    }
+    const lookup = DNS_DISCOVERY.exec(trimmed);
+    if (lookup) {
+      const key = `${lookup[2]}\t${lookup[3]}`;
+      if (!discovery.has(key)) {
+        discovery.set(key, { time: timeOf(lookup[1]), host: lookup[2], queryType: lookup[3] });
+      }
+      continue;
+    }
+    const refused = DNS_SERVICE_DENIED.exec(trimmed);
+    if (!refused) continue;
+    if (!service.has(refused[2])) {
+      service.set(refused[2], {
+        time: timeOf(refused[1]),
+        host: refused[2],
+        queryType: refused[3],
+      });
+    }
   }
   const events = [...seen.entries()].map(([host, { time, allowed }]) => {
     const event: TrafficEvent = {
@@ -250,5 +293,18 @@ export async function scanInspectDnsLog(
     if (!allowed) event.reason = "dns-not-allowed";
     return event;
   });
+  for (const { time, host, queryType } of discovery.values()) {
+    events.push({ time, action: "discovery", protocol: "dns", host, queryType });
+  }
+  for (const { time, host, queryType } of service.values()) {
+    events.push({
+      time,
+      action: actionFor(true, isAudit),
+      protocol: "dns",
+      host,
+      queryType,
+      reason: "dns-service-not-allowed",
+    });
+  }
   return { events, headIntact: headIntact ?? false };
 }

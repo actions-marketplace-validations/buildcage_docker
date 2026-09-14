@@ -338,6 +338,31 @@ deprecated and receives no further development; see
 [Explicit Proxy Engine](./docs/explicit-engine.md) if you already depend on it, most commonly for
 its BuildKit-native SLSA provenance integration.
 
+### Service discovery
+
+Neither engine's resolver returns a discovery record. It has no upstream, so it has nothing to
+return: `SRV`, `TXT`, `TLSA` and `URI` queries come back empty, and the build connects to the name a
+rule allowed rather than to one a nameserver picked for it.
+
+That is what makes a rule mean what it says. `_http._tcp.deb.debian.org` really does carry an `SRV`
+record, pointing at `debian.map.fastlydns.net`, so an apt that followed it would connect to a Fastly
+mapping name no allowlist mentions and be refused there. Getting nothing back, apt uses
+`deb.debian.org`, and the rule you wrote is the host it reaches. Every protocol that treats `SRV` as
+a discovery layer falls back the same way, and an empty answer is what the great majority of names
+on the internet return for `SRV` in any case.
+
+What this does break is a client with no fallback, where the record is the only way it can find the
+service at all. A `mongodb+srv://` connection string is the one to expect: use `mongodb://` with the
+shard hostnames written out and allowlist those instead. Active Directory and Kerberos discovery
+have the same shape.
+
+Under `inspect`, a lookup for a `_service._proto.<host>` name is reported as `discovery`, with the
+record type it asked for, in [Communication details](#report-action) and the
+[traffic artifact](#traffic-artifact), as long as that host is one the rules allow. It is not
+counted as blocked: the lookup is what allowing the host costs, and no rule could make it resolve.
+A service name under any other host is reported as blocked, with the reason
+`dns-service-not-allowed`; see [Blocked service names](#blocked-service-names).
+
 For the architecture and threat model behind each engine, see
 [Security Details](./docs/security.md). For implementation internals, see the
 [Development Guide](./docs/development.md).
@@ -432,28 +457,54 @@ with `fail_on_blocked: true`, and a `::notice::` is emitted instead of `::error:
 blocked connection still fails the step. Once `known_blocked_rules` is set, the Blocked Hosts table
 gains an **Expected** column (✅) marking the matched rows.
 
+A name the build looked up and never connected to gets a row of its own, with `DNS` as the rule kind
+and no port. Under `inspect` that is the only trace of a name the build reached for and did not use,
+which is how a rule wider than the build needs shows up. A name that was connected to has no such
+row: the request is already there.
+
+### Blocked service names
+
+A row whose reason is `dns-service-not-allowed` is a
+[service-discovery name](#service-discovery): `_mongodb._tcp.cluster0.x.mongodb.net` and the like.
+**Neither way of clearing it makes the record resolve.** Buildcage's resolver serves no discovery
+record at all, so the answer stays empty whatever you write; what changes is only whether the row
+fails the step.
+
+1. **Allow the host the name belongs to** (`cluster0.x.mongodb.net`). The lookup is then reported as
+   `discovery` instead and leaves the table, and the build may connect to that host. This is the
+   useful one whenever the build was trying to reach the service.
+2. **List the service name in `known_blocked_rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
+   The row is marked Expected and stops failing the step. Nothing else changes, and the host stays
+   unreachable.
+
+Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
+it reads as permission to reach something that nothing can connect to, and the record still does not
+resolve.
+
 ### Traffic artifact
 
 `upload_traffic_artifact: true` uploads the same timeline as a `traffic.json` inside an artifact
 named `buildcage-traffic` (`buildcage-traffic-<builder_name>` when the builder is not the default
-one). It carries name lookups that only resolved as well, which is how a too-wide rule being probed
-shows up. `universal` never sees a method or a URL, so this input only does anything under
+one). It carries every name lookup, including the ones the summary folds into the request that
+followed them, and [service-discovery lookups](#service-discovery) with the record type that was
+asked for. `universal` never sees a method or a URL, so this input only does anything under
 `inspect`.
 
-| Field         | Always | Notes                                                  |
-| ------------- | ------ | ------------------------------------------------------ |
-| `time`        | yes    | ISO 8601 UTC                                           |
-| `elapsed`     |        | since the proxy started, fixed `HH:MM:SS.mmm`          |
-| `action`      | yes    | `allow`, `block`, or `audit` when nothing was enforced |
-| `protocol`    | yes    | `https`, `http`, `tls`, `tcp`, `dns`                   |
-| `host`        | yes    | the name asked for, or the address when there was none |
-| `port`        |        | absent for `dns`, which connects to nothing            |
-| `method`      |        | `http` and `https` only                                |
-| `url`         |        | `http` and `https` only                                |
-| `status`      |        | only when something answered                           |
-| `bytes`       |        | absent for a refusal and for `dns`                     |
-| `reason`      |        | only when `action` is `block`                          |
-| `destination` |        | the address it actually resolved to; absent for `dns`  |
+| Field         | Always | Notes                                                            |
+| ------------- | ------ | ---------------------------------------------------------------- |
+| `time`        | yes    | ISO 8601 UTC                                                     |
+| `elapsed`     |        | since the proxy started, fixed `HH:MM:SS.mmm`                    |
+| `action`      | yes    | `allow`, `block`, `audit` when nothing was enforced, `discovery` |
+| `protocol`    | yes    | `https`, `http`, `tls`, `tcp`, `dns`                             |
+| `host`        | yes    | the name asked for, or the address when there was none           |
+| `port`        |        | absent for `dns`, which connects to nothing                      |
+| `queryType`   |        | the record asked for; `discovery` rows and refused service names |
+| `method`      |        | `http` and `https` only                                          |
+| `url`         |        | `http` and `https` only                                          |
+| `status`      |        | only when something answered                                     |
+| `bytes`       |        | absent for a refusal and for `dns`                               |
+| `reason`      |        | only when `action` is `block`                                    |
+| `destination` |        | the address it actually resolved to; absent for `dns`            |
 
 A field is absent because it does not apply, never because it was zero: a refusal has no status
 because nothing answered, and a passthrough none because nothing was decrypted. Filter on `action`.

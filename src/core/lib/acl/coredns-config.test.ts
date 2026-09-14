@@ -31,6 +31,21 @@ function regexOf(exprLine: string): RegExp {
   return new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
 }
 
+/** From a view's declaration to the end of the block holding it. */
+function blockOf(config: string, marker: string): string {
+  const start = config.indexOf(marker);
+  if (start < 0) return "";
+  return config.slice(start, config.indexOf("\n}\n", start) + 3);
+}
+
+/** The service-discovery block on its own, or "" when the config emits none. */
+function discoveryBlock(config: string): string {
+  const start = config.indexOf("    view discovery {");
+  if (start < 0) return "";
+  const open = config.lastIndexOf(". {", start);
+  return config.slice(open, config.indexOf("\n}\n", start) + 3);
+}
+
 /** The reverse-zone block on its own, which every config emits first. */
 function reverseBlock(config: string): string {
   const start = config.indexOf("in-addr.arpa ip6.arpa {");
@@ -83,7 +98,7 @@ describe("allowlist scope", () => {
 
   it("combines every rule into one alternation", () => {
     const config = gen({ httpsRules: ["a.example.com:443", "b.example.com:443"] });
-    const allowlist = config.slice(config.indexOf("view allowlist"));
+    const allowlist = blockOf(config, "view allowlist");
     expect(exprLine(config).includes("|")).toBe(true);
     expect(allowlist.split("\n").filter((l) => l.includes("name() matches")).length).toBe(1);
   });
@@ -216,10 +231,7 @@ describe("denied names", () => {
 // ---------------------------------------------------------------------------
 describe("allowed names", () => {
   const config = gen({ httpsRules: ["a.example.com:443"] });
-  const allowBlock = config.slice(
-    config.indexOf("view allowlist"),
-    config.indexOf("# Everything else"),
-  );
+  const allowBlock = blockOf(config, "view allowlist");
   const denyBlock = config.slice(config.indexOf("# Everything else"));
   // Both blocks share proxyAnswerLines() in the generator, so this is a
   // stronger, single check in place of separately re-asserting the same
@@ -322,6 +334,138 @@ describe("reverse lookups", () => {
     expect(regex.test("8.b.d.0.1.0.0.2.ip6.arpa.")).toBe(true);
     expect(regex.test("secret-data.in-addr.arpa.")).toBe(false);
     expect(regex.test("1.2.3.4.in-addr.arpa.attacker.example.")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Service discovery. No rule can permit one of these: this resolver returns no
+// discovery record to anybody, so a denied row for one could never be taken
+// away by writing a rule -- and would fail a build under fail_on_blocked over
+// a lookup the caller falls back from on its own.
+// ---------------------------------------------------------------------------
+describe("service-discovery names", () => {
+  const RULES = { httpsRules: ["deb.debian.org:443"] };
+
+  for (const mode of ["audit", "restrict"] as const) {
+    it(`records the lookup under a verb of its own in ${mode} mode`, () => {
+      const block = discoveryBlock(gen({ ...RULES, mode }));
+      expect(block.includes('"buildcage dns discovery name={name} type={type}"')).toBe(true);
+      expect(block.includes("dns allowed")).toBe(false);
+      expect(block.includes("dns denied")).toBe(false);
+    });
+  }
+
+  it("carries the query type, which is the whole point of the lookup", () => {
+    // Only the type tells a fallback nobody notices from an outright failure.
+    expect(discoveryBlock(gen(RULES)).includes("type={type}")).toBe(true);
+  });
+
+  it("answers NODATA for SRV rather than NXDOMAIN or SERVFAIL", () => {
+    // What nearly every name on the internet gives for SRV, and what every
+    // caller that uses SRV as a discovery layer already falls back from.
+    const block = discoveryBlock(gen(RULES));
+    expect(block.includes("template IN ANY {\n    }")).toBe(true);
+    expect(block.includes("rcode")).toBe(false);
+  });
+
+  it("never forwards, no more than any other block does", () => {
+    expect(discoveryBlock(gen(RULES)).includes("forward")).toBe(false);
+  });
+
+  it("takes only a service name under a host the rules already allow", () => {
+    // The report keeps this verb out of the blocked table, so a name that
+    // reaches it is a name that left that table. Being shaped like a service
+    // name is not enough to earn that: `_a._tcp.` in front of anything at all
+    // would otherwise take it out.
+    const regex = regexOf(matchesLine(gen(RULES), "view discovery"));
+    expect(regex.test("_http._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_a._tcp.secret-data.attacker.example.")).toBe(false);
+    expect(regex.test("_a._tcp.secret-data.deb.debian.org.")).toBe(false);
+  });
+
+  it("bounds how much of the name the caller chooses", () => {
+    // Everything before the allowed host is a label the caller picks, so it is
+    // held to what RFC 6335 lets a service name be and to the transports
+    // RFC 2782 defines.
+    const regex = regexOf(matchesLine(gen(RULES), "view discovery"));
+    expect(regex.test("_xmpp-client._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_sip._udp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_averyverylongservicename._tcp.deb.debian.org.")).toBe(false);
+    expect(regex.test("_a._secret._tcp.deb.debian.org.")).toBe(false);
+    expect(regex.test("_dmarc.deb.debian.org.")).toBe(false);
+  });
+
+  it("exempts only the types defined at a service name, denying the rest", () => {
+    // An underscore name is a convention for the owner name, not a promise
+    // about the question. A really is answered here, with the proxy's address,
+    // and a type nobody has taught this block about is not one to exempt on a
+    // guess, so both are judged by the blocks below instead.
+    const block = discoveryBlock(gen(RULES));
+    expect(block.includes("expr type() in ['SRV', 'TXT', 'TLSA', 'URI']")).toBe(true);
+  });
+
+  it("takes a service name under any host in audit mode, which refuses nothing", () => {
+    // There is no blocked table in audit, so there is none to leave.
+    const regex = regexOf(matchesLine(gen({ mode: "audit" }), "view discovery"));
+    expect(regex.test("_mongodb._tcp.cluster0.abcde.mongodb.net.")).toBe(true);
+  });
+
+  it("emits no block at all when restrict allows no host", () => {
+    // Nothing can be under an allowed host, so every name is denied as usual.
+    expect(gen({}).includes("view discovery")).toBe(false);
+  });
+
+  it("comes before the blocks that would otherwise deny the name", () => {
+    // CoreDNS takes the first block whose view matches, and the deny block has
+    // no view at all, so order is what decides this.
+    const config = gen(RULES);
+    expect(config.indexOf("view discovery") < config.indexOf("view allowlist")).toBe(true);
+    expect(config.indexOf("view discovery") < config.indexOf("buildcage dns denied")).toBe(true);
+  });
+
+  it("comes before the catch-all in audit mode too", () => {
+    const config = gen({ mode: "audit" });
+    expect(config.indexOf("view discovery") < config.indexOf("buildcage dns allowed")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every other service name. Refused like any other name, but recorded apart:
+// the remedy for one is the host below it, never the name, which no rule can
+// make resolve. Logging it apart is also what keeps the shape of a service
+// name defined in this file alone -- the report reads verbs, not names.
+// ---------------------------------------------------------------------------
+describe("refused service names", () => {
+  it("records them under a verb of their own, carrying the type", () => {
+    const block = blockOf(gen({ httpsRules: ["deb.debian.org:443"] }), "view service");
+    expect(block.includes('"buildcage dns service-denied name={name} type={type}"')).toBe(true);
+  });
+
+  it("comes after the allowlist, so an explicit rule still reads as allowed", () => {
+    // Someone who did write a rule naming a service name gets what they asked
+    // for; only names no rule covers reach this block.
+    const config = gen({ httpsRules: ["deb.debian.org:443"] });
+    expect(config.indexOf("view allowlist") < config.indexOf("view service")).toBe(true);
+    expect(config.indexOf("view service") < config.indexOf("buildcage dns denied")).toBe(true);
+  });
+
+  it("takes every service name, under any host", () => {
+    // Whatever missed the discovery block above: the wrong host, or a type not
+    // defined at a service name.
+    const regex = regexOf(matchesLine(gen({ httpsRules: ["deb.debian.org:443"] }), "view service"));
+    expect(regex.test("_mongodb._tcp.cluster0.abcde.mongodb.net.")).toBe(true);
+    expect(regex.test("_http._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("secret-data.attacker.example.")).toBe(false);
+    expect(regex.test("_dmarc.example.com.")).toBe(false);
+  });
+
+  it("is emitted even when no host is allowed at all", () => {
+    // The remedy it points at does not depend on there being rules already.
+    expect(gen({}).includes("view service")).toBe(true);
+  });
+
+  it("is not emitted in audit mode, which refuses nothing", () => {
+    expect(gen({ mode: "audit" }).includes("view service")).toBe(false);
   });
 });
 

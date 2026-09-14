@@ -146,6 +146,18 @@ What each kind of rule decides, and what stays undecrypted:
   and the lookup is recorded in the resolver log without being reported as allowed or blocked. That
   covers a name that really is an address backwards and nothing else: `SECRET-DATA.in-addr.arpa` is
   answered, refused and reported exactly like any other name.
+- **No discovery record is ever returned, so a build reaches the name a rule allowed.** Having no
+  upstream, the resolver has nothing to answer an `SRV`, `TXT`, `TLSA` or `URI` query with, and an
+  empty answer is what the great majority of names return for these anyway. This is load-bearing
+  rather than incidental: `_http._tcp.deb.debian.org` really does carry an `SRV` record pointing
+  at `debian.map.fastlydns.net`, and a build that followed it would connect to a name no allowlist
+  mentions. A lookup for `_service._proto.<name>` is recorded under a verb of its own and reported
+  in the timeline rather than as blocked, since no rule can permit one. That covers names really
+  shaped like a service name, under a host the rules allow, asked for as one of the four types
+  defined at such a name. Everything else is answered, refused and reported exactly like any other
+  name, an unrecognised type included. A client that cannot fall back, such as a `mongodb+srv://`
+  connection string, does not work inside the cage;
+  see [Service discovery](../README.md#service-discovery).
 - **A wide host rule paired with a narrow path or method does not narrow the DNS side.** DNS has no
   notion of a path, so a name under an allowed `*.example.com` is logged as allowed the moment it is
   looked up, before any path is known. The request that follows is still refused and still never
