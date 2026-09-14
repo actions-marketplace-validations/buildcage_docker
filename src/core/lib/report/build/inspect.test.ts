@@ -107,6 +107,72 @@ describe("buildInspectReportData", () => {
     expect(r.timeline.filter((e) => e.protocol === "dns").length).toBe(1);
   });
 
+  it("keeps a discovery lookup out of both tables and out of blockedCount", async () => {
+    // apt asks for this on every repository it fetches from and falls through
+    // to the plain name, so counting it as blocked would fail a build that
+    // worked, over a row no rule could take away.
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns discovery name=_http._tcp.deb.debian.org. type=SRV",
+    ];
+    const r = await buildInspectReportData([START], dns, params());
+    expect(r.blocked.length).toBe(0);
+    expect(r.blockedCount).toBe(0);
+    expect(r.passed.length).toBe(0);
+    // Recorded, not hidden: the details section reads the timeline.
+    expect(r.timeline.length).toBe(1);
+    expect(r.timeline[0].action).toBe("discovery");
+    expect(r.timeline[0].queryType).toBe("SRV");
+  });
+
+  it("keeps a name that resolved and was never connected to", async () => {
+    // The only evidence that a rule covers more than the build used.
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns allowed name=unused.example.com.",
+    ];
+    const r = await buildInspectReportData([START, ALLOWED], dns, params());
+    expect(r.passed.some((row) => row.host === "unused.example.com")).toBe(true);
+    expect(r.blocked.length).toBe(0);
+  });
+
+  it("keeps an audited name that was never connected to in audit mode", async () => {
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns allowed name=looked-up.example.com.",
+    ];
+    const r = await buildInspectReportData([START], dns, params({ mode: "audit" }));
+    expect(r.passed.length).toBe(1);
+    expect(r.passed[0].host).toBe("looked-up.example.com");
+    expect(r.passed[0].ruleType).toBe("DNS");
+  });
+
+  it("says a refused service name takes a different remedy from an ordinary one", async () => {
+    // Naming the service name in a rule silences the row without making the
+    // record resolve. The host below it is what a rule is written against, so
+    // the row has to say which kind of name it is.
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns service-denied name=_mongodb._tcp.c0.example.net. type=SRV",
+      "2026-08-23 16:45:01.000000000  [INFO] buildcage dns denied name=evil.example.com.",
+    ];
+    const r = await buildInspectReportData([START], dns, params());
+    const service = r.blocked.find((row) => row.host.startsWith("_mongodb"));
+    const plain = r.blocked.find((row) => row.host === "evil.example.com");
+    expect(service?.reason).toBe("dns-service-not-allowed");
+    expect(plain?.reason).toBe("dns-not-allowed");
+  });
+
+  it("keeps a refused service name silenceable by known_blocked_rules", async () => {
+    // Neither remedy makes the record resolve; this is the one that leaves the
+    // rules alone, so it has to keep working on a name with no port.
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns service-denied name=_mongodb._tcp.c0.example.net. type=SRV",
+    ];
+    const r = await buildInspectReportData(
+      [START],
+      dns,
+      params({ knownBlockedRules: ["_mongodb._tcp.c0.example.net:*"] }),
+    );
+    expect(r.blocked[0].expected).toBe(true);
+  });
+
   it("lets a refused name be declared expected", async () => {
     // The row has no port, so without special handling no writable rule could
     // ever match it and fail_on_blocked would fail the job with no way out.

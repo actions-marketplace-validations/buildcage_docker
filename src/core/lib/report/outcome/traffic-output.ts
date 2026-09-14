@@ -21,13 +21,17 @@ export interface TrafficRecord {
    *  start time could not be determined; never fabricated from something
    *  else. */
   elapsed?: string;
-  /** `allow`, `block`, or `audit` when nothing was being enforced. */
+  /** `allow`, `block`, `audit` when nothing was being enforced, or
+   *  `discovery` for a lookup no rule decided. */
   action: string;
   /** `https`, `http`, `tls`, `tcp` or `dns`. */
   protocol: string;
   host: string;
   /** Absent for dns, which connects to nothing. */
   port?: number;
+  /** The record type asked for; only on a discovery lookup or a refused
+   *  service name, where the type is the point. */
+  queryType?: string;
   /** http and https only. */
   method?: string;
   url?: string;
@@ -44,10 +48,11 @@ export interface TrafficRecord {
 /**
  * Build the records for one run, oldest first.
  *
- * Includes name lookups that merely resolved, unlike the summary: the volume is
- * cheap for a machine reader, and a name resolved but never connected to is how
- * a too-wide rule being probed shows up. A field is absent when it does not
- * apply, never zero, so filter on `action`, not `status`.
+ * Includes every name lookup, the summary's tables only those with no request
+ * behind them: the volume is cheap for a machine reader, and which names were
+ * asked about is not always derivable from what was then connected to. A field
+ * is absent when it does not apply, never zero, so filter on `action`, not
+ * `status`.
  */
 export function buildTrafficRecords(
   events: TrafficEvent[],
@@ -64,6 +69,7 @@ export function buildTrafficRecords(
       };
       if (startedAt !== undefined) record.elapsed = formatElapsedFixed(e.time - startedAt);
       if (e.port !== undefined) record.port = e.port;
+      if (e.queryType !== undefined) record.queryType = e.queryType;
       if (e.method !== undefined) record.method = e.method;
       if (e.url !== undefined) record.url = e.url;
       if (e.status !== undefined) record.status = e.status;

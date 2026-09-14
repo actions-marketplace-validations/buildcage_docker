@@ -1,5 +1,5 @@
 import { scanInspectLog, scanInspectDnsLog } from "#core/lib/log/inspect.ts";
-import { isRedundantBlockedDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { aggregate, type LogEntry } from "#core/lib/log/aggregate.ts";
 import { annotateKnownBlocked } from "./aggregate.ts";
 import type { GenReportParameters, InspectReportData } from "../types.ts";
@@ -55,13 +55,14 @@ export async function buildInspectReportData(
 
   const passedRows: LogEntry[] = [];
   const blockedRows: LogEntry[] = [];
+  const connected = connectedHosts(timeline);
   for (const event of timeline) {
-    // A name that merely resolved is not traffic; the request that followed it
-    // is already in the table, and listing both would double every row. The
-    // same holds for a blocked name once a blocked request for it also
-    // appears.
-    if (event.protocol === "dns" && event.action !== "block") continue;
-    if (isRedundantBlockedDns(event, timeline)) continue;
+    // Decided by no rule, so it belongs in neither table. The timeline keeps it.
+    if (event.action === "discovery") continue;
+    // A lookup the build then connected on only doubles the connection's row.
+    // One with no connection behind it is the sole trace of a name reached for
+    // and never used, in audit as much as in restrict.
+    if (isRedundantDns(event, connected)) continue;
     (event.action === "block" ? blockedRows : passedRows).push(toHostRow(event));
   }
 

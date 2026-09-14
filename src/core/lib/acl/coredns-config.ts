@@ -17,8 +17,8 @@
  * (suffix matching, which could only widen `abc*.amazonaws.com` to
  * `/amazonaws.com/`).
  *
- * Reverse lookups are the one exception to all of the above; see
- * reverseZoneLines.
+ * Reverse lookups and service-discovery names are the two exceptions to all of
+ * the above; see reverseZoneLines and discoveryZoneLines.
  */
 
 import type { UrlRule } from "./url-rules.ts";
@@ -158,6 +158,98 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
   ];
 }
 
+/**
+ * The `_service._proto.` half of a service name, bounded to what RFC 6335 and
+ * RFC 2782 allow so the caller chooses as little of the name as possible; see
+ * discoveryZoneLines. Character classes rather than `\\.`, which CEL rejects.
+ *
+ * The only place a service name is recognised: the report reads the verbs the
+ * blocks below log under, never the shape.
+ */
+const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";
+
+/**
+ * The types defined at a `_service._proto.` name: SRV (RFC 2782), the TXT
+ * DNS-SD pairs with it (RFC 6763), TLSA (RFC 7671) and URI (RFC 7553).
+ * Enumerated rather than excluding A and AAAA, so a type this block has never
+ * heard of is refused rather than exempted on a guess.
+ */
+const DISCOVERY_TYPES = ["SRV", "TXT", "TLSA", "URI"];
+
+/**
+ * The block answering service-discovery names, under a verb of their own.
+ *
+ * No rule can permit one, this resolver returning no discovery record to
+ * anybody, so reporting the lookup as denied would be a row no rule could take
+ * away and would fail a build that worked.
+ *
+ * Both conditions are what keep that verb from becoming a hiding place; the
+ * shape alone is nowhere near enough, `_a._tcp.SECRET.attacker.example` being
+ * shaped like a service name too. `parentRegex` holds the block to names under
+ * a host the rules already allow, which the build could have looked up
+ * directly anyway; it is undefined in audit alone, which refuses nothing and
+ * so has no blocked table to leave. The type is checked because the name does
+ * not imply it, an underscore name being a convention for the owner name
+ * (RFC 8552) rather than a promise about the question: an A query really is
+ * answered by this resolver, with the proxy's address, so calling it a lookup
+ * that got nothing back would be false.
+ */
+function discoveryZoneLines(
+  proxyAddress: string,
+  ttlSeconds: number,
+  parentRegex: string | undefined,
+): string[] {
+  const parent = parentRegex === undefined ? ".+" : `(${escapeForCel(parentRegex)})`;
+  return [
+    "# Service-discovery names under an allowed host: answered NODATA and logged",
+    "# under a verb of their own. No rule can permit one, so a denied row for it",
+    "# could never be taken away. A service name under any other host misses the",
+    "# view and is denied below, as the host itself would be. Both expressions",
+    "# have to hold: a type not defined at a service name is judged below like",
+    "# any other lookup rather than exempted on a guess.",
+    ". {",
+    "    view discovery {",
+    `      expr name() matches '^${SERVICE_PREFIX_REGEX}${parent}[.]$'`,
+    `      expr type() in [${DISCOVERY_TYPES.map((t) => `'${t}'`).join(", ")}]`,
+    "    }",
+    ...proxyAnswerLines(proxyAddress, ttlSeconds),
+    '    log . "buildcage dns discovery name={name} type={type}"',
+    "    errors",
+    "}",
+    "",
+  ];
+}
+
+/**
+ * The block taking every other service name, under a verb of its own.
+ *
+ * A refusal like any other, but the remedy is not: the name is an attribute of
+ * the host below it (RFC 8552), so a rule naming it silences the row without
+ * making the record resolve. Logging it apart is what lets the report point at
+ * the host instead.
+ *
+ * It sits after the allowlist, so a name someone did write a rule for still
+ * reads as allowed. The discovery block sits before it instead, so one under
+ * an allowed host reads as `discovery` even when a rule names it, which is the
+ * more accurate of the two.
+ */
+function serviceZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
+  return [
+    "# Every other service name: refused like any other name, but recorded apart",
+    "# so the report can say the remedy is the host below it rather than the name",
+    "# itself, which no rule can make resolve.",
+    ". {",
+    "    view service {",
+    `      expr name() matches '^${SERVICE_PREFIX_REGEX}.+[.]$'`,
+    "    }",
+    ...proxyAnswerLines(proxyAddress, ttlSeconds),
+    '    log . "buildcage dns service-denied name={name} type={type}"',
+    "    errors",
+    "}",
+    "",
+  ];
+}
+
 // Loopback-only, so the readiness check reaching it never depends on what
 // init-iptables allows. Declared in the catch-all block alone: the plugin
 // binds a listener, and a second block asking for the same address fails.
@@ -182,6 +274,7 @@ export function generateCorednsConfig(options: CorednsConfigOptions): GeneratedC
       "# Generated by buildcage. Do not edit.",
       "",
       ...reverseZoneLines(proxyAddress, ttlSeconds),
+      ...discoveryZoneLines(proxyAddress, ttlSeconds, undefined),
       "# audit enforces nothing, so every name is logged as allowed. It is still",
       "# answered locally with the proxy's own address, so a name that was only",
       "# looked up, never connected to, still shows up here, and the query",
@@ -214,6 +307,7 @@ export function generateCorednsConfig(options: CorednsConfigOptions): GeneratedC
     // anchor. Alternation is used rather than one block per rule so a name is
     // matched against the whole allowlist in one pass.
     const alternation = hostRegexes.map((r) => `(${r})`).join("|");
+    lines.push(...discoveryZoneLines(proxyAddress, ttlSeconds, alternation));
     lines.push(
       "# Allowlisted names are logged as allowed, but answered exactly like a",
       "# denied one, with the proxy's own address: real resolution happens once",
@@ -231,6 +325,8 @@ export function generateCorednsConfig(options: CorednsConfigOptions): GeneratedC
       "",
     );
   }
+
+  lines.push(...serviceZoneLines(proxyAddress, ttlSeconds));
 
   lines.push(
     "# Everything else resolves to the proxy and is answered locally, so the",
