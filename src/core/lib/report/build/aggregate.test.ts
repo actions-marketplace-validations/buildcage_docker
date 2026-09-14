@@ -26,6 +26,21 @@ describe("annotateKnownBlocked", () => {
     expect(result[0].expected).toBe(true);
   });
 
+  it("matches a refused name with a rule that names no port", () => {
+    // The row has no port at all, nothing having been connected to, so the
+    // rule that declares it expected names none either.
+    const dns = row({ host: "_mongodb._tcp.c0.example.net", port: "-", ruleType: "DNS" });
+    expect(annotateKnownBlocked([dns], ["_mongodb._tcp.c0.example.net"])[0].expected).toBe(true);
+    expect(
+      annotateKnownBlocked([dns], ["~^_mongodb[.]_tcp[.]c0[.]example[.]net$"])[0].expected,
+    ).toBe(true);
+  });
+
+  it("still lets a port-less rule match a row that has one", () => {
+    // It reads as ":*", so a connection on any port is covered too.
+    expect(annotateKnownBlocked([row()], ["evil.example.com"])[0].expected).toBe(true);
+  });
+
   it("marks a row as expected on a ~regex match", () => {
     const result = annotateKnownBlocked([row()], ["~^evil\\.example\\.com:443$"]);
     expect(result[0].expected).toBe(true);

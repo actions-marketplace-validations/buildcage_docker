@@ -4,6 +4,8 @@ import {
   convertRule,
   buildRules,
   parseAndValidateRules,
+  completeRulePort,
+  parseAndValidateKnownBlockedRules,
 } from "./wildcard-rules.ts";
 
 // ---------------------------------------------------------------------------
@@ -206,6 +208,49 @@ describe("parseAndValidateRules", () => {
 
   it("validates syntax eagerly, throwing on invalid regex rules", () => {
     expect(() => parseAndValidateRules("~^(unclosed")).toThrow(/Invalid regex/);
+  });
+});
+
+describe("known_blocked_rules port completion", () => {
+  it("completes a rule that names no port, so a refused name can be declared", () => {
+    // A refused name has no port at all: nothing was connected to. Requiring
+    // one would mean writing a port that was never involved.
+    expect(completeRulePort("_mongodb._tcp.c0.example.net")).toBe("_mongodb._tcp.c0.example.net:*");
+    expect(completeRulePort("telemetry.example.com")).toBe("telemetry.example.com:*");
+    expect(completeRulePort("*.example.com")).toBe("*.example.com:*");
+  });
+
+  it("leaves a rule that already names a port alone", () => {
+    expect(completeRulePort("noisy.example.com:443")).toBe("noisy.example.com:443");
+    expect(completeRulePort("noisy.example.com:*")).toBe("noisy.example.com:*");
+    expect(completeRulePort("~^a[.]example[.]com:443$")).toBe("~^a[.]example[.]com:443$");
+  });
+
+  it("takes a regex rule's closing anchor off, convertRule putting it back", () => {
+    // Appended after the `$` the port would match nothing.
+    expect(completeRulePort("~^_mongodb[.]_tcp[.]c0$")).toBe("~^_mongodb[.]_tcp[.]c0:\\d+");
+    expect(convertRule(completeRulePort("~^_mongodb[.]_tcp[.]c0$"))).toBe(
+      "^_mongodb[.]_tcp[.]c0:\\d+$",
+    );
+  });
+
+  it("keeps an escaped dollar, which is a literal rather than an anchor", () => {
+    expect(completeRulePort("~^a\\$")).toBe("~^a\\$:\\d+");
+  });
+
+  it("is what parseAndValidateKnownBlockedRules returns", () => {
+    expect(parseAndValidateKnownBlockedRules("a.example.com b.example.com:443")).toStrictEqual([
+      "a.example.com:*",
+      "b.example.com:443",
+    ]);
+  });
+
+  it("still rejects a rule that is malformed for other reasons", () => {
+    expect(() => parseAndValidateKnownBlockedRules("a*b.example.com")).toThrow();
+  });
+
+  it("does not apply to the other rule inputs, which name a real connection", () => {
+    expect(() => parseAndValidateRules("a.example.com")).toThrow();
   });
 });
 
