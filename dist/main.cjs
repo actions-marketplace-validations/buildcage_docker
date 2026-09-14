@@ -429,6 +429,59 @@ function wildcardToRegexPartial(pattern) {
 	let colonIndex = pattern.lastIndexOf(":"), domain = pattern.slice(0, colonIndex), port = pattern.slice(colonIndex + 1);
 	return `${domainToRegexPartial(domain)}:${port === "*" ? "\\d+" : port}`;
 }
+/** True if `regex` carries a `|` outside every group and character class. */
+function hasTopLevelAlternation(regex) {
+	let depth = 0, inClass = !1;
+	for (let i = 0; i < regex.length; i++) {
+		let c = regex[i];
+		if (c === "\\") i++;
+		else if (inClass) c === "]" && (inClass = !1);
+		else if (c === "[") inClass = !0;
+		else if (c === "(") depth++;
+		else if (c === ")") depth--;
+		else if (c === "|" && depth === 0) return !0;
+	}
+	return !1;
+}
+/**
+* A bracket written as a literal. One in the half taken for the host means
+* the `:` the split chose was not the port separator, an IPv6 authority
+* (`\[::1\]:443`) above all. A character class keeps its `[` unescaped, so
+* `web[0-9]\.example\.com` is unaffected.
+*/
+const HOST_LITERAL_ILLEGAL = /\\[[\]]/;
+/**
+* Check part of a `~` rule against what the rule syntax can represent.
+*
+* @throws {Error} if the text carries a top-level `|`, or a host half holds
+*   a character no hostname can
+*/
+function checkRawRegexHalf(text, label, rule, hostHalf) {
+	if (hasTopLevelAlternation(text)) throw Error(`Invalid regex in rule "${rule}": the ${label} "${text}" has a top-level "|". Anchors bind to its first and last branch rather than to the whole ${label}, so write one rule per alternative, or put the "|" inside a group, as in "(a|b)\\.example\\.com"`);
+	if (hostHalf && HOST_LITERAL_ILLEGAL.test(text)) throw Error(`Invalid regex in rule "${rule}": the ${label} "${text}" holds a character no hostname can, so the ":" this rule was split at is not its port separator. An IPv6 address is not supported here, in a "~" rule any more than in a literal one`);
+}
+/** True if `regex` ends in a `$` that is an anchor rather than a literal. */
+function endsAnchored(regex) {
+	if (!regex.endsWith("$")) return !1;
+	let backslashes = 0;
+	for (let i = regex.length - 2; i >= 0 && regex[i] === "\\"; i--) backslashes++;
+	return backslashes % 2 == 0;
+}
+/**
+* Anchor a `~` rule's host half at both ends.
+*
+* Both engines match a `~` rule as a search rather than a full match
+* (HAProxy's `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443`
+* would also admit `evil-example.com:4430`. A URL rule's author cannot write
+* the anchors themselves, their `^` going to the scheme and their `$` to the
+* path, and a host rule is treated the same way.
+*
+* Concatenation suffices because checkRawRegexHalf has already refused a
+* top-level `|`, the one construct it would bind to only half of.
+*/
+function anchorRawRegex(regex) {
+	return `${regex.startsWith("^") ? "" : "^"}${regex}${endsAnchored(regex) ? "" : "$"}`;
+}
 /**
 * Where a port pattern starts in a `<host>[:<port>]` regex fragment written
 * by a user: a bare `:`, or the `(` of a group opening right at the colon
@@ -460,8 +513,9 @@ function splitDomainFromPortPattern(hostPlusPort) {
 * directly instead (see haproxy-rules.ts), matched as one expression against
 * the connection, so this function exists only for coredns-config.ts.
 *
-* @throws {Error} if the regex is invalid, it names no port at all (a port is
-*   always required), or the host half does not compile as a regex on its own
+* @throws {Error} if the regex is invalid, it carries a top-level `|`, it
+*   names no port at all (a port is always required), or the host half does
+*   not compile as a regex on its own or holds a character no hostname can
 */
 function splitRawRegexHost(pattern) {
 	let regex = pattern.slice(1);
@@ -470,10 +524,11 @@ function splitRawRegexHost(pattern) {
 	} catch (e) {
 		throw Error(`Invalid regex in rule "${pattern}": ${e.message}`);
 	}
+	checkRawRegexHalf(regex, "expression", pattern, !1);
 	let { domain, portPattern } = splitDomainFromPortPattern(regex);
 	if (portPattern === null) throw Error(`Invalid regex in rule "${pattern}": expected ":" separating the host from a port; a port is always required`);
 	let host = domain;
-	host.startsWith("^") && (host = host.slice(1));
+	host.startsWith("^") && (host = host.slice(1)), checkRawRegexHalf(host, "host half", pattern, !0);
 	try {
 		new RegExp(host);
 	} catch (e) {
@@ -510,10 +565,11 @@ function parseAndValidateRules(rulesInput) {
 * The `~` case reuses the `inspect` engine's own validator (a port is always
 * required there too) so both engines reject the same malformed regex the
 * same way, instead of this engine silently accepting a rule that then never
-* matches -- or, absent an anchor, matches more than the author intended.
+* matches. anchorRawRegex then makes it cover a whole `host:port`, as a
+* wildcard rule does.
 */
 function convertRule(rule) {
-	return rule.startsWith("~") ? (splitRawRegexHost(rule), rule.slice(1)) : `^${wildcardToRegex(rule)}$`;
+	return rule.startsWith("~") ? (splitRawRegexHost(rule), anchorRawRegex(rule.slice(1))) : `^${wildcardToRegex(rule)}$`;
 }
 /**
 * Convert a domain wildcard to a regex string (without anchors or port).
@@ -647,6 +703,11 @@ const SLASH_TOKEN = /\\?\//, SCHEME_SEP = /:(?:\\?\/){2}/;
 * expressions, never as one full-URL regex (see haproxy-config.ts's
 * ruleBlock), so the regex has to be cut at the first `/` after `://`.
 *
+* Only the anchors the author cannot write are supplied. The host half gets
+* both, its `^` having gone to the scheme and its `$` to the path. The path
+* half gets `^` alone: a `$` at the end of the URL lands at the end of the
+* path, so whether the path is exact or a prefix stays the author's to say.
+*
 * The host half's port is optional, exactly as in a literal URL: the proxy
 * tries it against the connection's host both bare and with the real port,
 * so a pattern with no port at all matches only the scheme's default port,
@@ -656,15 +717,21 @@ const SLASH_TOKEN = /\\?\//, SCHEME_SEP = /:(?:\\?\/){2}/;
 * the resolver's allowlist, which has no notion of a port to match against
 * either way; see splitDomainFromPortPattern.
 *
-* @throws {Error} if the text can't be split into a host and a path, or a
-*   resulting half fails to compile as a regex on its own
+* @throws {Error} if the text can't be split into a host and a path, either
+*   half carries a top-level `|`, the host half holds a character no hostname
+*   can, or a half fails to compile as a regex on its own
 */
 function splitRawRegexUrl(regex, rule) {
+	checkRawRegexHalf(regex, "expression", rule, !1);
 	let schemeSep = SCHEME_SEP.exec(regex);
 	if (!schemeSep) throw Error(`Invalid regex in rule "${rule}": expected "://" (or an escaped equivalent like ":\\/\\/ ") separating the scheme from the host, so the host and path can be matched separately`);
 	let hostStart = schemeSep.index + schemeSep[0].length, pathSep = SLASH_TOKEN.exec(regex.slice(hostStart));
 	if (!pathSep) throw Error(`Invalid regex in rule "${rule}": expected a "/" (or "\\/") after "://" to start the path; a host-only rule belongs in allowed_https_rules instead`);
-	let pathStart = hostStart + pathSep.index, hostPart = regex.slice(hostStart, pathStart), { domain: hostOnly } = splitDomainFromPortPattern(hostPart), hostRegex = `^${hostPart}$`, authorityRegex = `^${hostOnly}$`, pathRegex = `^${regex.slice(pathStart)}`;
+	let pathStart = hostStart + pathSep.index, hostPart = regex.slice(hostStart, pathStart), pathPart = regex.slice(pathStart);
+	checkRawRegexHalf(hostPart, "host half", rule, !1), checkRawRegexHalf(pathPart, "path half", rule, !1);
+	let { domain: hostOnly } = splitDomainFromPortPattern(hostPart);
+	checkRawRegexHalf(hostOnly, "host half", rule, !0);
+	let hostRegex = anchorRawRegex(hostPart), authorityRegex = anchorRawRegex(hostOnly), pathRegex = `^${pathPart}`;
 	for (let [label, fragment] of [
 		["host", hostRegex],
 		["host-only", authorityRegex],

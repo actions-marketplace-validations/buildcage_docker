@@ -113,6 +113,89 @@ export function wildcardToRegexPartial(pattern: string): string {
   return `${domainToRegexPartial(domain)}:${port === "*" ? "\\d+" : port}`;
 }
 
+/** True if `regex` carries a `|` outside every group and character class. */
+function hasTopLevelAlternation(regex: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < regex.length; i++) {
+    const c = regex[i];
+    if (c === "\\") {
+      i++;
+    } else if (inClass) {
+      if (c === "]") inClass = false;
+    } else if (c === "[") {
+      inClass = true;
+    } else if (c === "(") {
+      depth++;
+    } else if (c === ")") {
+      depth--;
+    } else if (c === "|" && depth === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A bracket written as a literal. One in the half taken for the host means
+ * the `:` the split chose was not the port separator, an IPv6 authority
+ * (`\[::1\]:443`) above all. A character class keeps its `[` unescaped, so
+ * `web[0-9]\.example\.com` is unaffected.
+ */
+const HOST_LITERAL_ILLEGAL = /\\[[\]]/;
+
+/**
+ * Check part of a `~` rule against what the rule syntax can represent.
+ *
+ * @throws {Error} if the text carries a top-level `|`, or a host half holds
+ *   a character no hostname can
+ */
+export function checkRawRegexHalf(
+  text: string,
+  label: string,
+  rule: string,
+  hostHalf: boolean,
+): void {
+  if (hasTopLevelAlternation(text)) {
+    throw new Error(
+      `Invalid regex in rule "${rule}": the ${label} "${text}" has a top-level "|". Anchors bind ` +
+        `to its first and last branch rather than to the whole ${label}, so write one rule per ` +
+        `alternative, or put the "|" inside a group, as in "(a|b)\\.example\\.com"`,
+    );
+  }
+  if (hostHalf && HOST_LITERAL_ILLEGAL.test(text)) {
+    throw new Error(
+      `Invalid regex in rule "${rule}": the ${label} "${text}" holds a character no hostname can, ` +
+        `so the ":" this rule was split at is not its port separator. An IPv6 address is not ` +
+        `supported here, in a "~" rule any more than in a literal one`,
+    );
+  }
+}
+
+/** True if `regex` ends in a `$` that is an anchor rather than a literal. */
+function endsAnchored(regex: string): boolean {
+  if (!regex.endsWith("$")) return false;
+  let backslashes = 0;
+  for (let i = regex.length - 2; i >= 0 && regex[i] === "\\"; i--) backslashes++;
+  return backslashes % 2 === 0;
+}
+
+/**
+ * Anchor a `~` rule's host half at both ends.
+ *
+ * Both engines match a `~` rule as a search rather than a full match
+ * (HAProxy's `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443`
+ * would also admit `evil-example.com:4430`. A URL rule's author cannot write
+ * the anchors themselves, their `^` going to the scheme and their `$` to the
+ * path, and a host rule is treated the same way.
+ *
+ * Concatenation suffices because checkRawRegexHalf has already refused a
+ * top-level `|`, the one construct it would bind to only half of.
+ */
+export function anchorRawRegex(regex: string): string {
+  return `${regex.startsWith("^") ? "" : "^"}${regex}${endsAnchored(regex) ? "" : "$"}`;
+}
+
 /**
  * Where a port pattern starts in a `<host>[:<port>]` regex fragment written
  * by a user: a bare `:`, or the `(` of a group opening right at the colon
@@ -147,8 +230,9 @@ export function splitDomainFromPortPattern(hostPlusPort: string): {
  * directly instead (see haproxy-rules.ts), matched as one expression against
  * the connection, so this function exists only for coredns-config.ts.
  *
- * @throws {Error} if the regex is invalid, it names no port at all (a port is
- *   always required), or the host half does not compile as a regex on its own
+ * @throws {Error} if the regex is invalid, it carries a top-level `|`, it
+ *   names no port at all (a port is always required), or the host half does
+ *   not compile as a regex on its own or holds a character no hostname can
  */
 export function splitRawRegexHost(pattern: string): { host: string } {
   const regex = pattern.slice(1);
@@ -157,6 +241,9 @@ export function splitRawRegexHost(pattern: string): { host: string } {
   } catch (e) {
     throw new Error(`Invalid regex in rule "${pattern}": ${(e as Error).message}`);
   }
+  // Over the whole expression: the split cuts at the first ":", leaving the
+  // "|" of `a\.com:443|b\.com:443` where a host-half check would not see it.
+  checkRawRegexHalf(regex, "expression", pattern, false);
 
   const { domain, portPattern } = splitDomainFromPortPattern(regex);
   if (portPattern === null) {
@@ -167,6 +254,7 @@ export function splitRawRegexHost(pattern: string): { host: string } {
   }
   let host = domain;
   if (host.startsWith("^")) host = host.slice(1);
+  checkRawRegexHalf(host, "host half", pattern, true);
 
   try {
     new RegExp(host);

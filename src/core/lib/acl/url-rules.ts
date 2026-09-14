@@ -35,6 +35,8 @@
  */
 
 import {
+  anchorRawRegex,
+  checkRawRegexHalf,
   pathToRegexPartial,
   splitDomainFromPortPattern,
   wildcardToRegexPartial,
@@ -141,6 +143,11 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
  * expressions, never as one full-URL regex (see haproxy-config.ts's
  * ruleBlock), so the regex has to be cut at the first `/` after `://`.
  *
+ * Only the anchors the author cannot write are supplied. The host half gets
+ * both, its `^` having gone to the scheme and its `$` to the path. The path
+ * half gets `^` alone: a `$` at the end of the URL lands at the end of the
+ * path, so whether the path is exact or a prefix stays the author's to say.
+ *
  * The host half's port is optional, exactly as in a literal URL: the proxy
  * tries it against the connection's host both bare and with the real port,
  * so a pattern with no port at all matches only the scheme's default port,
@@ -150,13 +157,17 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
  * the resolver's allowlist, which has no notion of a port to match against
  * either way; see splitDomainFromPortPattern.
  *
- * @throws {Error} if the text can't be split into a host and a path, or a
- *   resulting half fails to compile as a regex on its own
+ * @throws {Error} if the text can't be split into a host and a path, either
+ *   half carries a top-level `|`, the host half holds a character no hostname
+ *   can, or a half fails to compile as a regex on its own
  */
 function splitRawRegexUrl(
   regex: string,
   rule: string,
 ): { hostRegex: string; authorityRegex: string; pathRegex: string } {
+  // Over the whole expression: the per-half checks see only what follows the
+  // first "://", so a "|" before it would drop its own branch in silence.
+  checkRawRegexHalf(regex, "expression", rule, false);
   const schemeSep = SCHEME_SEP.exec(regex);
   if (!schemeSep) {
     throw new Error(
@@ -176,11 +187,15 @@ function splitRawRegexUrl(
   const pathStart = hostStart + pathSep.index;
 
   const hostPart = regex.slice(hostStart, pathStart);
+  const pathPart = regex.slice(pathStart);
+  checkRawRegexHalf(hostPart, "host half", rule, false);
+  checkRawRegexHalf(pathPart, "path half", rule, false);
   const { domain: hostOnly } = splitDomainFromPortPattern(hostPart);
+  checkRawRegexHalf(hostOnly, "host half", rule, true);
 
-  const hostRegex = `^${hostPart}$`;
-  const authorityRegex = `^${hostOnly}$`;
-  const pathRegex = `^${regex.slice(pathStart)}`;
+  const hostRegex = anchorRawRegex(hostPart);
+  const authorityRegex = anchorRawRegex(hostOnly);
+  const pathRegex = `^${pathPart}`;
   for (const [label, fragment] of [
     ["host", hostRegex],
     ["host-only", authorityRegex],

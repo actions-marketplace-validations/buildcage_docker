@@ -146,6 +146,28 @@ RUN echo "=== [Regex URL rule - portless rule does not also grant a non-default 
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
+# [~regex URL rule - the host half is anchored for the author]
+RUN echo "=== [Regex URL rule - host anchored, path left open] ===" && \
+    OUT=$($S https://ok.wildcard.example.com/regexpub/deep/pkg.tgz) && \
+    echo "$OUT" && \
+    case "$OUT" in ROOT\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
+
+RUN echo "=== [Regex URL rule - neighbouring host refused] ===" && \
+    CODE=$($C https://not-ok.wildcard.example.com/regexpub/pkg.tgz) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
+
+# [~regex URL rule - a "$" the author wrote is kept]
+RUN echo "=== [Regex URL rule - author's trailing anchor honoured] ===" && \
+    OUT=$($S https://ok.wildcard.example.com/regexexact) && \
+    echo "$OUT" && \
+    case "$OUT" in ROOT\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
+
+RUN echo "=== [Regex URL rule - longer path not covered by the anchored rule] ===" && \
+    CODE=$($C https://ok.wildcard.example.com/regexexactly) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
+
 # [Host rule - any path, any method]
 RUN echo "=== [Host rule] ===" && \
     OUT=$($S -X DELETE https://sub.wildcard.example.com/anything/at/all) && \
