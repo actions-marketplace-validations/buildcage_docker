@@ -928,7 +928,7 @@ var VerifyImageError = class extends Error {
 * All errors are thrown as VerifyImageError (see errors.ts).
 * Callers do not need to catch and re-wrap; just let them propagate.
 */
-const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
+const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json", MANIFEST_MEDIA_TYPES = ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"], INDEX_MEDIA_TYPES = ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"];
 /**
 * Read the base64 Basic-auth credential for ghcr.io from Docker's config.json.
 * Returns the raw `auth` string (base64) if found, or null if not logged in.
@@ -954,7 +954,7 @@ function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileS
 async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
 	let url = `https://${registry}/v2/${repo}/manifests/${tag}`, headers = {
 		Authorization: `Bearer ${token}`,
-		Accept: ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"].join(", ")
+		Accept: INDEX_MEDIA_TYPES.join(", ")
 	};
 	try {
 		let resp = await _fetch(url, {
@@ -970,6 +970,43 @@ async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
 		return digest;
 	} catch (err) {
 		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error fetching manifest digest for ${registry}/${repo}:${tag}: ${errorMessage(err)}`, "TRANSIENT");
+	}
+}
+/**
+* Fetch an image's config labels, walking index to platform manifest to config
+* blob. Every hop is addressed by a digest read from the one before, so the
+* chain hangs off the digest the signature covers rather than any tag. Like the
+* rest of this module it trusts the registry to serve what a digest addresses;
+* the `docker pull` is what checks those bytes.
+*/
+async function fetchImageConfigLabels(registry, repo, digest, token, _fetch = fetch) {
+	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, image = `${registry}/${repo}@${digest}`, accept = [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", "), root = await fetchRegistryJson(`${api}/manifests/${digest}`, {
+		...headers,
+		Accept: accept
+	}, `manifest for ${image}`, _fetch), manifest = root;
+	if (Array.isArray(root.manifests)) {
+		let platform = root.manifests.find((m) => m.platform?.os && m.platform.os !== "unknown");
+		if (!platform) throw new VerifyImageError(`No platform manifest in image index ${image}`, "NOT_FOUND");
+		manifest = await fetchRegistryJson(`${api}/manifests/${platform.digest}`, {
+			...headers,
+			Accept: MANIFEST_MEDIA_TYPES.join(", ")
+		}, `platform manifest for ${image}`, _fetch);
+	}
+	let configDigest = manifest.config?.digest;
+	if (!configDigest) throw new VerifyImageError(`No image config in manifest for ${image}`, "NOT_FOUND");
+	return (await fetchRegistryJson(`${api}/blobs/${configDigest}`, headers, `image config for ${image}`, _fetch)).config?.Labels ?? {};
+}
+/** GET a registry JSON document, mapping response statuses onto VerifyImageError. */
+async function fetchRegistryJson(url, headers, what, _fetch) {
+	try {
+		let resp = await _fetch(url, { headers });
+		if (resp.status === 404) throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
+		if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching ${what}: HTTP ${resp.status}`, "TRANSIENT");
+		if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to ${what}: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
+		if (!resp.ok) throw new VerifyImageError(`Failed to fetch ${what}: HTTP ${resp.status}`, "TRANSIENT");
+		return await resp.json();
+	} catch (err) {
+		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error fetching ${what}: ${errorMessage(err)}`, "TRANSIENT");
 	}
 }
 /**
@@ -7819,25 +7856,42 @@ async function verifyBundle(bundleJson, options, expectedDigest) {
 	}
 	assertSignedDigest(bundleJson, expectedDigest);
 }
-//#endregion
-//#region src/core/lib/provenance/image-tag.ts
+function engineTagSuffix(proxyEngine) {
+	return proxyEngine === "universal" || proxyEngine === "" ? "" : `-${proxyEngine}`;
+}
 /**
-* Convert an action ref into the base Docker image tag, then append the
-* proxy engine suffix for non-default engines. The `universal` engine
-* (default; formerly named `transparent` — see resolveProxyEngine's
-* ENGINE_ALIASES, which normalizes that alias away before this ever runs)
-* publishes the plain version tag (e.g. `2.1.0`), matching the
-* pre-multi-engine tagging scheme; `explicit` (deprecated), `inspect` and
-* `proxy` (the buildkitd-less network-isolation proxy used by the run action)
-* each publish under their own suffix (e.g. `2.1.0-explicit`,
-* `2.1.0-inspect`, `2.1.0-proxy`). All share the same Sigstore verification identity
-* (same workflow, same git ref) — only the published Docker tag differs, so
-* this does not affect verify-policy.ts's buildVerifyOptions.
+* Convert an action ref into the Docker image tag to resolve (e.g. `2.1.0`,
+* `2.1.0-inspect`, `sha-<sha>-inspect`).
+*
+* The suffix is not part of the Sigstore identity; engine-label.ts is what
+* binds the resolved image to the requested engine.
 */
 function imageTagFromRef(actionRef, proxyEngine = "universal") {
 	if (!actionRef) return "";
 	let base;
-	return base = /^[0-9a-f]{40}$/i.test(actionRef) ? `sha-${actionRef.toLowerCase()}` : actionRef.startsWith("v") ? actionRef.slice(1) : actionRef, proxyEngine !== "universal" && proxyEngine !== "" ? `${base}-${proxyEngine}` : base;
+	return base = /^[0-9a-f]{40}$/i.test(actionRef) ? `sha-${actionRef.toLowerCase()}` : actionRef.startsWith("v") ? actionRef.slice(1) : actionRef, `${base}${engineTagSuffix(proxyEngine)}`;
+}
+//#endregion
+//#region src/core/lib/provenance/engine-label.ts
+/** Holds the published Docker tag, engine suffix included. */
+const IMAGE_VERSION_LABEL = "org.opencontainers.image.version", RELEASE_VERSION = /^\d+\.\d+\.\d+(-rc\d+)?$/;
+/**
+* Fail unless the verified image was published for the requested engine.
+*
+* Every engine of a release verifies under the same signing identity, which
+* covers the git tag and never the Docker tag, so the tag alone would decide
+* which engine runs.
+*
+* The label has to be this engine's suffix on a bare release version. Reading
+* the engine off the label instead would fail open for any suffix the action
+* does not recognize, such as an engine it has since stopped offering but whose
+* images are still published and still signed.
+*/
+function checkImageEngine({ labels, proxyEngine, imageTag }) {
+	let label = labels[IMAGE_VERSION_LABEL];
+	if (!label) throw new VerifyImageError(`Image ${imageTag} carries no ${IMAGE_VERSION_LABEL} label, so the proxy engine it was published for cannot be confirmed.`, "VERIFY_FAILED");
+	let suffix = engineTagSuffix(proxyEngine);
+	if (!(label.endsWith(suffix) && RELEASE_VERSION.test(label.slice(0, label.length - suffix.length)))) throw new VerifyImageError(`Image ${imageTag} was not published for proxy engine ${proxyEngine} (${IMAGE_VERSION_LABEL}: ${label}), so the rules this run was given would not be enforced.`, "VERIFY_FAILED");
 }
 //#endregion
 //#region src/core/lib/provenance/verify-policy.ts
@@ -7895,8 +7949,12 @@ async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "univers
 		actionRepo
 	});
 	if (!verifyOptions) return null;
-	let tag = imageTagFromRef(actionRef, proxyEngine), regToken = await fetchRegistryToken(REGISTRY, repoPath, readGhcrBasicAuth()), digest = await fetchManifestDigest(REGISTRY, repoPath, tag, regToken);
-	return await verifyBundle(await fetchBundle(REGISTRY, repoPath, digest, regToken), verifyOptions, digest), digest;
+	let tag = imageTagFromRef(actionRef, proxyEngine), regToken = await fetchRegistryToken(REGISTRY, repoPath, readGhcrBasicAuth()), digest = await fetchManifestDigest(REGISTRY, repoPath, tag, regToken), bundle = await fetchBundle(REGISTRY, repoPath, digest, regToken), labels = await fetchImageConfigLabels(REGISTRY, repoPath, digest, regToken);
+	return await verifyBundle(bundle, verifyOptions, digest), checkImageEngine({
+		labels,
+		proxyEngine,
+		imageTag: tag
+	}), digest;
 }
 /** Maps a VerifyImageError (or any other thrown value) to the caller-facing ProvenanceError. */
 function toProvenanceError(e) {

@@ -11,6 +11,7 @@ import {
   fetchManifestDigest,
   fetchRegistryToken,
   fetchBundle,
+  fetchImageConfigLabels,
   readGhcrBasicAuth,
 } from "./oci-registry.ts";
 import { VerifyImageError } from "./errors.ts";
@@ -531,6 +532,144 @@ describe("fetchBundle — fallback tag path", () => {
         (err as VerifyImageError).code,
         "auth error must not be reported as NOT_FOUND (unsigned image)",
       ).toBe("TRANSIENT");
+    }
+  });
+});
+
+// ── fetchImageConfigLabels ────────────────────────────────────────────────
+
+describe("fetchImageConfigLabels", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const amd64Dig = "sha256:" + "b".repeat(64);
+  const configDig = "sha256:" + "c".repeat(64);
+  const labels = { "org.opencontainers.image.version": "3.1.0-inspect" };
+
+  function okJson(body: unknown) {
+    return { ok: true, status: 200, json: async () => body };
+  }
+
+  it("follows index → platform manifest → config blob and returns the labels", async () => {
+    const urls: string[] = [];
+    const responses = [
+      okJson({
+        manifests: [
+          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+          { digest: "sha256:" + "e".repeat(64), platform: { architecture: "arm64", os: "linux" } },
+        ],
+      }),
+      okJson({ config: { digest: configDig } }),
+      okJson({ config: { Labels: labels } }),
+    ];
+    let i = 0;
+    const mockFetch = async (url: string) => {
+      urls.push(url);
+      return responses[i++]!;
+    };
+    const result = await fetchImageConfigLabels(
+      "ghcr.io",
+      "buildcage/docker",
+      digest,
+      "token",
+      mockFetch,
+    );
+    expect(result).toStrictEqual(labels);
+    expect(urls[1]).toContain(amd64Dig);
+    expect(urls[2]).toContain(`/blobs/${configDig}`);
+  });
+
+  it("skips the unknown/unknown attestation manifests buildx attaches", async () => {
+    const urls: string[] = [];
+    const responses = [
+      okJson({
+        manifests: [
+          {
+            digest: "sha256:" + "f".repeat(64),
+            platform: { architecture: "unknown", os: "unknown" },
+          },
+          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+        ],
+      }),
+      okJson({ config: { digest: configDig } }),
+      okJson({ config: { Labels: labels } }),
+    ];
+    let i = 0;
+    const mockFetch = async (url: string) => {
+      urls.push(url);
+      return responses[i++]!;
+    };
+    await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+    expect(urls[1]).toContain(amd64Dig);
+  });
+
+  it("reads a single-platform image whose digest is the manifest itself", async () => {
+    const mockFetch = makeFetchReturning([
+      okJson({ config: { digest: configDig } }),
+      okJson({ config: { Labels: labels } }),
+    ]);
+    const result = await fetchImageConfigLabels(
+      "ghcr.io",
+      "buildcage/docker",
+      digest,
+      "token",
+      mockFetch,
+    );
+    expect(result).toStrictEqual(labels);
+  });
+
+  it("returns an empty object for an image with no labels", async () => {
+    const mockFetch = makeFetchReturning([
+      okJson({ config: { digest: configDig } }),
+      okJson({ config: {} }),
+    ]);
+    expect(
+      await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch),
+    ).toStrictEqual({});
+  });
+
+  it("throws TRANSIENT on 5xx", async () => {
+    const mockFetch = makeFetchReturning([{ ok: false, status: 503 }]);
+    try {
+      await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+      assert.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(VerifyImageError);
+      expect((err as VerifyImageError).code).toBe("TRANSIENT");
+    }
+  });
+
+  it("throws NOT_FOUND, naming the image, on 404", async () => {
+    const mockFetch = makeFetchReturning([{ ok: false, status: 404 }]);
+    try {
+      await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+      assert.fail("should have thrown");
+    } catch (err) {
+      expect((err as VerifyImageError).code).toBe("NOT_FOUND");
+      expect((err as VerifyImageError).message).toContain(`ghcr.io/buildcage/docker@${digest}`);
+    }
+  });
+
+  it("throws TRANSIENT with an auth hint on 403", async () => {
+    const mockFetch = makeFetchReturning([{ ok: false, status: 403 }]);
+    try {
+      await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+      assert.fail("should have thrown");
+    } catch (err) {
+      expect((err as VerifyImageError).code).toBe("TRANSIENT");
+      expect((err as VerifyImageError).message).toContain("authenticated");
+    }
+  });
+
+  it("throws NOT_FOUND when an index carries no real platform", async () => {
+    const mockFetch = makeFetchReturning([
+      okJson({
+        manifests: [{ digest: amd64Dig, platform: { architecture: "unknown", os: "unknown" } }],
+      }),
+    ]);
+    try {
+      await fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+      assert.fail("should have thrown");
+    } catch (err) {
+      expect((err as VerifyImageError).code).toBe("NOT_FOUND");
     }
   });
 });
