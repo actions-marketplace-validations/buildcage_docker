@@ -3,9 +3,9 @@ import { annotateKnownBlocked } from "./aggregate.ts";
 import type { GenReportParameters, UniversalReportData } from "../types.ts";
 
 /**
- * Pure — no I/O; the caller (report-action.node.ts) fetches lines/parameters
- * itself. An empty input naturally yields passed:[]/blocked:[]/blockedCount:0,
- * so no special-case branch is needed.
+ * Pure — no I/O; the caller fetches the lines and the parameters itself. An
+ * empty input naturally yields passed:[]/blocked:[]/blockedCount:0, so no
+ * special-case branch is needed.
  */
 export async function buildUniversalReportData(
   lines: AsyncIterable<string> | Iterable<string>,

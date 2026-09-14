@@ -1,11 +1,11 @@
 #!/usr/bin/execlineb -P
 # s: rotate current at 1MB rather than s6-log's own default of ~100KB, so a
-# build with a lot of traffic doesn't rotate mid-build. n: keep 100 rotated
+# run with a lot of traffic doesn't rotate mid-run. n: keep 100 rotated
 # segments (100MB) rather than the default 10, for the same reason. report
 # reads every segment, oldest first, so this isn't the only thing standing
-# between a big build and a truncated report -- but a build that still
-# outgrows this is not a size this tool is meant to handle. l: split a line
-# only past 32768 rather than s6-log's own default of 8192, which sits under
-# the length haproxy is configured to write and would cut a long URL back in
-# half here after haproxy went to the trouble of writing it whole.
+# between a busy run and a truncated report -- but a run that still outgrows
+# this is not a size this tool is meant to handle. l: split a line only past
+# 32768 rather than s6-log's own default of 8192, which sits under the length
+# haproxy is configured to write and would cut a long URL back in half here
+# after haproxy went to the trouble of writing it whole.
 s6-log -l 32768 s1000000 n100 /var/log/haproxy
