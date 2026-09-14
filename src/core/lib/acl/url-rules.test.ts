@@ -106,10 +106,39 @@ describe("convertUrlRule regex escape hatch", () => {
     expect(r.isRegex).toBe(true);
   });
 
+  it('leaves the path half\'s end to the author, who can write the "$" there', () => {
+    expect(convertUrlRule("GET ~^https://a\\.com/x").pathRegex).toBe("^/x");
+    expect(convertUrlRule("GET ~^https://a\\.com/x$").pathRegex).toBe("^/x$");
+  });
+
   it("recognises an escaped slash for either the scheme separator or the path start", () => {
     const r = convertUrlRule("GET ~^https:\\/\\/a\\.com\\/x$");
     expect(r.hostRegex).toBe("^a\\.com$");
     expect(r.pathRegex).toBe("^\\/x$");
+  });
+
+  it("rejects a top-level alternation wherever it sits, the scheme included", () => {
+    expect(() => convertUrlRule("GET ~^https://a\\.com:443|b\\.com:443/x$")).toThrow(/expression/);
+    expect(() => convertUrlRule("GET ~^https://a\\.com/x|/y$")).toThrow(/expression/);
+    // Before the first "://", where neither half would see it.
+    expect(() => convertUrlRule("GET ~^a|https://b\\.com/y$")).toThrow(/expression/);
+  });
+
+  // The group keeps the "|" off the top level of the whole expression, so only
+  // the per-half check sees it.
+  it("rejects a group straddling the cut, whose halves are no longer a host and a path", () => {
+    expect(() => convertUrlRule("GET ~^https://(a\\.com/x|b\\.com/y)$")).toThrow(/path half/);
+    expect(() => convertUrlRule("GET ~^https://(a\\.com/x)$")).toThrow(/does not compile/);
+  });
+
+  it("rejects an IPv6 authority, whose colons are not the port separator", () => {
+    expect(() => convertUrlRule("GET ~^https://\\[::1\\]:443/x$")).toThrow(/IPv6/);
+  });
+
+  it("keeps an alternation that a group holds on one side of the split", () => {
+    const r = convertUrlRule("GET ~^https://a\\.com:(443|8443)/(x|y)$");
+    expect(r.hostRegex).toBe("^a\\.com:(443|8443)$");
+    expect(r.pathRegex).toBe("^/(x|y)$");
   });
 
   it("rejects a raw regex with no scheme separator", () => {

@@ -5,7 +5,7 @@
  */
 
 import type { UrlRule } from "./url-rules.ts";
-import { domainToRegexPartial, splitRawRegexHost } from "./partial-wildcard.ts";
+import { anchorRawRegex, domainToRegexPartial, splitRawRegexHost } from "./partial-wildcard.ts";
 
 /** An IPv4 address or CIDR block, which is what HAProxy's `dst` acl accepts. */
 const IPV4_OR_CIDR = /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/;
@@ -142,7 +142,7 @@ function hostRuleToMatcher(pattern: string): {
     // compiles alone -- the host half itself is only needed by
     // coredns-config.ts, but the checks apply here just the same.
     splitRawRegexHost(pattern);
-    return { hostMatch: "hostPort", hostRegex: pattern.slice(1), port: null };
+    return { hostMatch: "hostPort", hostRegex: anchorRawRegex(pattern.slice(1)), port: null };
   }
   const colonIndex = pattern.lastIndexOf(":");
   if (colonIndex === -1) {
@@ -215,7 +215,7 @@ function compileIpRules(rules: string[] | undefined, warnings: string[]): Compil
       splitRawRegexHost(rule);
       out.push({
         id: `ip${index}`,
-        address: rule.slice(1),
+        address: anchorRawRegex(rule.slice(1)),
         hostMatch: "hostPort",
         port: null,
         raw: rule,

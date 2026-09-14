@@ -222,33 +222,29 @@ describe("buildSourcePolicy — regex (~) rules", () => {
     expect(policy.rules[1].selector.identifier).toBe("^http://custom\\.regex:80(/.*)?$");
   });
 
-  it("an anchor-less regex matches as a substring within the domain, but the missing anchors don't reach into the path", () => {
+  it("an anchor-less regex is anchored for this engine too, so it cannot widen into a neighbouring name", () => {
     const policy = buildSourcePolicy({
       proxyMode: "restrict",
-      httpsRulesInput: "~example(:\\d+)?", // a port pattern is always required, even here
+      httpsRulesInput: "~example\\.com(:\\d+)?", // a port pattern is always required, even here
       httpRulesInput: "",
       ipRulesInput: "",
     });
     const re = new RegExp(policy.rules[1].selector.identifier);
     expect(re.test("https://example.com/")).toBeTruthy();
-    expect(re.test("https://notexample.com/")).toBeTruthy(); // no leading anchor: matches anywhere
-    expect(re.test("https://example.company/")).toBeTruthy(); // no trailing anchor: matches anywhere
-    // ...but the domain-side [^/]* filling each missing anchor can't reach
-    // past a "/" to satisfy a match that only exists in the path, unlike a
-    // naive unbounded ".*" would.
+    expect(!re.test("https://notexample.com/")).toBeTruthy();
+    expect(!re.test("https://example.company/")).toBeTruthy();
     expect(!re.test("https://evil.com/example.com/")).toBeTruthy();
   });
 
-  it("only the anchors actually present are stripped — an unanchored end still gets its own [^/]*", () => {
-    const policy = buildSourcePolicy({
-      proxyMode: "restrict",
-      httpsRulesInput: "~^example(:\\d+)?", // a port pattern is always required, even here
-      httpRulesInput: "",
-      ipRulesInput: "",
-    });
-    const re = new RegExp(policy.rules[1].selector.identifier);
-    expect(re.test("https://example.com/")).toBeTruthy(); // leading-anchored, trailing open
-    expect(!re.test("https://notexample.com/")).toBeTruthy(); // leading anchor still enforced
+  it("refuses a top-level alternation, so no identifier is built from one", () => {
+    expect(() =>
+      buildSourcePolicy({
+        proxyMode: "restrict",
+        httpsRulesInput: "~a\\.com:443|b\\.com:443",
+        httpRulesInput: "",
+        ipRulesInput: "",
+      }),
+    ).toThrow(/top-level "\|"/);
   });
 
   it("the user's own \".*\" is confined to the domain (converted to [^/]*), so it can't cross into the path", () => {

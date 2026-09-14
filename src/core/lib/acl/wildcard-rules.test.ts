@@ -79,6 +79,32 @@ describe("convertRule", () => {
     expect(convertRule("~^custom\\.regex:443$")).toBe("^custom\\.regex:443$");
   });
 
+  it("anchors a regex rule the author left open at either end", () => {
+    expect(convertRule("~example\\.com:443")).toBe("^example\\.com:443$");
+    expect(convertRule("~^example\\.com:443")).toBe("^example\\.com:443$");
+    expect(convertRule("~example\\.com:443$")).toBe("^example\\.com:443$");
+  });
+
+  it("refuses a top-level alternation, which anchors cannot bind around", () => {
+    expect(() => convertRule("~a\\.com:443|b\\.com:443")).toThrow(/top-level "\|"/);
+    expect(() => convertRule("~a\\.com|b\\.com:443")).toThrow(/top-level "\|"/);
+  });
+
+  it("refuses an IPv6 authority, whose colons are not the port separator", () => {
+    expect(() => convertRule("~^\\[::1\\]:443$")).toThrow(/IPv6/);
+  });
+
+  it("leaves an alternation inside a group or a class alone", () => {
+    expect(convertRule("~a\\.com:(443|8443)")).toBe("^a\\.com:(443|8443)$");
+    expect(convertRule("~a\\.com:[4|8]443")).toBe("^a\\.com:[4|8]443$");
+  });
+
+  it("treats an escaped dollar as a literal, not as the anchor it looks like", () => {
+    expect(convertRule("~a\\.com:443\\$")).toBe("^a\\.com:443\\$$");
+    // An escaped backslash before the "$" leaves the "$" itself an anchor.
+    expect(convertRule("~a\\.com:443\\\\$")).toBe("^a\\.com:443\\\\$");
+  });
+
   it("rejects invalid regex (~ prefix)", () => {
     expect(() => convertRule("~^(unclosed")).toThrow(/Invalid regex/);
   });
