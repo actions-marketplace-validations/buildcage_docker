@@ -125,6 +125,10 @@ Each pair builds the same Dockerfile with and without rules:
 ### Notes
 
 - The Buildx `endpoint` must match the `builder_name` input (default: `buildcage`).
+- On a self-hosted runner that runs several jobs at once, give each one its own `builder_name`. The
+  name is what identifies the builder's containers, so two concurrent jobs sharing it tear down each
+  other's builder. The report action needs the same name. A GitHub-hosted runner gets a VM per job,
+  so the default is fine there.
 - Multi-stage Dockerfiles work unchanged. Buildcage doesn't fork or patch BuildKit, it only wires up
   how build traffic is routed.
 - Private registries are ordinary hosts: add the domain like any other.
