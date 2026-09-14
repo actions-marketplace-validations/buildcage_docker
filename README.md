@@ -221,6 +221,11 @@ before that `/` is matched against the host, everything from it onward against t
 matches the scheme's default port only, 443 for `https` and 80 for `http`; there is no implicit
 any-port, so write `example\.com:.*` to allow more.
 
+A top-level `|` is not supported: the rule becomes a host expression and a path expression, which
+between them cannot say what a choice spanning the two would mean. Keep it inside a group
+(`:(443|8443)`, `/(x|y)`), or write one rule per alternative. A group cannot straddle the `/` the
+rule is split at either, since each half is compiled on its own.
+
 A wildcard may sit among literal text, in a domain label or a path segment: `abc*.amazonaws.com`,
 `/pkg-*/**`. A path or method never narrows what a wildcard _host_ resolves. See
 [Inspect Proxy Engine](./docs/security.md#inspect-proxy-engine) for why, and for how to write a host
@@ -295,9 +300,14 @@ is matched against always carries the port.
 | `~^.*\.example\.com:(443\|8443)$` | Matches any subdomain of `example.com` on port 443 or 8443 |
 | `~^192\.168\.1\.\d+:80$`          | Matches a range of IP addresses (in `allowed_ip_rules`)    |
 
+`^` and `$` are added where they are missing, so a pattern always covers the whole `domain:port`.
+A top-level `|` is not supported, since the anchors would bind to one branch each: keep it inside a
+group, as in `~^(a|b)\.example\.com:443$`, or write one rule per alternative. An IPv6 address is
+refused here as everywhere else in the rule syntax.
+
 In `allowed_url_rules` a `~` expression covers the URL, and is split into a host half and a path
-half as described above. A rule the split cannot handle, one with no `/` after `://`, is refused
-with an error naming what to write instead.
+half as described above. A rule the split cannot handle is refused with an error naming what to
+write instead.
 
 ## Engines
 
