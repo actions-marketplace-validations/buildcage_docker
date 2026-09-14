@@ -14,6 +14,25 @@ RUN echo "=== [HTTPS - allowed - wildcard] ===" && \
     echo "Testing sub.wildcard.example.com (HTTPS)..." && \
     (wget --no-check-certificate -q -O /dev/null --timeout=10 https://sub.wildcard.example.com/ && echo "✓ sub.wildcard.example.com: OK") || (echo "✗ sub.wildcard.example.com: FAILED" && exit 1)
 
+# [HTTPS - regex rule written without anchors]
+RUN echo "=== [HTTPS - regex allowed] ===" && \
+    echo "Testing ok.regex.example.com (HTTPS)..." && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=10 https://ok.regex.example.com/ && echo "✓ ok.regex.example.com: OK") || (echo "✗ ok.regex.example.com: FAILED" && exit 1)
+
+# [HTTPS - regex rule must not match a name merely containing it]
+RUN echo "=== [HTTPS - regex blocked, substring] ===" && \
+    echo "Testing not-ok.regex.example.com (HTTPS, should be blocked)..." && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=5 https://not-ok.regex.example.com/ && echo "✗ not-ok.regex.example.com: ALLOWED (unexpected)" && exit 1) || echo "✓ not-ok.regex.example.com: BLOCKED (expected)"
+
+# [HTTPS - regex rule with a grouped port alternation]
+RUN echo "=== [HTTPS - regex port alternation] ===" && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=10 https://ports.regex.example.com/ && echo "✓ ports.regex.example.com:443: OK") || (echo "✗ ports.regex.example.com:443: FAILED" && exit 1) && \
+    (wget --no-check-certificate -q -O /dev/null --timeout=10 https://ports.regex.example.com:8443/ && echo "✓ ports.regex.example.com:8443: OK") || (echo "✗ ports.regex.example.com:8443: FAILED" && exit 1)
+
+# [HTTP - regex rule names https ports only]
+RUN echo "=== [HTTP - regex blocked, port not named] ===" && \
+    (wget -q -O /dev/null --timeout=5 http://ports.regex.example.com/ && echo "✗ ports.regex.example.com:80: ALLOWED (unexpected)" && exit 1) || echo "✓ ports.regex.example.com:80: BLOCKED (expected)"
+
 # [HTTPS - blocked - nested subdomain]
 RUN echo "=== [HTTPS - blocked - nested subdomain] ===" && \
     echo "Testing deep.sub.wildcard.example.com (HTTPS, should be blocked)..." && \

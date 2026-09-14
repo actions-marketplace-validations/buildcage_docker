@@ -53,6 +53,15 @@ services:
         # above -- a ~ URL rule's port is optional, unlike the other kinds.
         GET ~^https://blocked\.example\.com/defaultport/.*$
 
+        # Neither anchor written: the host half is anchored for the author,
+        # so not-ok.wildcard.example.com is refused, while the path half is
+        # left as written and /regexpub/ stays a prefix.
+        GET ~https://ok\.wildcard\.example\.com/regexpub/
+
+        # The "$" is the author's own and must survive: /regexexactly must
+        # not match a rule naming /regexexact.
+        GET ~^https://ok\.wildcard\.example\.com/regexexact$
+
         # Never requested: this is here so real HAProxy sees a path pattern
         # carrying the characters its own config parser folds. Unescaped, the
         # `#` would comment the line short and leave the regex as `^/frag(x`,
