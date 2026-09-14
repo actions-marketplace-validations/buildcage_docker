@@ -554,6 +554,11 @@ begins. The flow:
                           or critical.image.docker-manifest-digest (legacy simple-signing)
        Must equal the digest fetched in step 1 (strict string equality)
        Mismatch → VERIFY_FAILED (closes the Referrers API attribution gap)
+            ↓
+6. Proxy engine assertion (fail-closed)
+       GET the verified image's config blob → org.opencontainers.image.version
+       Its engine suffix must name the engine this run asked for
+       Mismatch → VERIFY_FAILED (the signature covers the digest, not the tag)
 ```
 
 Every identity check (OIDC issuer, signing workflow, ref/SHA claim, manifest digest) is enforced
@@ -614,8 +619,17 @@ Verification establishes where the image came from. Here is what it leaves uncov
   signature must cover that same digest, and the `docker pull` is digest-pinned. Content substituted
   at any point after the tag lookup therefore makes verification **fail** rather than falsely pass,
   leaving no time-of-check/time-of-use gap. What remains is the tag lookup itself: an attacker with
-  write access to the registry could repoint the tag, but only at an image genuinely signed for the
-  same pinned commit, in practice another image from that same release.
+  write access to the registry could repoint the tag, but only at an image this repository's release
+  workflow genuinely signed.
+
+  That leaves one engine's image substitutable for another's from the same release, which the
+  identity cannot tell apart. Step 6 above is what does: a `-inspect` tag pointed at the same
+  release's `universal` image fails, instead of quietly running without URL and TLS enforcement.
+
+- **A floating tag is a pointer someone else moves.** Under `@v3` or `@v3.2` the signing identity
+  accepts any release in that series, so the tag can also be moved back to an older one. Pinning a
+  commit SHA is what puts you in charge of when you move, and it is the reason to prefer it: the
+  registry tag and the git tag behind `@v3` are both writable by whoever publishes releases.
 
 - **A build-time test hook exists, but not in what you run.**
   `BUILDCAGE_BUILD_TEST_HOOKS=1 vp run build` produces a `dist/` where a `BUILDCAGE_LOCAL_IMAGE_REF`

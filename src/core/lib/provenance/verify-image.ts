@@ -13,11 +13,13 @@ import {
   fetchManifestDigest,
   fetchRegistryToken,
   fetchBundle,
+  fetchImageConfigLabels,
   readGhcrBasicAuth,
 } from "./oci-registry.ts";
 import { verifyBundle } from "./sigstore.ts";
 import type { DsseBundle } from "./signed-digest.ts";
 import { imageTagFromRef } from "./image-tag.ts";
+import { checkImageEngine } from "./engine-label.ts";
 import { buildVerifyOptions, type VerifyImageIdentity } from "./verify-policy.ts";
 import { ProvenanceError, VerifyImageError } from "./errors.ts";
 import { errorMessage } from "../errors.ts";
@@ -56,7 +58,11 @@ export async function verifyImageDigest({
   const regToken = await fetchRegistryToken(REGISTRY, repoPath, readGhcrBasicAuth());
   const digest = await fetchManifestDigest(REGISTRY, repoPath, tag, regToken);
   const bundle = await fetchBundle(REGISTRY, repoPath, digest, regToken);
+  // Read before verifyBundle, whose TUF refresh can outlast the registry token.
+  const labels = await fetchImageConfigLabels(REGISTRY, repoPath, digest, regToken);
   await verifyBundle(bundle as DsseBundle, verifyOptions, digest);
+  // The bundle covers the digest, not the tag it was reached through.
+  checkImageEngine({ labels, proxyEngine, imageTag: tag });
   return digest;
 }
 

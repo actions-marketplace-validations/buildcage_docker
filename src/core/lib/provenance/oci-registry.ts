@@ -17,7 +17,18 @@ interface OciDescriptor {
   mediaType?: string;
   artifactType?: string;
   digest: string;
+  platform?: { os?: string };
 }
+
+const MANIFEST_MEDIA_TYPES = [
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+];
+
+const INDEX_MEDIA_TYPES = [
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+];
 
 export interface HeadersLike {
   get(name: string): string | null;
@@ -92,10 +103,7 @@ export async function fetchManifestDigest(
   // would cause the bundle lookup to fail.
   const headers = {
     Authorization: `Bearer ${token}`,
-    Accept: [
-      "application/vnd.oci.image.index.v1+json",
-      "application/vnd.docker.distribution.manifest.list.v2+json",
-    ].join(", "),
+    Accept: INDEX_MEDIA_TYPES.join(", "),
   };
 
   try {
@@ -138,6 +146,101 @@ export async function fetchManifestDigest(
     if (err instanceof VerifyImageError) throw err;
     throw new VerifyImageError(
       `Transient error fetching manifest digest for ${registry}/${repo}:${tag}: ${errorMessage(err)}`,
+      "TRANSIENT",
+    );
+  }
+}
+
+/**
+ * Fetch an image's config labels, walking index to platform manifest to config
+ * blob. Every hop is addressed by a digest read from the one before, so the
+ * chain hangs off the digest the signature covers rather than any tag. Like the
+ * rest of this module it trusts the registry to serve what a digest addresses;
+ * the `docker pull` is what checks those bytes.
+ */
+export async function fetchImageConfigLabels(
+  registry: string,
+  repo: string,
+  digest: string,
+  token: string,
+  _fetch: FetchLike = fetch,
+): Promise<Record<string, string>> {
+  const api = `https://${registry}/v2/${repo}`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const image = `${registry}/${repo}@${digest}`;
+
+  const accept = [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", ");
+  const root = await fetchRegistryJson(
+    `${api}/manifests/${digest}`,
+    { ...headers, Accept: accept },
+    `manifest for ${image}`,
+    _fetch,
+  );
+
+  let manifest = root;
+  if (Array.isArray(root.manifests)) {
+    // buildx attaches an attestation manifest per platform, marked unknown/unknown.
+    // Every real platform carries the same labels, so the first one answers for all.
+    const platform = (root.manifests as OciDescriptor[]).find(
+      (m) => m.platform?.os && m.platform.os !== "unknown",
+    );
+    if (!platform) {
+      throw new VerifyImageError(`No platform manifest in image index ${image}`, "NOT_FOUND");
+    }
+    manifest = await fetchRegistryJson(
+      `${api}/manifests/${platform.digest}`,
+      { ...headers, Accept: MANIFEST_MEDIA_TYPES.join(", ") },
+      `platform manifest for ${image}`,
+      _fetch,
+    );
+  }
+
+  const configDigest = manifest.config?.digest;
+  if (!configDigest) {
+    throw new VerifyImageError(`No image config in manifest for ${image}`, "NOT_FOUND");
+  }
+  const config = await fetchRegistryJson(
+    `${api}/blobs/${configDigest}`,
+    headers,
+    `image config for ${image}`,
+    _fetch,
+  );
+  return config.config?.Labels ?? {};
+}
+
+/** GET a registry JSON document, mapping response statuses onto VerifyImageError. */
+async function fetchRegistryJson(
+  url: string,
+  headers: Record<string, string>,
+  what: string,
+  _fetch: FetchLike,
+): Promise<any> {
+  try {
+    const resp = await _fetch(url, { headers });
+    if (resp.status === 404) {
+      throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
+    }
+    if (resp.status >= 500) {
+      throw new VerifyImageError(
+        `Transient error fetching ${what}: HTTP ${resp.status}`,
+        "TRANSIENT",
+      );
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      throw new VerifyImageError(
+        `Registry denied access to ${what}: HTTP ${resp.status}. ` +
+          `For private repositories, ensure the runner is authenticated to the registry.`,
+        "TRANSIENT",
+      );
+    }
+    if (!resp.ok) {
+      throw new VerifyImageError(`Failed to fetch ${what}: HTTP ${resp.status}`, "TRANSIENT");
+    }
+    return await resp.json!();
+  } catch (err) {
+    if (err instanceof VerifyImageError) throw err;
+    throw new VerifyImageError(
+      `Transient error fetching ${what}: ${errorMessage(err)}`,
       "TRANSIENT",
     );
   }

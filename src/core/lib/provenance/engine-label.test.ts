@@ -1,0 +1,74 @@
+/**
+ * Unit tests for core/lib/provenance/engine-label.ts
+ *
+ * Run with: vp test run core/lib/provenance/engine-label.test.ts
+ */
+import { describe, it, expect, assert } from "vitest";
+
+import { checkImageEngine, IMAGE_VERSION_LABEL } from "./engine-label.ts";
+import { VerifyImageError } from "./errors.ts";
+
+function check(version: string | undefined, proxyEngine: string): void {
+  checkImageEngine({
+    labels: version === undefined ? {} : { [IMAGE_VERSION_LABEL]: version },
+    proxyEngine,
+    imageTag: "3.1.0-inspect",
+  });
+}
+
+function expectRejected(version: string | undefined, proxyEngine: string): VerifyImageError {
+  try {
+    check(version, proxyEngine);
+  } catch (err) {
+    expect(err).toBeInstanceOf(VerifyImageError);
+    expect((err as VerifyImageError).code).toBe("VERIFY_FAILED");
+    return err as VerifyImageError;
+  }
+  assert.fail("should have thrown");
+}
+
+describe("checkImageEngine", () => {
+  it("accepts a label whose suffix names the requested engine", () => {
+    expect(() => check("3.1.0-inspect", "inspect")).not.toThrow();
+    expect(() => check("3.1.0-explicit", "explicit")).not.toThrow();
+    expect(() => check("3.1.0", "universal")).not.toThrow();
+  });
+
+  it("accepts a prerelease version, which carries no engine suffix of its own", () => {
+    expect(() => check("3.1.0-rc1", "universal")).not.toThrow();
+    expect(() => check("3.1.0-rc1-inspect", "inspect")).not.toThrow();
+  });
+
+  it("ignores the version half, which a floating ref or SHA pin does not match", () => {
+    expect(() => check("3.0.1-inspect", "inspect")).not.toThrow();
+  });
+
+  it("rejects the universal image served for an inspect tag", () => {
+    const err = expectRejected("3.1.0", "inspect");
+    expect(err.message).toContain("not published for proxy engine inspect");
+  });
+
+  it("rejects an engine image served for a universal tag", () => {
+    expectRejected("3.1.0-inspect", "universal");
+    expectRejected("3.1.0-rc1-inspect", "universal");
+  });
+
+  it("rejects one engine's image served for another engine's tag", () => {
+    expectRejected("3.1.0-explicit", "inspect");
+  });
+
+  it("rejects a suffix the action does not offer, rather than reading it as universal", () => {
+    expectRejected("3.1.0-future", "universal");
+    expectRejected("3.1.0-rc1-future", "universal");
+  });
+
+  it("rejects a label that is not a release version at all", () => {
+    expectRejected("sha-" + "a".repeat(40), "universal");
+    expectRejected("main", "universal");
+  });
+
+  it("rejects an image with no version label", () => {
+    const err = expectRejected(undefined, "inspect");
+    expect(err.message).toContain("no org.opencontainers.image.version label");
+  });
+});
