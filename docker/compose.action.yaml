@@ -3,8 +3,9 @@ services:
     container_name: ${BUILDER_NAME:-buildcage}
     image: ${BUILDCAGE_IMAGE_REF:-placeholder}
     # Not privileged, unlike docker/setup-buildx-action's own builder: these
-    # three are all BuildKit needs, and device access and a writable host /proc
-    # and /sys stay out.
+    # three are all BuildKit needs, and a writable host /proc and /sys stay out.
+    # Devices are refused by the device cgroup, which only a step that has
+    # escaped runc could lift; privileged allows them outright.
     #
     # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
     # iptables and CNI networking require NET_ADMIN.
