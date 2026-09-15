@@ -172,6 +172,17 @@ function pathMatcher(pathRegex: string): Matcher {
   return { op, pattern: unescape(body) };
 }
 
+/**
+ * Whether this scheme's block refuses every request outright.
+ *
+ * Its deny carries no condition, so HAProxy treats it as final and skips every
+ * http-request rule after it in the same frontend. Nothing may be emitted
+ * below it.
+ */
+function deniesEverything(rules: CompiledRule[], mode: string): boolean {
+  return mode !== "audit" && rules.length === 0;
+}
+
 /** Emit the rule ACLs and the single deny that enforces them. */
 function ruleBlock(rules: CompiledRule[], mode: string, scheme: "https" | "http"): string[] {
   const lines: string[] = [];
@@ -179,7 +190,7 @@ function ruleBlock(rules: CompiledRule[], mode: string, scheme: "https" | "http"
     lines.push("    # audit records without enforcing, so nothing is refused here.", "");
     return lines;
   }
-  if (rules.length === 0) {
+  if (deniesEverything(rules, mode)) {
     lines.push(
       "    # No rules for this scheme, so nothing is permitted.",
       "    http-request deny",
@@ -280,6 +291,7 @@ function ruleBlock(rules: CompiledRule[], mode: string, scheme: "https" | "http"
  */
 export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): GeneratedHaproxyConfig {
   const opts = { ...DEFAULTS, ...options };
+  const mode = opts.mode ?? "restrict";
   const {
     https: httpsRules,
     http: httpRules,
@@ -369,6 +381,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
   }
 
   // --- stage 1: classify ----------------------------------------------------
+  const hasPassthrough = ipRules.length > 0 || tlsHosts.length > 0;
   l.push(
     "# One listener for everything redirected here. The first bytes say whether",
     "# this is a handshake or a plain request, so no port has to be declared as",
@@ -379,7 +392,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     "    tcp-request inspect-delay 5s",
     "",
   );
-  if (ipRules.length > 0 || tlsHosts.length > 0) {
+  if (hasPassthrough) {
     l.push(
       // req.ssl_sni is attacker-controlled; reduced to a safe charset for logging.
       "    # Captured now, since the request buffer is gone by log time.",
@@ -478,15 +491,21 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         `reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"`,
       "",
     );
-    // txn.pass is set by exactly the conds above, so this selects the same
-    // connections without repeating them on one line.
-    l.push("    use_backend passthrough if { var(txn.pass) -m found }", "");
   }
   l.push(
     "    # `accept` ends content-rule evaluation, so it comes after every rule",
     "    # that needs the request buffer (the SNI capture and resolution above).",
     "    tcp-request content accept if { req.ssl_hello_type 1 } || { req.len gt 0 }",
     "",
+  );
+  if (hasPassthrough) {
+    // txn.pass is set by exactly the conds above, so this selects the same
+    // connections without repeating them on one line. Backend selection runs
+    // after every content rule whatever the written order, so this sits below
+    // the accept above rather than drawing a warning by preceding it.
+    l.push("    use_backend passthrough if { var(txn.pass) -m found }", "");
+  }
+  l.push(
     "    acl is_tls req.ssl_hello_type 1",
     "    use_backend to_tls if is_tls",
     "    default_backend to_plain",
@@ -553,8 +572,10 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
     // allow reaches the do-resolve below, so a name a request would be denied
     // for never triggers a real DNS query -- do-resolve is the only place a
     // real query leaves this proxy, and it must never run ahead of a deny.
-    l.push(...ruleBlock(rules, opts.mode ?? "restrict", scheme));
-    if (hasResolver) {
+    l.push(...ruleBlock(rules, mode, scheme));
+    // Skipped entirely when the block above denies unconditionally: HAProxy
+    // would never reach these rules, and warns that they are NOOP.
+    if (hasResolver && !deniesEverything(rules, mode)) {
       l.push(
         "    # Connect where WE resolve the Host, discarding the client's address,",
         "    # so a forged Host or doctored /etc/hosts cannot choose the target.",
