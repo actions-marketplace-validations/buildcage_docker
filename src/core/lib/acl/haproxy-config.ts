@@ -352,10 +352,15 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
       ...(useResolvConf
         ? ["    parse-resolv-conf"]
         : resolvers.map((addr, i) => `    nameserver ns${i + 1} ${addr}:53`)),
-      "    resolve_retries 3",
-      "    timeout resolve 3s",
+      // The only hold do-resolve reads, and it ignores the record's own TTL,
+      // so it is also how long a rotated address keeps being dialled. A minute
+      // is about the TTL of the hosts a build talks to.
+      "    hold valid 60s",
+      // One query more than the default, a second apart. On the passthrough
+      // path they share detect's 5s inspect-delay with the wait for the
+      // ClientHello.
+      "    resolve_retries 4",
       "    timeout retry 1s",
-      "    hold valid 30s",
       // The 512-byte default truncates an answer carrying many records, and a
       // truncated answer resolves nothing.
       "    accepted_payload_size 8192",
@@ -557,6 +562,9 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         `    http-request set-var(txn.dst) req.hdr(host),${HOST_ONLY} if host_is_address`,
         `    http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,${HOST_ONLY} ` +
           "unless host_is_address",
+        "    # A fresh attempt, not a replay: nothing cached the failure.",
+        `    http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,${HOST_ONLY} ` +
+          "unless host_is_address or { var(txn.dst) -m found }",
         "    http-request deny deny_status 502 unless { var(txn.dst) -m found }",
         "",
         "    # Set before the internal-destination check below, not after: %[dst] in",

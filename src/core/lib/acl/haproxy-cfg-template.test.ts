@@ -2,6 +2,7 @@
 // keeps the two lists in sync automatically -- this catches drift.
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
 import { INTERNAL_RANGES } from "./haproxy-rules.ts";
+import { generateHaproxyConfig } from "./haproxy-config.ts";
 
 const isNode = typeof (globalThis as { process?: unknown }).process !== "undefined";
 
@@ -79,6 +80,41 @@ describe("universal engine's internal-address guard stays in sync with INTERNAL_
       expect(fetchOf(lines[1])).toBe(fetchOf(lines[0]));
     });
   }
+});
+
+/** Every resolver tuning directive in a config, without the nameserver lines
+ *  and section name the two engines legitimately differ on. */
+function resolverTuning(config: string): string[] {
+  return config
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) =>
+      /^(hold|resolve_retries|timeout (retry|resolve)|accepted_payload_size)\b/.test(l),
+    )
+    .sort();
+}
+
+describe("universal engine's resolver is tuned like the inspect engine's", () => {
+  it("sets the same directives to the same values as the generated config", () => {
+    // A value changed on one side alone is silent, and re-resolution decides
+    // how often a name the rules allow can be refused. No rules needed here:
+    // the resolvers section is gated on an upstream alone.
+    const generated = generateHaproxyConfig({
+      resolverAddress: ["1.1.1.1"],
+      proxyAddress: PROXY_GATEWAY,
+    }).config;
+    expect(resolverTuning(TEMPLATE)).toStrictEqual(resolverTuning(generated));
+  });
+
+  it("retries a failed resolution on the path no inspect-delay caps", () => {
+    // Without the second call one transient miss refuses a name the rules
+    // allow; without its guard a destination already found is re-resolved.
+    const resolves = TEMPLATE.split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("http-request do-resolve("));
+    expect(resolves.length).toBe(2);
+    expect(resolves[1].endsWith("unless { var(txn.actual_ip) -m found }")).toBe(true);
+  });
 });
 
 describe("universal engine's log line is sized like the inspect engine's", () => {
