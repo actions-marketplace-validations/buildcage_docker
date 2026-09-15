@@ -142,8 +142,9 @@ Each pair builds the same Dockerfile with and without rules:
 > [!NOTE]
 > The builder is a container on the runner itself, so this action needs a Linux runner with a
 > working Docker installation, on Docker Engine 25.0 or later with Compose v2.20.2 or later, and on
-> a host using cgroup v2. GitHub-hosted `ubuntu-*` runners meet all three. A self-hosted runner that
-> doesn't fails while the builder starts, before any `RUN` step runs.
+> a host using cgroup v2. GitHub-hosted `ubuntu-latest` and the versioned `ubuntu-*` images meet all
+> three, but lightweight images such as `ubuntu-slim` (a Docker client with no daemon) are not
+> supported. A runner that falls short fails while the builder starts, before any `RUN` step runs.
 
 ## Inputs
 
