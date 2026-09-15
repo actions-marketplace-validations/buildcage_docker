@@ -24,6 +24,7 @@ workflow `run:` step rather than a Docker build, use
 
 ## Contents
 
+- [Requirements](#requirements)
 - [Usage](#usage)
 - [Inputs](#inputs)
 - [Operation modes](#operation-modes)
@@ -34,6 +35,21 @@ workflow `run:` step rather than a Docker build, use
 - [GitHub's native egress firewall](#githubs-native-egress-firewall)
 - [Scope](#scope)
 - [Documentation](#documentation)
+
+## Requirements
+
+The builder is a container on the runner itself, so this action needs a Linux runner with a working
+Docker installation:
+
+- **GitHub-hosted**
+  - `ubuntu-latest`, the versioned `ubuntu-*` images, and their `-arm` variants
+  - Lightweight images such as `ubuntu-slim` are not supported: they ship a Docker client with no
+    daemon
+- **Self-hosted**
+  - Docker Engine 25.0 or later, with Compose v2.20.2 or later
+  - A host using cgroup v2
+
+A runner that falls short fails while the builder starts, before any `RUN` step runs.
 
 ## Usage
 
