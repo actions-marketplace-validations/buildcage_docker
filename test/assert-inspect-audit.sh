@@ -14,7 +14,7 @@ esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
 
 assert_logged() {
   local method="$1" url="$2"
-  if grep -qE "^buildcage [0-9]+ https? ${method} 200 [0-9]+ ts=\S* dst=\S+ $(esc "$url")$" <<< "$PROXY_LOG"; then
+  if grep -qE "^buildcage [0-9]+ https? ${method} 200 [0-9]+ ts=\S* reason=\S+ dst=\S+ $(esc "$url")$" <<< "$PROXY_LOG"; then
     pass "$method $url"
   else
     fail "$method $url -- no 200 recorded"

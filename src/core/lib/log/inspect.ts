@@ -2,8 +2,8 @@
  * Parsers for the `inspect` engine's two logs, whose formats are emitted by
  * haproxy-config.ts and coredns-config.ts. Four kinds of line:
  *
- *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> dst=<addr>:<port> <url>
- *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> dst=<addr>:<port> sni=<name|->
+ *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> reason=<r> dst=<addr>:<port> <url>
+ *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> reason=<r> dst=<addr>:<port> sni=<name|->
  *   <timestamp>  [INFO] buildcage dns <allowed|denied> name=<name>.
  *   <timestamp>  [INFO] buildcage dns discovery name=<name>. type=<qtype>
  *   <timestamp>  [INFO] buildcage dns service-denied name=<name>. type=<qtype>
@@ -44,8 +44,10 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 
 // The trailing field stays \S+ rather than .+: two lines joined by a
 // half-written write would otherwise parse as one event instead of counting.
-const REQUEST = /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) dst=(\S+):(\d+) (\S+)$/;
-const PASSTHROUGH = /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) dst=(\S+):(\d+) sni=(\S+)$/;
+const REQUEST =
+  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (\S+)$/;
+const PASSTHROUGH =
+  /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
 const DNS_DISCOVERY = /^(\S+ \S+)\s+.*buildcage dns discovery name=(\S+?)\.? type=(\S+)$/;
 const DNS_SERVICE_DENIED = /^(\S+ \S+)\s+.*buildcage dns service-denied name=(\S+?)\.? type=(\S+)$/;
@@ -80,11 +82,28 @@ function isRefusal(terminationState: string): boolean {
   return terminationState.startsWith("P") || terminationState.startsWith("S");
 }
 
-/** Refusal reason, matching the universal engine's kebab-case vocabulary. */
-function reasonForStatus(status: number): string {
-  if (status === 502) return "dns-failed";
-  if (status === 503) return "origin-unreachable";
-  return "not-allowed";
+/**
+ * Refusal reason, matching the universal engine's kebab-case vocabulary.
+ *
+ * The config names the refusals only it can tell apart: 502 is both our DNS
+ * deny and an origin that gave up, and a passthrough reject has no status at
+ * all. Everything else the phase already names, so the field stays `-`.
+ */
+function reasonFor(logged: string, terminationState: string): string {
+  if (logged !== "-") return logged;
+  switch (terminationState[1]) {
+    case "R":
+      return "not-allowed";
+    case "C":
+      return "origin-unreachable";
+    case "H":
+      return "origin-no-response";
+    case "D":
+    case "L":
+      return "origin-aborted";
+    default:
+      return "not-allowed";
+  }
 }
 
 function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
@@ -116,13 +135,13 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
       time: Number(request[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: request[2] as "http" | "https",
-      host: hostOf(request[9]),
-      port: Number(request[8]),
+      host: hostOf(request[10]),
+      port: Number(request[9]),
       method: request[3],
-      url: request[9],
-      destination: `${request[7]}:${request[8]}`,
+      url: request[10],
+      destination: `${request[8]}:${request[9]}`,
     };
-    if (refused) event.reason = reasonForStatus(Number(request[4]));
+    if (refused) event.reason = reasonFor(request[7], request[6]);
     else {
       event.status = Number(request[4]);
       event.bytes = Number(request[5]);
@@ -135,17 +154,17 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
     const refused = isRefusal(pass[4]);
     // An ip rule names an address and carries no SNI, so the address is the
     // only identity such a connection has.
-    const sni = pass[7];
+    const sni = pass[8];
     const event: TrafficEvent = {
       time: Number(pass[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: pass[2] as "tls" | "tcp",
-      host: sni === "-" ? pass[5] : sni,
-      port: Number(pass[6]),
-      destination: `${pass[5]}:${pass[6]}`,
+      host: sni === "-" ? pass[6] : sni,
+      port: Number(pass[7]),
+      destination: `${pass[6]}:${pass[7]}`,
     };
     // Never decrypted, so there is no status to report either way.
-    if (refused) event.reason = "not-allowed";
+    if (refused) event.reason = reasonFor(pass[5], pass[4]);
     else event.bytes = Number(pass[3]);
     return event;
   }

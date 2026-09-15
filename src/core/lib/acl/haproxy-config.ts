@@ -449,6 +449,8 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
       l.push(
         "    tcp-request content do-resolve(txn.dst,buildcage,ipv4) req.ssl_sni,lower " +
           "if { var(txn.tlsrule) -m found }",
+        "    tcp-request content set-var(txn.reason) str(dns-failed) " +
+          "if { var(txn.tlsrule) -m found } !{ var(txn.dst) -m found }",
         // Falling through would connect to the address the client chose.
         "    tcp-request content reject if { var(txn.tlsrule) -m found } " +
           "!{ var(txn.dst) -m found }",
@@ -459,6 +461,8 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         // Same internal-destination guard as the inspected path; see INTERNAL_RANGES.
         `    acl pass_dst_internal var(txn.dst) -m ip ${dstInternalAddrs.join(" ")}`,
         ...hostAddrAcl("pass_dst_internal", "var(txn.dst)"),
+        "    tcp-request content set-var(txn.reason) str(internal-address) " +
+          "if { var(txn.tlsrule) -m found } pass_dst_internal",
         "    tcp-request content reject if { var(txn.tlsrule) -m found } pass_dst_internal",
       );
     }
@@ -471,7 +475,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
       // The SNI is last, being the one field whose length the build chooses:
       // a cut line then costs the name, not the decision.
       `    log-format "buildcage %[date(0,ms)] pass %[var(txn.proto)] %B ts=%ts ` +
-        `dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"`,
+        `reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"`,
       "",
     );
     // txn.pass is set by exactly the conds above, so this selects the same
@@ -539,10 +543,9 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
       "    # `\\\\` is one literal backslash: HAProxy's parser takes the pair as one.",
       "    http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|%2f|%5c) }",
       "    http-request deny deny_status 403 if { path -m sub \\\\ }",
-      // %ts tells our own refusal (PR / SC) from an origin's own 403 or 503 (--).
-      // Same for the URL: everything the report needs to place the event sits
-      // ahead of anything that could cut the line.
-      `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts dst=%[dst]:%[dst_port] ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
+      // %ts tells a refusal from an origin's own 403 or 503, reason says which
+      // refusal. Both sit ahead of the URL, the one field that could cut the line.
+      `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
       "",
     );
     // The rules decide first, on the request alone (host, path, method): none
@@ -565,6 +568,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         "    # A fresh attempt, not a replay: nothing cached the failure.",
         `    http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,${HOST_ONLY} ` +
           "unless host_is_address or { var(txn.dst) -m found }",
+        "    http-request set-var(txn.reason) str(dns-failed) unless { var(txn.dst) -m found }",
         "    http-request deny deny_status 502 unless { var(txn.dst) -m found }",
         "",
         "    # Set before the internal-destination check below, not after: %[dst] in",
@@ -577,6 +581,7 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
         "    # address named in a rule is exempt.",
         `    acl dst_internal var(txn.dst) -m ip ${dstInternalAddrs.join(" ")}`,
         ...hostAddrAcl("dst_internal", "var(txn.dst)"),
+        "    http-request set-var(txn.reason) str(internal-address) if dst_internal !host_is_address",
         "    http-request deny deny_status 403 if dst_internal !host_is_address",
         "",
       );

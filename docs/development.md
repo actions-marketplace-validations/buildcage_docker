@@ -220,8 +220,8 @@ HAProxy's log carries one line per request, oldest first, with its method, statu
 full URL last:
 
 ```
-buildcage 1787471975123 https GET 200 708 ts=-- dst=104.16.1.34:443 https://registry.npmjs.org/express
-buildcage 1787471976000 pass tls 3421 ts=-- dst=10.200.0.100:5432 sni=db.example.com
+buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=104.16.1.34:443 https://registry.npmjs.org/express
+buildcage 1787471976000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=db.example.com
 ```
 
 The URL and the SNI come last because a build decides how long they are: every field the report
@@ -241,9 +241,11 @@ the way `explicit`'s per-step breakdown can:
 ✅ 00:02.115: TLS db.example.com:5432 -> (12.3KB)
 ```
 
-Times are relative to when the proxy started. A refusal names its reason rather than a status: 403,
-502 and 503 mean a rule, a name that would not resolve, and an origin that could not be reached or
-verified.
+Times are relative to when the proxy started. A refusal names its reason rather than a status. The
+`reason` field carries it whenever the rule that refused knew one the line could not otherwise show
+(`dns-failed`, `internal-address`); a `-` there leaves the termination state's phase to name it: `R`
+a request buildcage refused (`not-allowed`), `C` an origin that could not be reached or verified,
+`H` one that never sent usable response headers, `D`/`L` one that cut the transfer short.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
 archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The
