@@ -264,7 +264,7 @@ describe("describeBlockedOutcome", () => {
       level: "error",
       shouldFail: true,
       message:
-        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded). Either the logs don't begin where a real run does, or one carries a line the report cannot read. A missing beginning was removed, or rotated out by a run that outgrew the 100 MB of log kept: splitting a run that large across steps stays under it.",
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded). Either the logs don't begin where a real run does, or one carries a line the report cannot read. A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand requests. Audit mode reports this without failing, so it can show where that much traffic came from.",
     });
   });
 
@@ -295,7 +295,7 @@ describe("describeBlockedOutcome", () => {
       engineLabel: "sandbox",
     });
     expect(result.message).toBe(
-      "buildcage sandbox logs are incomplete, so this report is not a full record of what ran. Either the logs don't begin where a real run does, or one carries a line the report cannot read. A missing beginning was removed, or rotated out by a run that outgrew the 100 MB of log kept: splitting a run that large across steps stays under it.",
+      "buildcage sandbox logs are incomplete, so this report is not a full record of what ran. Either the logs don't begin where a real run does, or one carries a line the report cannot read. A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand requests. Audit mode reports this without failing, so it can show where that much traffic came from.",
     );
   });
 });

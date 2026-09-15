@@ -128,7 +128,8 @@ export function describeBlockedOutcome({
   // into one flag, and only the benign reading is the reader's to act on.
   const message =
     `${counted}. Either the logs don't begin where a real run does, or one carries a line the ` +
-    "report cannot read. A missing beginning was removed, or rotated out by a run that outgrew " +
-    "the 100 MB of log kept: splitting a run that large across steps stays under it.";
+    "report cannot read. A missing beginning was either removed or rotated out by traffic heavy " +
+    "enough to fill the 100 MB of log kept, which takes a few hundred thousand requests. Audit " +
+    "mode reports this without failing, so it can show where that much traffic came from.";
   return { ...outcome, message };
 }
