@@ -4,10 +4,11 @@ import type { GenReportParameters } from "../types.ts";
 
 const START = "buildcage haproxy starting 1787471970000";
 const ALLOWED =
-  "buildcage 1787471975 https GET 200 708 ts=-- dst=104.16.1.34:443 https://registry.npmjs.org/pkg";
+  "buildcage 1787471975 https GET 200 708 ts=-- reason=- dst=104.16.1.34:443 https://registry.npmjs.org/pkg";
 const REFUSED =
-  "buildcage 1787471976 https POST 403 0 ts=PR dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
-const TLS_PASS = "buildcage 1787471977 pass tls 3421 ts=-- dst=10.0.0.9:5432 sni=db.example.com";
+  "buildcage 1787471976 https POST 403 0 ts=PR reason=- dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
+const TLS_PASS =
+  "buildcage 1787471977 pass tls 3421 ts=-- reason=- dst=10.0.0.9:5432 sni=db.example.com";
 /** What the resolver service echoes before CoreDNS starts. */
 const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
@@ -74,7 +75,7 @@ describe("buildInspectReportData", () => {
     // fail_on_blocked defaults to true, so a registry answering 403 to an
     // unauthenticated fetch would otherwise fail a build that was not blocked.
     const relayed =
-      "buildcage 3 https GET 403 90 ts=-- dst=1.1.1.1:443 https://reg.example.com/pkg";
+      "buildcage 3 https GET 403 90 ts=-- reason=- dst=1.1.1.1:443 https://reg.example.com/pkg";
     const r = await buildInspectReportData([START, relayed], [], params());
     expect(r.blockedCount).toBe(0);
   });

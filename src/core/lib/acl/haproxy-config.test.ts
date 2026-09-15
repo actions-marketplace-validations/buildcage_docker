@@ -145,7 +145,7 @@ describe("load-bearing directives", () => {
     expect(
       config.includes(
         'log-format "buildcage %[date(0,ms)] pass %[var(txn.proto)] %B ts=%ts ' +
-          'dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"',
+          'reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] sni=%[var(txn.sni)]"',
       ),
     ).toBe(true);
   });

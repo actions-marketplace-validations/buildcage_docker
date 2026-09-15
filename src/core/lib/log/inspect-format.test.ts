@@ -25,6 +25,7 @@ const SAMPLES: Record<string, string> = {
   "%ST": "200",
   "%B": "708",
   "%ts": "--",
+  "%[var(txn.reason)]": "-",
   "%[dst]": "10.200.0.100",
   "%[dst_port]": "9443",
   "%[capture.req.hdr(0)]": "registry.npmjs.org",
@@ -43,9 +44,15 @@ function logFormats(config: string): string[] {
     .map((line) => line.slice(line.indexOf('"') + 1, line.lastIndexOf('"')));
 }
 
-function render(format: string, overrides: Record<string, string> = {}): string {
+function render(
+  format: string,
+  overrides: Record<string, string> = {},
+  named: { reason?: string } = {},
+): string {
+  const all =
+    named.reason === undefined ? overrides : { ...overrides, "%[var(txn.reason)]": named.reason };
   return format.replace(TOKEN, (token) => {
-    const sample = overrides[token] ?? SAMPLES[token];
+    const sample = all[token] ?? SAMPLES[token];
     if (sample === undefined) throw new Error(`log-format token with no sample: ${token}`);
     return sample;
   });
@@ -94,12 +101,30 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.status).toBe(200);
   });
 
-  it("reads our own refusal out of the termination state, not the status", async () => {
-    const line = render(HTTPS, { "%ts": "PR", "%ST": "403", "%B": "0" });
+  it("reads a refusal the config named out of the reason field", async () => {
+    const line = render(
+      HTTPS,
+      { "%ts": "PR--", "%ST": "502", "%B": "0" },
+      { reason: "dns-failed" },
+    );
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("block");
-    expect(e.reason).toBe("not-allowed");
+    expect(e.reason).toBe("dns-failed");
     expect(e.status === undefined).toBe(true);
+  });
+
+  it("names a refusal the config left unnamed from the termination phase", async () => {
+    const line = render(HTTPS, { "%ts": "SH--", "%ST": "502", "%B": "0" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("origin-no-response");
+  });
+
+  it("names a passthrough refusal the same way, having no status at all", async () => {
+    const line = render(PASSTHROUGH, { "%ts": "PR", "%B": "0" }, { reason: "internal-address" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("internal-address");
   });
 
   it("reads every field of a passthrough line, which has no request in it", async () => {
