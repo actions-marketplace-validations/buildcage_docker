@@ -242,6 +242,8 @@ CVE-2026-76957
 # moby/buildkit v0.32.2's util/sshutil/keyscan.go), which dials a trusted
 # destination the build definition names. A RUN step's own traffic can't
 # reach this code either — it's redirected into the HTTP/TLS-only proxy.
+# The inspect engine's CoreDNS carries the same dependency and never opens an
+# SSH connection at all.
 CVE-2026-56854
 CVE-2026-56855
 CVE-2026-78662
@@ -249,7 +251,10 @@ CVE-2026-78662
 # google.golang.org/grpc: memory exhaustion via an unauthenticated remote peer.
 # buildkitd's control API is Unix-socket only (verified against moby/buildkit
 # v0.32.2's util/appdefaults — no tcp:// address is configured), so no
-# network peer can reach it.
+# network peer can reach it. The inspect engine's CoreDNS carries the same
+# dependency but serves no gRPC endpoint: every Corefile server block is plain
+# UDP/TCP:53 with no scheme prefix, and with no forward plugin there is no
+# gRPC upstream either.
 CVE-2026-84304
 
 # github.com/moby/go-archive: arbitrary file write via a malicious tar
