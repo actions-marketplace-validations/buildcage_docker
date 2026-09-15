@@ -86,6 +86,34 @@ describe("scanInspectLog", () => {
     ]);
   });
 
+  it("counts an origin that timed out as a refusal, unless it had already answered", async () => {
+    // haproxy writes the 503 and the 504 itself in `sC` and `sH`, exactly as it
+    // does for `SC` and `SH`; whether the origin refused the connection or
+    // simply went quiet is all that separates the two.
+    const lines = [
+      "buildcage 1 https GET 503 0 ts=sC reason=- dst=1.1.1.1:443 https://a.com/",
+      "buildcage 2 https GET 504 0 ts=sH reason=- dst=1.1.1.1:443 https://b.com/",
+    ];
+    const events = await parse(lines);
+    expect(events.map((e) => e.reason)).toStrictEqual(["origin-unreachable", "origin-no-response"]);
+    expect(events.every((e) => e.status === undefined)).toBe(true);
+  });
+
+  it("leaves a timeout that cut an answered transfer short with the origin's own result", async () => {
+    // `timeout server` also arms once a response is under way: `sD` is it
+    // firing mid-body, after the origin's status has already reached the build,
+    // and on a passthrough it is a plain inactivity timeout on a connection a
+    // rule allowed. `cD` is the build hanging up on the same transfer.
+    const lines = [
+      "buildcage 1 https GET 200 61 ts=sD reason=- dst=1.1.1.1:443 https://a.com/",
+      "buildcage 2 https GET 200 56 ts=cD reason=- dst=1.1.1.1:443 https://b.com/",
+      "buildcage 3 pass tls 4096 ts=sD reason=- dst=10.0.0.5:5432 sni=db.example.com",
+    ];
+    const events = await parse(lines);
+    expect(events.every((e) => e.action === "allow")).toBe(true);
+    expect(events.map((e) => e.bytes)).toStrictEqual([61, 56, 4096]);
+  });
+
   it("keeps the generic reason for a termination state it does not know", async () => {
     const lines = ["buildcage 1 https GET 403 0 ts=P reason=- dst=1.1.1.1:443 https://a.com/"];
     expect((await parse(lines))[0].reason).toBe("not-allowed");
@@ -115,12 +143,14 @@ describe("scanInspectLog", () => {
       "buildcage 2 pass tcp 0 ts=PR reason=internal-address dst=10.0.0.5:5432 sni=db.example.com",
       "buildcage 3 pass tcp 0 ts=PR reason=- dst=10.0.0.5:5432 sni=-",
       "buildcage 4 pass tcp 0 ts=SC reason=- dst=10.0.0.5:5432 sni=-",
-      "buildcage 5 pass tcp 0 ts=SD reason=- dst=10.0.0.5:5432 sni=-",
+      "buildcage 5 pass tcp 0 ts=sC reason=- dst=10.0.0.5:5432 sni=-",
+      "buildcage 6 pass tcp 0 ts=SD reason=- dst=10.0.0.5:5432 sni=-",
     ];
     expect((await parse(lines)).map((e) => e.reason)).toStrictEqual([
       "dns-failed",
       "internal-address",
       "not-allowed",
+      "origin-unreachable",
       "origin-unreachable",
       "origin-aborted",
     ]);
