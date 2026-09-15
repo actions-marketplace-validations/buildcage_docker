@@ -640,6 +640,15 @@ describe("rules", () => {
     expect(config.includes("# No rules for this scheme, so nothing is permitted.")).toBe(true);
   });
 
+  it("writes nothing below that deny, which carries no condition and so is final", () => {
+    // HAProxy skips every http-request rule after an unconditional deny and
+    // warns that they are NOOP. The resolver block is what would follow here.
+    const plain = frontendSegment(gen({ ...FULL, httpRules: [] }), "http_in");
+    expect(plain.includes("# No rules for this scheme, so nothing is permitted.")).toBe(true);
+    expect(plain.includes("do-resolve")).toBe(false);
+    expect(plain.includes("acl dst_internal")).toBe(false);
+  });
+
   it("references named acls bare, since braces are for anonymous expressions", () => {
     const config = gen({ httpsRules: ["a.com:443"] });
     expect(config.includes("-m bool } { s0_host }")).toBe(false);
@@ -743,6 +752,16 @@ describe("passthrough", () => {
     expect(config.includes("backend passthrough\n    mode tcp")).toBe(true);
   });
 
+  it("selects that backend below the accept, where the file reads as it runs", () => {
+    // Backend selection happens after every content rule whatever the written
+    // order, so a use_backend above the accept is only misleading -- and
+    // HAProxy warns about it.
+    const detect = frontendSegment(config, "detect");
+    const accept = detect.indexOf("tcp-request content accept");
+    const select = detect.indexOf("use_backend passthrough");
+    expect(accept !== -1 && accept < select).toBe(true);
+  });
+
   it("omits the port acl when the rule names every port", () => {
     expect(gen({ ipRules: ["10.0.0.5:*"] }).includes("ip0_port")).toBe(false);
   });
@@ -811,6 +830,13 @@ describe("audit mode", () => {
 
   it("still connects only where it resolved the name", () => {
     expect(audit.includes("http-request set-dst var(txn.dst)")).toBe(true);
+  });
+
+  it("still resolves for a scheme with no rules, having denied nothing above", () => {
+    // Only restrict's unconditional deny makes the rest of a stage dead; audit
+    // refuses nothing, so a scheme with no rules still needs the resolver.
+    const plain = frontendSegment(gen({ ...FULL, mode: "audit", httpRules: [] }), "http_in");
+    expect(plain.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)")).toBe(true);
   });
 
   it("still checks the origin certificate", () => {
