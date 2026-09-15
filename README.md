@@ -479,20 +479,6 @@ and no port (folded like any other row when a `known_blocked_rules` rule matches
 rule wider than the build needs shows up. A name that was connected to has no such row: the request
 is already there.
 
-### An incomplete log
-
-`report` will not pass a log it cannot vouch for: one that doesn't begin where a real run does, or
-that carries a line announcing itself as the proxy's own yet cannot be read. Either way the step
-fails under `restrict` with `fail_on_blocked` (the default) and is annotated otherwise, however
-`known_blocked_rules` is set, because what survived says nothing about what was dropped.
-
-Under `universal` and `inspect`, a log loses its beginning either because something removed those
-entries or because traffic filled the 100 MB the proxy keeps, which takes a few hundred thousand
-requests. That is far more than a build normally makes, so the thing to establish is where it came
-from. The log covers every build run against the builder for as long as it is up, not one build, so
-a job that builds repeatedly accumulates into one budget. `audit` mode reports the same condition
-without failing the step, which is how to see the traffic rather than guess at it.
-
 ### Blocked service names
 
 A row whose reason is `dns-service-not-allowed` is a

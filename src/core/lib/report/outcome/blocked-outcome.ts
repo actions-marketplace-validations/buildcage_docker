@@ -129,7 +129,7 @@ export function describeBlockedOutcome({
   const message =
     `${counted}. Either the logs don't begin where a real run does, or one carries a line the ` +
     "report cannot read. A missing beginning was either removed or rotated out by traffic heavy " +
-    "enough to fill the 100 MB of log kept, which takes a few hundred thousand requests. Audit " +
-    "mode reports this without failing, so it can show where that much traffic came from.";
+    "enough to fill the 100 MB of log kept, which takes a few hundred thousand requests: the " +
+    "report's own tables still count what survived, per host.";
   return { ...outcome, message };
 }
