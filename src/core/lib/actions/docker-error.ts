@@ -14,7 +14,8 @@ interface DescribeDockerFailureOptions {
 }
 
 const REQUIREMENT =
-  "Buildcage requires a working Docker installation (client and daemon) on the runner. " +
+  "Buildcage requires a working Docker installation (client and daemon) on the runner, on " +
+  "Docker Engine 25.0 or later with Compose v2.20.2 or later. " +
   'Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no ' +
   'daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a ' +
   "full Docker install) instead. See README.md and docs/security.md for details.";

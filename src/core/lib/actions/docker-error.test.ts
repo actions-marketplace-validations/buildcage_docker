@@ -37,6 +37,12 @@ describe("describeDockerFailure", () => {
     expect(msg).toMatch(/ubuntu-latest/);
   });
 
+  it("names the Docker Engine and Compose versions Buildcage needs", () => {
+    const msg = describeDockerFailure({ code: "ENOENT" }, noSlimRunner);
+    expect(msg).toMatch(/Docker Engine 25\.0 or later/);
+    expect(msg).toMatch(/Compose v2\.20\.2 or later/);
+  });
+
   it("defaults the operation label to 'docker' when omitted", () => {
     expect(describeDockerFailure({ code: "ENOENT" }, noSlimRunner)).toMatch(/running docker\./);
   });
