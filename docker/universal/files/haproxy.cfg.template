@@ -9,7 +9,16 @@ global
 
 resolvers my_dns
 ${HAPROXY_NAMESERVERS}
-    hold valid 300s
+    # The only hold do-resolve reads, and it ignores the record's own TTL, so
+    # it is also how long a rotated address keeps being dialled. A minute is
+    # about the TTL of the hosts a build talks to.
+    hold valid 60s
+    # One query more than the default, a second apart. On the TLS path they
+    # share the frontend's 5s inspect-delay with the wait for the ClientHello.
+    resolve_retries 4
+    timeout retry 1s
+    # The 512-byte default truncates an answer carrying many records, and a
+    # truncated answer resolves nothing.
     accepted_payload_size 8192
 
 defaults
@@ -158,6 +167,9 @@ backend http_filter_backend
 
     # DNS resolution & destination override
     http-request do-resolve(txn.actual_ip,my_dns,ipv4) var(txn.host_only)
+    # A fresh attempt, not a replay: nothing cached the failure. The TLS path
+    # has no room for one inside its inspect-delay.
+    http-request do-resolve(txn.actual_ip,my_dns,ipv4) var(txn.host_only) unless { var(txn.actual_ip) -m found }
     http-request set-var(txn.reason) str(dns-failed) if ! { var(txn.actual_ip) -m found }
     http-request deny deny_status 503 content-type "text/plain" string "DNS Resolution Failed" if ! { var(txn.actual_ip) -m found }
 

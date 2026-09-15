@@ -320,6 +320,21 @@ describe("resolves only once a request already passed the rules", () => {
     }
   });
 
+  it("retries a resolution once, still exempting an address and a hit", () => {
+    // A failed resolution is not cached, so the second call is a fresh attempt.
+    // Dropping either guard would resolve a literal address or overwrite a
+    // destination the first call already found.
+    for (const frontend of ["https_in", "http_in"]) {
+      const resolves = frontendSegment(config, frontend)
+        .split("\n")
+        .filter((l) => l.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)"));
+      expect(resolves.length).toBe(2);
+      expect(resolves[1].endsWith("unless host_is_address or { var(txn.dst) -m found }")).toBe(
+        true,
+      );
+    }
+  });
+
   it("supports more than one upstream nameserver, not just the first", () => {
     expect(config.includes("nameserver ns1 1.1.1.1:53")).toBe(true);
     expect(config.includes("nameserver ns2 8.8.8.8:53")).toBe(true);
