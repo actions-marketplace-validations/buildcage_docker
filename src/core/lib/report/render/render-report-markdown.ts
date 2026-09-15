@@ -36,7 +36,10 @@ export function renderReportMarkdown(
   // The tables would otherwise read as the whole story.
   if (!report.logLooksPlausible) {
     markdown +=
-      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n\n";
+      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n" +
+      "> Either the logs don't begin where a real run does, or one carries a line that cannot be\n" +
+      "> read. A missing beginning was either removed or rotated out by traffic heavy enough to\n" +
+      "> fill the 100 MB of log kept, which takes a few hundred thousand requests.\n\n";
   }
 
   if (report.passed.length > 0) {

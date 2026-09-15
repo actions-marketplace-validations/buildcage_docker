@@ -121,8 +121,15 @@ export function describeBlockedOutcome({
   // Plural: inspect has a resolver log too, and either can be the truncated one.
   const incomplete = `buildcage ${engineLabel} logs are incomplete, so this report is not a full record of what ran`;
   // No longer the whole count, hence "still recorded".
-  const message = blockedCount
+  const counted = blockedCount
     ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
     : incomplete;
+  // Enumerated, not attributed: logLooksPlausible collapses several conditions
+  // into one flag, and only the benign reading is the reader's to act on.
+  const message =
+    `${counted}. Either the logs don't begin where a real run does, or one carries a line the ` +
+    "report cannot read. A missing beginning was either removed or rotated out by traffic heavy " +
+    "enough to fill the 100 MB of log kept, which takes a few hundred thousand requests: the " +
+    "report's own tables still count what survived, per host.";
   return { ...outcome, message };
 }

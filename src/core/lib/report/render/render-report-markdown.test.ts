@@ -76,6 +76,13 @@ describe("renderReportMarkdown — universal", () => {
     );
     expect(md).toMatch(/This report is incomplete/);
     expect(md.indexOf("incomplete") < md.indexOf("Allowed Hosts")).toBe(true);
+    const [warning] = md.split("\n\n").filter((b) => b.includes("This report is incomplete"));
+    // A continuation line without the marker leaves the blockquote and renders
+    // as body text, which the "incomplete" match above would not catch.
+    expect(warning.split("\n").every((line) => line.startsWith("> "))).toBe(true);
+    expect(warning.replaceAll("\n> ", " ")).toMatch(
+      /Either the logs don't begin where a real run does, or one carries a line that cannot be read\./,
+    );
   });
 
   it("has no warning when the log is a complete record", () => {
