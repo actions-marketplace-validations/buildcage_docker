@@ -31,8 +31,10 @@ export interface ReportDataCommon {
   blockedCount: number;
 
   /** False iff the log is not a complete record of the run: its beginning is
-   *  gone, or it never carried a trace of a real one (haproxy.ts's
-   *  logHeadIntact, buildkitd.ts's hasNonDenialContent). The report fails
+   *  gone, a decision line could not be read, or it never carried a trace of a
+   *  real one (haproxy.ts's logHeadIntact and unparsed, buildkitd.ts's
+   *  hasNonDenialContent). Anything written from this flag has to name every
+   *  one of them, since it no longer says which applied. The report fails
    *  closed rather than passing off what survived as everything. */
   logLooksPlausible: boolean;
 }

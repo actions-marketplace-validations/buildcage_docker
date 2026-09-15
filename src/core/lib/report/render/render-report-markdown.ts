@@ -37,8 +37,9 @@ export function renderReportMarkdown(
   if (!report.logLooksPlausible) {
     markdown +=
       "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n" +
-      "> Its earliest log entries are gone: either something removed them, or the run outgrew the\n" +
-      "> 100 MB of log kept.\n\n";
+      "> Either the logs don't begin where a real run does, or one carries a line that cannot be\n" +
+      "> read. A missing beginning was removed, or rotated out by a run that outgrew the 100 MB of\n" +
+      "> log kept.\n\n";
   }
 
   if (report.passed.length > 0) {

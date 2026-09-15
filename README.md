@@ -481,12 +481,15 @@ is already there.
 
 ### An incomplete log
 
-`report` refuses to pass a log that doesn't begin where a real proxy run would, so a build whose
-earliest traffic is missing fails in restrict mode however `known_blocked_rules` is set: what
-survived says nothing about what was dropped. Either something removed those entries, or the build
-outgrew the 100 MB of log the proxy keeps, which takes a few hundred thousand requests. Splitting a
-build that large across steps stays under it, and `audit` mode reports the same condition without
-failing the step, so it can be used to see how much traffic a build really makes.
+`report` will not pass a log it cannot vouch for: one that doesn't begin where a real run does, or
+that carries a line announcing itself as the proxy's own yet cannot be read. Either way the step
+fails under `restrict` with `fail_on_blocked` (the default) and is annotated otherwise, however
+`known_blocked_rules` is set, because what survived says nothing about what was dropped.
+
+Under `universal` and `inspect`, a log loses its beginning either because something removed those
+entries or because the build outgrew the 100 MB the proxy keeps, which takes a few hundred thousand
+requests. Splitting a build that large across steps stays under it. `audit` mode reports the same
+condition without failing the step, so it is one way to see how much traffic a build really makes.
 
 ### Blocked service names
 

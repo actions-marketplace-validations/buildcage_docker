@@ -124,11 +124,11 @@ export function describeBlockedOutcome({
   const counted = blockedCount
     ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
     : incomplete;
-  // Both readings, because only one of them is the reader's to act on and it
-  // is also the likelier one to land here.
+  // Enumerated, not attributed: logLooksPlausible collapses several conditions
+  // into one flag, and only the benign reading is the reader's to act on.
   const message =
-    `${counted}. Their earliest entries are gone: either something removed them, or the run ` +
-    "made enough requests to outgrow the 100 MB of log kept. Splitting a run that large across " +
-    "steps stays under it.";
+    `${counted}. Either the logs don't begin where a real run does, or one carries a line the ` +
+    "report cannot read. A missing beginning was removed, or rotated out by a run that outgrew " +
+    "the 100 MB of log kept: splitting a run that large across steps stays under it.";
   return { ...outcome, message };
 }
