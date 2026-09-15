@@ -24,6 +24,7 @@ workflow `run:` step rather than a Docker build, use
 
 ## Contents
 
+- [Requirements](#requirements)
 - [Usage](#usage)
 - [Inputs](#inputs)
 - [Operation modes](#operation-modes)
@@ -34,6 +35,21 @@ workflow `run:` step rather than a Docker build, use
 - [GitHub's native egress firewall](#githubs-native-egress-firewall)
 - [Scope](#scope)
 - [Documentation](#documentation)
+
+## Requirements
+
+The builder is a container on the runner itself, so this action needs a Linux runner with a working
+Docker installation:
+
+- **GitHub-hosted**
+  - `ubuntu-latest`, the versioned `ubuntu-*` images, and their `-arm` variants
+  - Lightweight images such as `ubuntu-slim` are not supported: they ship a Docker client with no
+    daemon
+- **Self-hosted**
+  - Docker Engine 25.0 or later, with Compose v2.20.2 or later
+  - A host using cgroup v2
+
+A runner that falls short fails while the builder starts, before any `RUN` step runs.
 
 ## Usage
 
@@ -138,13 +154,6 @@ Each pair builds the same Dockerfile with and without rules:
   `allowed_ip_rules` come back exactly as the audit run was configured with them.
 - If something in the build pins a certificate or carries its own trust store (the JVM is the usual
   case), use `proxy_engine: universal` instead. See [Engines](#engines).
-
-> [!NOTE]
-> The builder is a container on the runner itself, so this action needs a Linux runner with a
-> working Docker installation, on Docker Engine 25.0 or later with Compose v2.20.2 or later, and on
-> a host using cgroup v2. GitHub-hosted `ubuntu-latest` and the versioned `ubuntu-*` images meet all
-> three, but lightweight images such as `ubuntu-slim` (a Docker client with no daemon) are not
-> supported. A runner that falls short fails while the builder starts, before any `RUN` step runs.
 
 ## Inputs
 
