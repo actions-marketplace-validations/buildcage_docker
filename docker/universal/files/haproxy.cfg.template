@@ -6,6 +6,10 @@ global
     maxconn 2048
     user haproxy
     group haproxy
+    # Left to its default this follows the runner's own IPv6 route. The ipv4 on
+    # each do-resolve below does not constrain the query; this does. Needs
+    # HAProxy 3.2 or newer.
+    dns-accept-family ipv4
 
 resolvers my_dns
 ${HAPROXY_NAMESERVERS}
