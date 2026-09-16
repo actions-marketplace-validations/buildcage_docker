@@ -416,22 +416,26 @@ a passthrough was ever decrypted.
 ## FAQ
 
 **Can I keep `inspect` but leave a few hosts undecrypted?**
+
 Yes, that is what `allowed_tls_rules` is for. The SNI and port are checked and the connection passes
 through untouched, so a JVM build or a tool that pins a certificate can sit inside an otherwise
 inspected build. Those hosts are enforced at host-and-port granularity, the same as `universal`.
 
 **A host only ever gets looked up, never connected to. How do I write a rule for it?**
+
 The report gives it a row with `DNS` as the rule kind and no port. If you want it to stay
 unreachable without failing the job, put the name in `known_blocked_rules`, which is the one input
 where a rule may omit the port. If the build actually needs it, write an ordinary host or URL rule
 and the lookup is reported as allowed.
 
 **One registry needs several domains. How do I find them all?**
+
 Run `audit` and read the report. PyPI, for example, uses both `pypi.org` and
 `files.pythonhosted.org`, and the audit report lists every domain the build touched, so the
 generated allowlist already has them.
 
 **Which engine should I start with?**
+
 `inspect`, unless something in the build carries its own trust store. It is the only engine that can
 tell a fetch from a publish on the same host. See [Engines](#engines).
 
