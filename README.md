@@ -117,8 +117,9 @@ Paste that allowlist into the setup step and switch the mode:
 
 Each rule names the methods it permits, so this one lets npm fetch packages without letting it
 publish any: a `POST` to the same host is refused, as is every host not listed. Whatever is refused
-is listed under **Blocked Hosts** with the reason, and **Communication details** names the full URL
-of every request, allowed or refused:
+is listed under **Blocked Hosts** with the reason, and **Communication details** names the URL of
+every request, allowed or refused, with credential query parameters replaced (see
+[Credentials in a URL](docs/security.md#credentials-in-a-url)):
 
 <img src="assets/report-inspect-restrict-mode.png" alt="Outbound Traffic Report - restrict mode" width="556">
 
@@ -342,7 +343,7 @@ write instead.
 | --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
 | A rule can say                                | `GET\|HEAD https://registry.npmjs.org/**`                   | `registry.npmjs.org:443`                                |
 | Allow a fetch, refuse a publish, same host    | ✅                                                          | -                                                       |
-| The report shows                              | Every request with its full URL                             | Host and port                                           |
+| The report shows                              | Every request with its URL                                  | Host and port                                           |
 | Domain fronting (allowed SNI, another `Host`) | Refused, the real `Host` is what rules match                | Not visible                                             |
 | The build's TLS                               | Terminated and re-signed with a CA generated for that build | Untouched                                               |
 | Certificate pinning, or the JVM's own store   | -                                                           | ✅                                                      |
@@ -533,7 +534,7 @@ asked for. `universal` never sees a method or a URL, so this input only does any
 | `port`        |        | absent for `dns`, which connects to nothing                      |
 | `queryType`   |        | the record asked for; `discovery` rows and refused service names |
 | `method`      |        | `http` and `https` only                                          |
-| `url`         |        | `http` and `https` only                                          |
+| `url`         |        | `http` and `https` only; verbatim, unlike the summary's          |
 | `status`      |        | only when something answered                                     |
 | `bytes`       |        | absent for a refusal and for `dns`                               |
 | `reason`      |        | only when `action` is `block`                                    |

