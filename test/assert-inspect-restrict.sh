@@ -314,10 +314,18 @@ fi
 # does not say which.
 if grep -qF "POST https://allowed.example.com/public/pkg.tgz -> not-allowed" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://absent.example.com/ -> dns-failed" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE -> not-allowed" <<< "$REPORT_MARKDOWN"; then
-  pass "a refusal names its reason and keeps its full URL"
+  && grep -qF "https://blocked.example.com/exfil?token=*** -> not-allowed" <<< "$REPORT_MARKDOWN"; then
+  pass "a refusal names its reason and keeps its URL"
 else
   fail "a refusal is missing its reason or its URL"
+fi
+
+# The report is as readable as the run; the traffic artifact, checked below, is
+# where the value itself survives.
+if grep -qF "token=SECRET-VALUE" <<< "$REPORT_MARKDOWN"; then
+  fail "a credential parameter's value reached the report"
+else
+  pass "a credential parameter's value was replaced"
 fi
 
 # The summary is where a reader looks first.
