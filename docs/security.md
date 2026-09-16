@@ -212,13 +212,7 @@ What each kind of rule decides, and what stays undecrypted:
 - **`allowed_tls_rules` and `allowed_ip_rules` stay uninspected by design.** Each is recorded with a
   byte count and nothing more, since neither carries a name the proxy can re-terminate TLS for.
 - **Query strings are kept in the log**, since that is also where an exfiltration payload would go.
-  The report is the exception: it replaces the value of a parameter whose name is a well-known
-  credential (`X-Amz-Signature`, `token`, `api_key` and the rest of
-  [Credentials in a URL](../README.md#credentials-in-a-url)), because a Job Summary is readable by
-  everyone the run is and GitHub masks only what was registered as a workflow secret. A payload sent
-  under one of those names is replaced along with them, so **read a suspected exfiltration attempt
-  out of the traffic artifact**, which keeps every value verbatim, rather than out of the summary. A
-  credential in the path, or in a parameter named something else, is still printed in both.
+  The report is the exception, see [Credentials in a URL](#credentials-in-a-url) below.
 - **UDP is dropped**, so QUIC and HTTP/3 fall back to TCP or fail. Port 53 to the gateway is the one
   exception, which is the resolver. ICMP is dropped too.
 - **No SLSA provenance.** BuildKit's own `--proxy-network` (used by `explicit`) records every URL it
@@ -226,6 +220,35 @@ What each kind of rule decides, and what stays undecrypted:
   there's no way to attach one without modifying BuildKit itself. The traffic artifact (see
   [Report action](../README.md#report-action)) carries URL, method, status and size as an
   observation record, but no content digest.
+
+### Credentials in a URL
+
+**Communication details** and the job log print the URL of every request, so a credential written
+into a query string reaches everyone who can read the run. GitHub masks the values it knows as
+workflow secrets, which leaves the ones it does not: a presigned URL's signature, a token minted
+during the build, or a secret whose URL-encoded form no longer matches what was registered.
+
+The value of a query parameter named `access_token`, `api_key`, `apikey`, `auth`, `client_secret`,
+`code`, `id_token`, `key`, `password`, `private_token`, `refresh_token`, `secret`, `sig`,
+`signature`, `token`, `x-amz-security-token`, `x-amz-signature` or `x-goog-signature` is therefore
+replaced, whatever its case:
+
+```
+✅ 00:04.212: GET https://cdn.example.com/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600 -> 200 (4.1MB)
+🚫 00:05.003: POST https://evil.example.com/?d=BASE64PAYLOAD -> not-allowed
+```
+
+Everything else is printed as it was sent, parameter names included, so most of what a refused
+request tried to send is still there. Three things this does not cover: a credential in the path,
+which `allowed_url_rules` is written against and so cannot be hidden; one in a parameter the list
+does not name; and the [`explicit` engine](./explicit-engine.md), which is deprecated and prints its
+own URLs unchanged. It also replaces an exfiltration payload the sender happened to name `code` or
+`key`, so **read a suspected attempt out of the
+[traffic artifact](../README.md#traffic-artifact)**, which keeps every value verbatim, rather than
+out of the summary.
+
+An `allowed_url_rules` block suggested by an audit run never carries a query at all: rules match on
+the path, and a recorded query is as likely to hold a one-off token as anything reusable.
 
 ## Universal Proxy Engine
 
