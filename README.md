@@ -152,9 +152,9 @@ its BuildKit-native SLSA provenance integration.
 
 ## Inputs
 
-Every input is optional. This section is the shape of each one; the full list with defaults and the
-engines it applies to is in [Reference](./docs/reference.md#setup-action-inputs), and the grammar
-the rules are written in is in [Rule syntax](./docs/reference.md#rule-syntax).
+Every input is optional. What follows is each one by example. The full list, with defaults and the
+engines each input applies to, is in [Reference](./docs/reference.md#setup-action-inputs), and the
+grammar the rules are written in is in [Rule syntax](./docs/reference.md#rule-syntax).
 
 The builder is named `buildcage` unless `builder_name` says otherwise, and the Buildx `endpoint` has
 to match whatever it is named.
@@ -281,7 +281,7 @@ resolve.
 
 ### Traffic artifact
 
-`upload_traffic_artifact: true` uploads the same timeline as a `traffic.json`, one row per request
+`upload_traffic_artifact: true` uploads the whole timeline as a `traffic.json`, one row per request
 and per name lookup, with the method, URL, status, size and the address it resolved to. It is
 uploaded even when the build fails, and `inspect` is the only engine that has anything to put in it.
 The fields are listed in [Reference](./docs/reference.md#traffic-artifact).

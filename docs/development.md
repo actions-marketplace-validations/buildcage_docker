@@ -410,8 +410,8 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
 - **`buildcage-runc`** (`docker/inspect/buildcage-runc/`) wraps BuildKit's own `buildkit-runc`,
   selected via `[worker.oci] binary` in `buildkitd.toml`. For the subcommands that carry an OCI
   bundle, it sets the CA-trust environment variables (see
-  [CA trust variables](./reference.md#ca-trust-variables)) directly, and for the CA
-  itself, mirrors the step's CA store directory into a scratch copy, appends the CA there, and
+  [CA trust variables](./reference.md#ca-trust-variables)) directly, and for the CA itself, mirrors
+  the step's CA store directory into a scratch copy, appends the CA there, and
   bind-mounts the copy over the step's view of the real directory for the step's duration. Once the
   real `runc` exits, that mirror is compared against its state right after the CA was added: if
   nothing else changed, the real directory was never opened for writing, so BuildKit's layer diff for
@@ -487,8 +487,8 @@ If you encounter issues, try reproducing the problem locally to get detailed log
 3. **TLS/certificate errors under `proxy_engine: inspect`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal`, the tool likely pins a certificate or
    ships its own trust store rather than reading the CA-trust environment variables Buildcage sets.
-   See [Limitations](../README.md#limitations). The JVM is the common
-   case; fall back to `universal` for it.
+   See [Limitations](../README.md#limitations). The JVM is the common case; fall back to
+   `universal` for it.
 
 4. **TLS/certificate errors under `proxy_engine: explicit`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal` (or without Buildcage at all), the tool

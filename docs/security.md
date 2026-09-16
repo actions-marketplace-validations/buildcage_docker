@@ -196,8 +196,7 @@ What each kind of rule decides, and what stays undecrypted:
 - **TLS is terminated**, so a tool that pins a certificate, or ships its own trust store instead of
   reading the common CA-trust environment variables, will not work. The JVM (Java, Kotlin, Scala)
   is the common case. Use `universal` for those, and see
-  [Limitations](../README.md#limitations) for the rest of the
-  compatibility picture.
+  [Limitations](../README.md#limitations) for the rest of the compatibility picture.
 - **`audit` is not a passive observer here.** TLS is terminated in both modes, so a tool that cannot
   accept the CA fails under `audit` exactly as it would under `restrict`. What `audit` drops is the
   rule ACLs, not the interception: `set-dst` and the origin certificate check stay, because neither
