@@ -212,12 +212,13 @@ What each kind of rule decides, and what stays undecrypted:
 - **`allowed_tls_rules` and `allowed_ip_rules` stay uninspected by design.** Each is recorded with a
   byte count and nothing more, since neither carries a name the proxy can re-terminate TLS for.
 - **Query strings are kept in the log**, since that is also where an exfiltration payload would go.
-  The report replaces the value of a parameter whose name is a well-known credential
-  (`X-Amz-Signature`, `token`, `api_key` and the rest of
-  [Credentials in a URL](../README.md#credentials-in-a-url)): a Job Summary is readable by everyone
-  the run is, and GitHub masks only what was registered as a workflow secret. A credential in the
-  path, or in a parameter named something else, is still printed. The traffic artifact keeps every
-  value verbatim.
+  The report is the exception: it replaces the value of a parameter whose name is a well-known
+  credential (`X-Amz-Signature`, `token`, `api_key` and the rest of
+  [Credentials in a URL](../README.md#credentials-in-a-url)), because a Job Summary is readable by
+  everyone the run is and GitHub masks only what was registered as a workflow secret. A payload sent
+  under one of those names is replaced along with them, so **read a suspected exfiltration attempt
+  out of the traffic artifact**, which keeps every value verbatim, rather than out of the summary. A
+  credential in the path, or in a parameter named something else, is still printed in both.
 - **UDP is dropped**, so QUIC and HTTP/3 fall back to TCP or fail. Port 53 to the gateway is the one
   exception, which is the resolver. ICMP is dropped too.
 - **No SLSA provenance.** BuildKit's own `--proxy-network` (used by `explicit`) records every URL it
