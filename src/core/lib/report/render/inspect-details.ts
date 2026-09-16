@@ -8,6 +8,9 @@ import { formatElapsedVariable } from "../elapsed-time.ts";
  * same name shows up too. A discovery lookup is always its own sole trace --
  * nothing connects to `_service._proto.<host>` -- so it always shows.
  *
+ * A URL keeps its query, except for the parameters named in
+ * CREDENTIAL_PARAMS, whose values are replaced.
+ *
  * `startedAt` is when the proxy itself started (seconds since the epoch),
  * so every event reads as time elapsed since then rather than an absolute
  * clock reading nobody has a reference point for. Undefined only when the
@@ -50,6 +53,57 @@ function renderEvent(event: TrafficEvent, startedAt: number | undefined): string
   return `${mark} ${formatTime(event.time, startedAt)}: ${subject(event)} -> ${outcome(event)}`;
 }
 
+/**
+ * Query parameters whose value is a credential often enough that printing it
+ * is the greater risk: a presigned URL's signature or an API key reaches
+ * everyone who can read the run, and GitHub masks only values registered as
+ * workflow secrets. Matched on the name alone, case-insensitively, so a name
+ * an attacker picked stays readable and a refused request still says what it
+ * tried to send. The traffic artifact keeps every value verbatim.
+ */
+const CREDENTIAL_PARAMS = new Set([
+  "access_token",
+  "api_key",
+  "apikey",
+  "auth",
+  "code",
+  "key",
+  "password",
+  "secret",
+  "sig",
+  "signature",
+  "token",
+  "x-amz-security-token",
+  "x-amz-signature",
+  "x-goog-signature",
+]);
+
+/**
+ * The URL with those values replaced and everything else left alone, so the
+ * host, the path and the parameter names still read as they were sent. An
+ * empty value stays empty rather than becoming `***`, which would claim a
+ * secret that was never there.
+ */
+function redactCredentialQuery(url: string): string {
+  const start = url.indexOf("?");
+  if (start === -1) return url;
+  const hash = url.indexOf("#", start);
+  const end = hash === -1 ? url.length : hash;
+
+  const query = url
+    .slice(start + 1, end)
+    .split("&")
+    .map((param) => {
+      const eq = param.indexOf("=");
+      if (eq === -1 || eq === param.length - 1) return param;
+      const name = param.slice(0, eq);
+      return CREDENTIAL_PARAMS.has(name.toLowerCase()) ? `${name}=***` : param;
+    })
+    .join("&");
+
+  return url.slice(0, start + 1) + query + url.slice(end);
+}
+
 /** What was asked for, in the most specific form available. */
 function subject(event: TrafficEvent): string {
   // The type is what tells a fallback nobody notices from an outright failure.
@@ -59,7 +113,7 @@ function subject(event: TrafficEvent): string {
   if (event.url === undefined) {
     return `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
   }
-  return `${event.method} ${event.url}`;
+  return `${event.method} ${redactCredentialQuery(event.url)}`;
 }
 
 /** What came of it: a refusal names its reason, anything else its result. */
