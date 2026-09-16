@@ -165,7 +165,7 @@ What each kind of rule decides, and what stays undecrypted:
   decision. Real resolution happens exactly once, in HAProxy, strictly after a request has passed
   the full rule check, which is an invariant rather than an optimisation: reversed, `do-resolve`
   would itself become the live exfiltration channel CoreDNS is built to avoid being. See
-  [Rule syntax](../README.md#rule-syntax) for how to write a host pattern that doesn't widen this
+  [Rule syntax](./reference.md#rule-syntax) for how to write a host pattern that doesn't widen this
   more than intended.
 - **The path is normalized, and traversal encodings are rejected outright.** `..`, `%2e%2e`,
   `..%2f`, a raw backslash, and `..%5c` are all refused rather than resolved, so a rule cannot be
@@ -196,7 +196,7 @@ What each kind of rule decides, and what stays undecrypted:
 - **TLS is terminated**, so a tool that pins a certificate, or ships its own trust store instead of
   reading the common CA-trust environment variables, will not work. The JVM (Java, Kotlin, Scala)
   is the common case. Use `universal` for those, and see
-  [CA trust and compatibility](../README.md#ca-trust-and-compatibility) for the rest of the
+  [Limitations](../README.md#limitations) for the rest of the
   compatibility picture.
 - **`audit` is not a passive observer here.** TLS is terminated in both modes, so a tool that cannot
   accept the CA fails under `audit` exactly as it would under `restrict`. What `audit` drops is the
@@ -244,7 +244,7 @@ which `allowed_url_rules` is written against and so cannot be hidden; one in a p
 does not name; and the [`explicit` engine](./explicit-engine.md), which is deprecated and prints its
 own URLs unchanged. It also replaces an exfiltration payload the sender happened to name `code` or
 `key`, so **read a suspected attempt out of the
-[traffic artifact](../README.md#traffic-artifact)**, which keeps every value verbatim, rather than
+[traffic artifact](./reference.md#traffic-artifact)**, which keeps every value verbatim, rather than
 out of the summary.
 
 An `allowed_url_rules` block suggested by an audit run never carries a query at all: rules match on
@@ -397,7 +397,7 @@ so no Dockerfile change is needed for a tool that already respects these standar
 proxy decrypts the traffic and checks the host against a BuildKit
 [source policy](https://github.com/moby/buildkit/blob/master/docs/proxy.md) compiled from your
 allowlist, written in the same `allowed_https_rules` / `allowed_http_rules` / `allowed_ip_rules`
-syntax as `universal` (see [Rule syntax](../README.md#rule-syntax)). Enforcement is at domain (and
+syntax as `universal` (see [Rule syntax](./reference.md#rule-syntax)). Enforcement is at domain (and
 port) granularity, the same as `universal`: the generated policy always allows any path once the
 host matches, since the rule syntax has no path component. The decrypted path is still visible, so
 it shows up in the report and BuildKit's own build output even though it isn't used to allow or deny
