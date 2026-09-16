@@ -22,28 +22,13 @@ export function renderInspectDetails(
   timeline: TrafficEvent[],
   startedAt: number | undefined,
 ): string {
-  const body = renderInspectDetailsBody(timeline, startedAt);
-  if (!body) return "";
-  // A fenced block, so URLs need no markdown escaping and stay copy-pastable.
-  return `\n<details>\n<summary>💬 Communication details</summary>\n\n\`\`\`\n${body}\`\`\`\n\n</details>\n`;
-}
-
-/**
- * The same content with no `<details>`/`<summary>` wrapper and no fenced
- * code block, or "" if there's nothing to show -- for a plain-text
- * destination like the job log, where both would render as literal text
- * rather than the collapsible, syntax-highlighted section they give the
- * Job Summary.
- */
-export function renderInspectDetailsBody(
-  timeline: TrafficEvent[],
-  startedAt: number | undefined,
-): string {
   const connected = connectedHosts(timeline);
   const shown = timeline.filter((e) => !isRedundantDns(e, connected));
   if (shown.length === 0) return "";
 
-  return shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
+  const body = shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
+  // A fenced block, so URLs need no markdown escaping and stay copy-pastable.
+  return `\n<details>\n<summary>💬 Communication details</summary>\n\n\`\`\`\n${body}\`\`\`\n\n</details>\n`;
 }
 
 const MARK: Record<string, string> = { block: "🚫", discovery: "ℹ️" };

@@ -13,11 +13,9 @@ import { readRotatedLog } from "#core/lib/docker/rotated-log.ts";
 import { buildReportParameters } from "#core/lib/report/parameters.ts";
 import { buildInspectReportData } from "#core/lib/report/build/inspect.ts";
 import { renderReportMarkdown } from "#core/lib/report/render/render-report-markdown.ts";
-import { renderInspectDetailsBody } from "#core/lib/report/render/inspect-details.ts";
 import { emitBlockedOutcome } from "#core/lib/report/outcome/emit.ts";
 import { writeTrafficFile, buildTrafficRecords } from "#core/lib/report/outcome/traffic-output.ts";
 import { errorMessage } from "#core/lib/errors.ts";
-import { wrapLogGroup } from "#core/lib/actions/log.ts";
 import { writeStepSummary } from "../../lib/write-step-summary.ts";
 import { readActionVersion } from "../../lib/read-action-version.ts";
 
@@ -37,13 +35,6 @@ async function main(): Promise<void> {
     readRotatedLog(docker, containerId, RESOLVER_LOG_DIR),
     parameters,
   );
-
-  for (const line of wrapLogGroup(
-    "Communication details",
-    renderInspectDetailsBody(report.timeline, report.startedAt),
-  )) {
-    console.log(line);
-  }
 
   const markdown = renderReportMarkdown(
     report,
