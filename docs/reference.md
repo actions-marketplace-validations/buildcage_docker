@@ -1,8 +1,8 @@
 # Reference
 
-Every input of both actions, the rule grammar in full, and the shape of what the report writes. The
-[README](../README.md) is the shorter read: what Buildcage does, how to adopt it, and what it can't
-do. This page is what to look things up in.
+Every input of both actions, the rule grammar in full, and what the report and the traffic artifact
+contain. The [README](../README.md) covers what Buildcage does and how to adopt it; the details it
+links out to are here.
 
 ## Contents
 

@@ -10,15 +10,15 @@
 ![license](https://img.shields.io/github/license/buildcage/docker)
 
 GitHub Action that restricts where `docker build` can connect. Every `RUN` step runs behind an
-allowlist you write, and every destination that isn't on it is refused and reported.
+allowlist you write, and a destination that isn't on it is refused and reported.
 
-- **Nothing in the build changes.** Your Dockerfile stays as it is, BuildKit is not patched, and
-  nothing Buildcage does is left in the image layers.
-- **The allowlist writes itself.** Run once in [`audit`](#operation-modes) mode and the report hands
-  you the list to paste back into the workflow.
-- **Rules can name an HTTP method and a URL, inside TLS too.** A build can be allowed to fetch a
-  package from a registry without being allowed to publish one to it.
-- **Everything runs inside your GitHub Actions job.** No agent, no external service, no account.
+- Your Dockerfile doesn't change, BuildKit isn't patched, and nothing Buildcage does is left in the
+  image layers.
+- Run once in [`audit`](#operation-modes) mode and the report writes the allowlist for you, ready to
+  paste back into the workflow.
+- A rule can name an HTTP method and a URL, inside TLS as well, so a build can fetch a package from
+  a registry without being able to publish one to it.
+- It all runs inside your GitHub Actions job, with no agent and no external service.
 
 See [buildcage.github.io](https://buildcage.github.io/) for what it does and why. To isolate a
 workflow `run:` step rather than a Docker build, use
@@ -58,8 +58,8 @@ A runner that falls short fails while the builder starts, before any `RUN` step 
 
 Buildcage starts a BuildKit builder in your job. Point Docker Buildx at it as a remote driver and
 build as usual. Run once in [`audit`](#operation-modes) mode to collect what the build reaches, then
-switch to `restrict`. The examples below use the `inspect` engine; [Engines](#engines) is the choice
-between the two.
+switch to `restrict`. The examples below use the `inspect` engine; [Engines](#engines) covers the
+choice between the two.
 
 ### 1. Find out what the build reaches
 
@@ -152,9 +152,10 @@ its BuildKit-native SLSA provenance integration.
 
 ## Inputs
 
-Every input is optional. What follows is each one by example. The full list, with defaults and the
-engines each input applies to, is in [Reference](./docs/reference.md#setup-action-inputs), and the
-grammar the rules are written in is in [Rule syntax](./docs/reference.md#rule-syntax).
+Every input is optional, and the ones below are the rules you write by hand. The full list, with
+defaults and the engines each input applies to, is in
+[Reference](./docs/reference.md#setup-action-inputs), and the grammar those rules are written in is
+in [Rule syntax](./docs/reference.md#rule-syntax).
 
 The builder is named `buildcage` unless `builder_name` says otherwise, and the Buildx `endpoint` has
 to match whatever it is named.
@@ -257,8 +258,8 @@ mode the summary also holds the **Switch to restrict mode** allowlist.
 
 In `restrict` mode the step fails when a blocked connection is found, and with it the workflow. Pass
 `fail_on_blocked: false` to report without failing, or list what you expect to stay blocked in the
-setup action's `known_blocked_rules`. In `audit` mode nothing fails the step. The action's inputs are
-in [Reference](./docs/reference.md#report-action-inputs).
+setup action's `known_blocked_rules`. In `audit` mode nothing fails the step. The action's inputs
+are in [Reference](./docs/reference.md#report-action-inputs).
 
 ### Blocked service names
 
@@ -291,18 +292,17 @@ The fields are listed in [Reference](./docs/reference.md#traffic-artifact).
 Buildcage runs a custom resolver and a proxy inside the builder container, and routes the build's
 traffic through them:
 
-- **The resolver answers every name with the proxy's own address** and never forwards a query, so a
-  connection always lands on the proxy rather than wherever the build asked to go.
-- **The proxy decides.** Under `inspect` it terminates TLS, so a rule can match the method and the
-  URL; under `universal` it reads the SNI and matches the host and port. Only once a request has
+- The resolver answers every name with the proxy's own address and never forwards a query, so a
+  connection lands on the proxy rather than wherever the build asked to go.
+- The proxy makes the decision. Under `inspect` it terminates TLS, so a rule can match the method and
+  the URL; under `universal` it reads the SNI and matches the host and port. Only once a request has
   passed the rules does the proxy resolve the name for real and connect there.
-- **BuildKit is not patched.** A CNI plugin gives each `RUN` step its own network, and a wrapper
-  around runc mounts the CA the step needs to trust (`inspect` only) as the step starts, then leaves
-  the image layers as they were.
+- BuildKit itself is left alone. A CNI plugin gives each `RUN` step its own network, and a wrapper
+  around runc mounts the CA the step has to trust (`inspect` only) as the step starts.
 
-The builder being a separate BuildKit is why Buildx needs the `driver: remote` setting, but the
-BuildKit itself is stock: multi-stage builds, caching and the resulting image are unaffected, and no
-part of the injection reaches the LLB or a cache key.
+Running a second BuildKit is why Buildx needs the `driver: remote` setting, but that BuildKit is
+stock: multi-stage builds, caching and the resulting image are unaffected, and nothing the wrapper
+does reaches the LLB or a cache key.
 
 For the architecture and threat model of each engine, see [Security Details](./docs/security.md).
 For implementation internals, see the [Development Guide](./docs/development.md).
@@ -313,66 +313,66 @@ For implementation internals, see the [Development Guide](./docs/development.md)
 build has to trust that CA. As each `RUN` step starts, Buildcage sets the variables the common
 toolchains read for their trust store (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
 `REQUESTS_CA_BUNDLE`, `PIP_CERT`, `DENO_CERT`). A variable the base image or the Dockerfile already
-set is appended to rather than redirected, and neither the CA nor the variables are left in the image
-layers.
+set is appended to rather than redirected, and neither the CA nor the variables are left in the
+image layers.
 
-The full table, with what each variable points at when the step has a system CA store and when it has
-none, is in [Reference](./docs/reference.md#ca-trust-variables). What this cannot cover is in
+The full table, with what each variable points at when the step has a system CA store and when it
+has none, is in [Reference](./docs/reference.md#ca-trust-variables). What this cannot cover is in
 [Limitations](#limitations), below.
 
 ## Limitations
 
-### What stays outside the cage
+### What isn't covered
 
-- **buildkitd's own traffic.** `FROM`, `ADD <url>`, git contexts and the frontend image a
-  `# syntax=` directive names are fetched by buildkitd itself, not by a `RUN` step, and no rule
-  applies to them. See
-  [What buildkitd fetches itself](./docs/security.md#what-buildkitd-fetches-itself).
-- **Passthrough and address rules.** `allowed_tls_rules` and `allowed_ip_rules` are not inspected by
-  design. Once an `ip:port` pair is allowed, any TCP-based protocol can use that path, so prefer a
-  domain rule wherever the destination has a stable name.
-- **What `universal` cannot see.** The method and the path travel inside TLS, so neither is enforced
-  and neither reaches the report or the traffic artifact. A request fronted behind an allowed SNI is
-  invisible to it as well; `inspect` matches on the real `Host` and refuses that. See
+- buildkitd's own traffic is outside the allowlist. `FROM`, `ADD <url>`, git contexts and the
+  frontend image a `# syntax=` directive names are fetched by buildkitd itself rather than by a
+  `RUN` step, and no rule applies to them.
+  See [What buildkitd fetches itself](./docs/security.md#what-buildkitd-fetches-itself).
+- `allowed_tls_rules` and `allowed_ip_rules` are not inspected by design. Once an `ip:port`
+  pair is allowed, any TCP-based protocol can use that path, so prefer a domain rule wherever the
+  destination has a stable name.
+- `universal` never sees the method or the path. They travel inside TLS, so neither is enforced and
+  neither reaches the report or the traffic artifact. A request fronted behind an allowed SNI is
+  invisible to it as well, while `inspect` matches on the real `Host` and refuses it. See
   [What it can't see](./docs/security.md#what-it-cant-see).
 
 ### Protocols
 
-- **UDP is dropped**, so QUIC and HTTP/3 either fall back to TCP or fail. Port 53 to the proxy, which
-  is the resolver, is the one exception. ICMP is dropped too.
-- **IPv6 is not used.** The rule syntax refuses an IPv6 address, forwarded IPv6 is dropped, and the
-  proxy reaches allowed names over IPv4 only, so an allowed name with AAAA records and no A record
-  never resolves and no rule can clear it.
+- UDP is dropped, so QUIC and HTTP/3 either fall back to TCP or fail. Port 53 to the proxy, which is
+  the resolver, is the one exception. ICMP is dropped too.
+- IPv6 is not used anywhere. The rule syntax refuses an IPv6 address, forwarded IPv6 is dropped, and
+  the proxy reaches allowed names over IPv4 only, so an allowed name with AAAA records and no A
+  record never resolves and no rule can clear it.
 
 ### Service discovery
 
 The resolver has no upstream, so it returns nothing for a discovery record: `SRV`, `TXT`, `TLSA` and
-`URI` queries come back empty, and the build connects to the name a rule allowed rather than to one a
-nameserver picked for it. Clients that treat `SRV` as a discovery layer fall back to the host name
-itself, which is what makes a rule mean what it says.
+`URI` queries come back empty, and the build connects to the name a rule allowed rather than to one
+a nameserver picked for it. Clients that treat `SRV` as a discovery layer fall back to the host name
+itself, so the host a rule names is the host the build reaches.
 
 What this breaks is a client with no fallback, where the record is the only way it can find the
 service at all. A `mongodb+srv://` connection string is the one to expect: use `mongodb://` with the
-shard hostnames written out and allowlist those instead. Active Directory and Kerberos discovery have
-the same shape.
+shard hostnames written out and allowlist those instead. Active Directory and Kerberos discovery
+have the same shape.
 
 Under `inspect`, a lookup for a `_service._proto.<host>` name is reported as `discovery` when the
-rules allow that host, and is not counted as blocked. A service name under any other host is reported
-as blocked; see [Blocked service names](#blocked-service-names).
+rules allow that host, and is not counted as blocked. A service name under any other host is
+reported as blocked; see [Blocked service names](#blocked-service-names).
 
 ### Under the `inspect` engine
 
-- **A tool that pins a certificate, or ships its own trust store** instead of reading the CA-trust
-  variables, will not work. The JVM (Java, Kotlin, Scala) is the common case, since it only reads its
-  own `cacerts` file. Use `proxy_engine: universal` for those, or pass the host through undecrypted
-  with `allowed_tls_rules`.
-- **`audit` terminates TLS too.** It drops the rules, not the interception, so a tool that cannot
+- A tool that pins a certificate, or ships its own trust store instead of reading the CA-trust
+  variables, will not work. The JVM (Java, Kotlin, Scala) is the common case, since it only reads
+  its own `cacerts` file. Use `proxy_engine: universal` for those, or pass the host through
+  undecrypted with `allowed_tls_rules`.
+- `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
-- **An image with no system CA store** (`scratch`, distroless, or `debian:*-slim` before
+- An image with no system CA store (`scratch`, distroless, or `debian:*-slim` before
   `ca-certificates` is installed) still gets every variable set, but pointed at a file trusting only
-  the proxy's own CA. That is enough for ordinary HTTPS, since `inspect` re-signs all of it with that
-  CA, but not for an `allowed_tls_rules` or `allowed_ip_rules` passthrough, which presents its own
-  real certificate. The decision is made once, from the rootfs as the step begins, so installing
+  the proxy's own CA. That is enough for ordinary HTTPS, since `inspect` re-signs all of it with
+  that CA, but not for an `allowed_tls_rules` or `allowed_ip_rules` passthrough, which presents its
+  own real certificate. The decision is made once, from the rootfs as the step begins, so installing
   `ca-certificates` partway through a step doesn't help a passthrough made later in the same step:
 
   ```dockerfile
@@ -385,7 +385,7 @@ as blocked; see [Blocked service names](#blocked-service-names).
                                                              # CURL_CA_BUNDLE points at it instead
   ```
 
-- **The CA store's directory is a mount point for the step's duration**, so removing or renaming the
+- The CA store's directory is a mount point for the step's duration, so removing or renaming the
   directory itself fails, while what is inside it behaves normally:
 
   ```dockerfile
@@ -393,17 +393,17 @@ as blocked; see [Blocked service names](#blocked-service-names).
   RUN rm -rf /etc/ssl/certs/*      # fine
   ```
 
-- **A custom CA path that is unexpectedly large** (more than 20 MiB or 512 files) has injection
-  skipped for that variable only, the same graceful degradation as when no CA bundle is found at all.
-- **No SLSA provenance.** The deprecated `explicit` engine records what it fetched as a provenance
-  material through BuildKit's own mechanism; `inspect` and `universal` don't, and the traffic
-  artifact is an observation record with no content digest.
+- A custom CA path that is unexpectedly large (more than 20 MiB or 512 files) has injection skipped
+  for that variable only, the same degradation as when no CA bundle is found at all.
+- Neither engine produces SLSA provenance. The deprecated `explicit` engine records what it fetched
+  as a provenance material through BuildKit's own mechanism; the traffic artifact is an observation
+  record with no content digest.
 
 ### On the runner itself
 
-An allowlisted name that resolves to cloud metadata, to loopback, or **to an address the runner
-itself holds** is refused, so a compromised name cannot turn the proxy into a route back into the
-runner. A mirror or registry running on the runner is therefore not reachable by name: allow it with
+An allowlisted name that resolves to cloud metadata, to loopback, or to an address the runner itself
+holds is refused, so a compromised name cannot turn the proxy into a route back into the runner. A
+mirror or registry running on the runner is therefore not reachable by name: allow it with
 `allowed_ip_rules`, which never goes through that guard. See
 [What it actually stops](./docs/security.md#what-it-actually-stops).
 
