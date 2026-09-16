@@ -1,8 +1,8 @@
 # Reference
 
-Every input of both actions, the rule grammar in full, and what the report and the traffic artifact
-contain. The [README](../README.md) covers what Buildcage does and how to adopt it; the details it
-links out to are here.
+This page holds every input of both actions, the rule grammar in full, and what the report and the
+traffic artifact contain. The [README](../README.md) covers what Buildcage does and how to adopt it,
+and links here for the details.
 
 ## Contents
 
@@ -55,8 +55,8 @@ rule in any input matches. Which ones apply depends on the engine.
 | `known_blocked_rules` |    ✅     |     ✅      | A host expected to be blocked, so it doesn't fail the [report](#report-action-inputs) |
 
 Under `inspect`, `allowed_https_rules` and `allowed_http_rules` still work and are kept for
-compatibility, but `allowed_url_rules` says everything they say and more: a host rule is the same as
-a URL rule with any method and any path.
+compatibility, but `allowed_url_rules` covers them: a host rule is the same as a URL rule with any
+method and any path.
 
 Setting a rule the engine can't act on is caught before the build starts: `restrict` fails, since a
 rule that looks like it protects the build but cannot be enforced is worse than none, and `audit`
@@ -122,8 +122,8 @@ refused: it never travels with a request, so a rule carrying one could only matc
 | `?`     | one character                                     | one character                 |
 | `~`     | raw regex, split into a host half and a path half |                               |
 
-A wildcard may sit among literal text, in a domain label or a path segment, which host rules do not
-allow:
+In a URL rule a wildcard may sit among literal text, inside a domain label or a path segment. Host
+rules don't allow that:
 
 ```yaml
 allowed_url_rules: |
@@ -255,8 +255,9 @@ allowed_url_rules: |
 Leave the port out and the rule matches the scheme's default port only, 443 for `https` and 80 for
 `http`; there is no implicit any-port, so write `example\.com:.*` to allow more.
 
-A top-level `|` is not supported, in a host rule or a URL rule. The anchors would bind to one branch
-each, and a URL rule's two halves are compiled separately, so a choice spanning them has no meaning.
+A top-level `|` is not supported in either a host rule or a URL rule. The anchors would bind to one
+branch each, and a URL rule's two halves are compiled separately, so a choice spanning them has no
+meaning.
 Keep the `|` inside a group, or write one rule per alternative:
 
 ```yaml
@@ -286,14 +287,15 @@ optionally fails the job when blocked connections are found. Every input is opti
 | `upload_traffic_artifact`         | `false`     | Upload the observed traffic as a JSON artifact named `buildcage-traffic`, `inspect` only      |
 | `traffic_artifact_retention_days` | empty       | How long to keep that artifact, in days; empty uses the repository's own default              |
 
-In restrict mode the step fails when blocked connections are detected, failing the workflow with it.
+In restrict mode the step fails when blocked connections are detected, and the workflow fails with
+it.
 In audit mode, blocked connections (protocol errors, for instance) are reported but never fail the
 step.
 
 When every blocked connection matches a `known_blocked_rules` rule, the step no longer fails even
 with `fail_on_blocked: true`, and a `::notice::` is emitted instead of `::error::`; any unmatched
 blocked connection still fails the step. Once `known_blocked_rules` is set, the Blocked Hosts table
-gains an **Expected** column (✅) marking the matched rows.
+gains an **Expected** column (✅) on the matched rows.
 
 Under `inspect` and `explicit` the matched rows are also folded into one row per rule, named after
 the rule and counting the hosts behind it (`*.example.com:* (12 hosts)`), below the rows nothing
@@ -395,5 +397,5 @@ it points depends on whether the step has a system CA store:
 | `SSL_CERT_FILE`       | OpenSSL, and anything reading it (Go, Ruby, wget, Rust's `rustls-native-certs`) | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
 
 Neither the CA nor these variables are left in the image layers, and injection happens at exec time,
-so it cannot affect a cache key. What this cannot cover, and what a step may not do to its CA store
-while it is mounted, is in [Limitations](../README.md#limitations).
+so it cannot affect a cache key. [Limitations](../README.md#limitations) covers what this can't
+reach, and what a step can't do to its CA store while it is mounted.
