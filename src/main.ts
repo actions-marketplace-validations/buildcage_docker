@@ -12,7 +12,7 @@ import {
 } from "#core/lib/acl/rules.ts";
 import { buildUrlRules } from "#core/lib/acl/url-rules.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
-import { listHostIpv4Addresses } from "./lib/host-addresses.ts";
+import { buildComposeEnv } from "./lib/compose-env.ts";
 import {
   verifyImageDigestOrThrow,
   type VerifyImageDigestOptions,
@@ -42,7 +42,11 @@ const LOCAL_IMAGE_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === 
  * Verifies image provenance and resolves the digest-pinned image ref.
  * Throws ProvenanceError("UNVERIFIABLE_REF") if verification can't be
  * performed (branch ref / local ./) — printed by the top-level catch.
+ *
+ * Untested by design: verifyImageDigestOrThrow and resolveBuildcageImageRef
+ * are tested directly.
  */
+/* v8 ignore start */
 async function resolveVerifiedImage({
   actionRef,
   actionRepo,
@@ -57,7 +61,11 @@ async function resolveVerifiedImage({
     pullPolicy: "always",
   };
 }
+/* v8 ignore stop */
 
+// Untested by design: every step main() calls is tested directly, and what it
+// adds is the docker invocations themselves.
+/* v8 ignore start */
 async function main(): Promise<void> {
   const env = process.env;
   const actionRef = env.GITHUB_ACTION_REF ?? "";
@@ -115,27 +123,21 @@ async function main(): Promise<void> {
   // builder_name input and find this container via `docker ps --filter`.
   const projectName = deriveProjectName(builderName);
 
-  const composeEnv = {
-    ...env,
-    BUILDER_NAME: builderName,
-    PROXY_MODE: proxyMode,
-    PROXY_ENGINE: proxyEngine,
-    ALLOWED_HTTPS_RULES: rules.httpsRules.join("\n"),
-    ALLOWED_HTTP_RULES: rules.httpRules.join("\n"),
-    ALLOWED_IP_RULES: rules.ipRules.join("\n"),
-    // Newline separated because a URL rule contains a space, unlike the others.
-    ALLOWED_URL_RULES: urlRules.join("\n"),
-    ALLOWED_TLS_RULES: tlsRules.join("\n"),
-    KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
-    BUILDCAGE_IMAGE_REF: imageRef,
-    // Pinned rather than inherited, like every other variable here: the
-    // resolver the builder uses is the action's choice, not whatever an earlier
-    // step left in the job environment.
-    EXTERNAL_RESOLVER: "",
-    // Completed engine-side with the compose network's gateway, which does not
-    // exist yet here. See lib/host-addresses.ts.
-    HOST_ADDRESSES: listHostIpv4Addresses().join(" "),
-  };
+  const composeEnv = buildComposeEnv(
+    {
+      builderName,
+      proxyMode,
+      proxyEngine,
+      imageRef,
+      httpsRules: rules.httpsRules,
+      httpRules: rules.httpRules,
+      ipRules: rules.ipRules,
+      urlRules,
+      tlsRules,
+      knownBlockedRules,
+    },
+    env,
+  );
 
   try {
     execFileSync("docker", buildComposeDownArgs({ composeFile, projectName }), {
@@ -158,6 +160,7 @@ async function main(): Promise<void> {
     throw builderStartError(e, { composeFile, projectName, builderName, composeEnv });
   }
 }
+/* v8 ignore stop */
 
 /**
  * Resolve and validate the proxy_engine input.
@@ -195,6 +198,9 @@ export function resolveProxyEngine(input: string | undefined): ProxyEngine {
   return engine as ProxyEngine;
 }
 
+// Untested by design: this is the guard that keeps main() from running when
+// this module is imported, so a test can never be inside it.
+/* v8 ignore start */
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     if (err instanceof ActionError) {
@@ -205,3 +211,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+/* v8 ignore stop */

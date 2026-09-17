@@ -10773,6 +10773,18 @@ function copyFromContainerImage(containerId, containerPath, hostPath, run = runD
 //#region report/src/lib/errors.ts
 var ReportError = class extends ActionError {};
 //#endregion
+//#region report/src/lib/find-report-source.ts
+function findReportSourceContainer(docker, projectName, builderName) {
+	let ids;
+	try {
+		ids = docker.findContainers([`label=com.docker.compose.project=${projectName}`, "label=io.github.buildcage.report-source=true"]);
+	} catch (e) {
+		throw new ReportError(describeDockerFailure(e, { operation: "docker ps" }), "DOCKER_UNAVAILABLE");
+	}
+	if (ids.length !== 1) throw new ReportError(`Expected exactly one buildcage container for builder_name ${JSON.stringify(builderName)}, found ${ids.length}. Did the setup step run first, with the same builder_name?`, "CONTAINER_NOT_FOUND");
+	return ids[0];
+}
+//#endregion
 //#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/config.js
 function getUploadChunkSize() {
 	return 8388608;
@@ -56110,15 +56122,7 @@ async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.e
 //#region report/src/main.ts
 init_core();
 async function main() {
-	let builderName = getInput("builder_name") || "buildcage", projectName = resolveProjectName(builderName, void 0), docker = createDocker(), containerId;
-	try {
-		let ids = docker.findContainers([`label=com.docker.compose.project=${projectName}`, "label=io.github.buildcage.report-source=true"]);
-		if (ids.length !== 1) throw new ReportError(`Expected exactly one buildcage container for builder_name ${JSON.stringify(builderName)}, found ${ids.length}. Did the setup step run first, with the same builder_name?`, "CONTAINER_NOT_FOUND");
-		containerId = ids[0];
-	} catch (e) {
-		throw e instanceof ReportError ? e : new ReportError(describeDockerFailure(e, { operation: "docker ps" }), "DOCKER_UNAVAILABLE");
-	}
-	let scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-"));
+	let builderName = getInput("builder_name") || "buildcage", projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-"));
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		try {

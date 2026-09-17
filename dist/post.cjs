@@ -167,14 +167,6 @@ function getInput(name, options) {
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
 //#endregion
-//#region src/core/lib/docker/compose-project-name.ts
-function deriveProjectName(containerName) {
-	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
-}
-function resolveProjectName(builderName, composeProjectNameOverride) {
-	return composeProjectNameOverride || deriveProjectName(builderName);
-}
-//#endregion
 //#region src/core/lib/docker/args.ts
 function buildComposeDownArgs({ composeFile, projectName }) {
 	return [
@@ -187,19 +179,36 @@ function buildComposeDownArgs({ composeFile, projectName }) {
 	];
 }
 //#endregion
+//#region src/core/lib/docker/compose-project-name.ts
+function deriveProjectName(containerName) {
+	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
+}
+function resolveProjectName(builderName, composeProjectNameOverride) {
+	return composeProjectNameOverride || deriveProjectName(builderName);
+}
+//#endregion
+//#region src/lib/post-cleanup.ts
+function planPostCleanup(composeFile, projectNameOverride, env) {
+	let builderName = getInput("builder_name") || "buildcage";
+	return {
+		args: buildComposeDownArgs({
+			composeFile,
+			projectName: resolveProjectName(builderName, projectNameOverride)
+		}),
+		env: {
+			...env,
+			BUILDER_NAME: builderName
+		}
+	};
+}
+//#endregion
 //#region src/post.ts
 const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href));
 function main() {
-	let builderName = getInput("builder_name") || "buildcage", projectName = resolveProjectName(builderName, void 0);
-	(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({
-		composeFile: (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml"),
-		projectName
-	}), {
+	let { args, env } = planPostCleanup((0, node_path.join)(__dirname$1, "../docker/compose.action.yaml"), void 0, process.env);
+	(0, node_child_process.execFileSync)("docker", args, {
 		stdio: "inherit",
-		env: {
-			...process.env,
-			BUILDER_NAME: builderName
-		}
+		env
 	});
 }
 process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main();

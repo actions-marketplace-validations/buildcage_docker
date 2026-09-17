@@ -18,6 +18,10 @@ export type SpawnCommand = (args: string[]) => ChildProcess;
 
 // 64MB, up from Node's 1MB default — `buildctl debug logs --progress=rawjson`
 // output for a verbose build can exceed the default easily.
+//
+// Untested by design: the defaults behind createDocker's seams, which only
+// hand node:child_process what the tested caller decided.
+/* v8 ignore start */
 function defaultRunCommand(args: string[]): string {
   return execFileSync("docker", args, {
     encoding: "utf8",
@@ -29,6 +33,7 @@ function defaultRunCommand(args: string[]): string {
 function defaultSpawnCommand(args: string[]): ChildProcess {
   return spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
 }
+/* v8 ignore stop */
 
 /**
  * Drives a `docker <args>` child process and yields its stdout line by

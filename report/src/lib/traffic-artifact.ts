@@ -26,11 +26,18 @@ export type UploadArtifact = (
   options: { retentionDays?: number },
 ) => Promise<unknown>;
 
-/** Imported lazily so a run that asks for no artifact does not load it. */
+/**
+ * Imported lazily so a run that asks for no artifact does not load it.
+ *
+ * Untested by design: the default behind the seam above, which only hands
+ * @actions/artifact what the tested caller decided.
+ */
+/* v8 ignore start */
 const uploadViaActionsArtifact: UploadArtifact = async (name, files, rootDirectory, options) => {
   const { DefaultArtifactClient } = await import("@actions/artifact");
   return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
 };
+/* v8 ignore stop */
 
 /** `fileExists`/`upload` are injectable so tests can assert on the arguments
  *  instead of mocking node:fs and @actions/artifact directly. */

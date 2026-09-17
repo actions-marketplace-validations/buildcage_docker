@@ -8,11 +8,16 @@ import * as core from "@actions/core";
 import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { createDocker } from "#core/lib/docker/client.ts";
-import { REPORT_ACTION_SCRIPT_PATH, REPORT_SOURCE_LABEL } from "#core/lib/docker/report-source.ts";
+import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
 import { ActionError, errorMessage } from "#core/lib/errors.ts";
 import { copyFromContainerImage } from "./lib/copy-from-image.ts";
 import { ReportError } from "./lib/errors.ts";
+import { findReportSourceContainer } from "./lib/find-report-source.ts";
 import { uploadTrafficArtifact, wantsTrafficArtifact } from "./lib/traffic-artifact.ts";
+
+// Untested by design, down to the end of the file: every step main() calls is
+// tested directly, and what it adds is the docker/node invocations themselves.
+/* v8 ignore start */
 
 // Gates the COMPOSE_PROJECT_NAME override to this repo's own CI/dev testing.
 const PROJECT_NAME_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === "1";
@@ -25,31 +30,10 @@ async function main(): Promise<void> {
   );
   const docker = createDocker();
 
-  // 1. Locate the report-source container purely via Docker metadata.
-  let containerId: string;
-  try {
-    const ids = docker.findContainers([
-      `label=com.docker.compose.project=${projectName}`,
-      `label=${REPORT_SOURCE_LABEL}=true`,
-    ]);
-    if (ids.length !== 1) {
-      throw new ReportError(
-        `Expected exactly one buildcage container for builder_name ${JSON.stringify(builderName)}, found ${ids.length}. ` +
-          "Did the setup step run first, with the same builder_name?",
-        "CONTAINER_NOT_FOUND",
-      );
-    }
-    containerId = ids[0];
-  } catch (e) {
-    if (e instanceof ReportError) throw e;
-    throw new ReportError(
-      describeDockerFailure(e, { operation: "docker ps" }),
-      "DOCKER_UNAVAILABLE",
-    );
-  }
+  const containerId = findReportSourceContainer(docker, projectName, builderName);
 
-  // 2. Pull report-action.js out of the (Sigstore-verified) image and run
-  // it with node, inheriting stdio. It owns everything downstream —
+  // Pull report-action.js out of the (Sigstore-verified) image and run it
+  // with node, inheriting stdio. It owns everything downstream —
   // fetching the container's env/logs, rendering the Job Summary, the
   // fail_on_blocked exit decision — so this step just reproduces its exit
   // code as its own.
@@ -110,3 +94,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+/* v8 ignore stop */

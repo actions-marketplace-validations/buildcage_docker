@@ -467,6 +467,25 @@ function listHostIpv4Addresses({ networkInterfaces: list = node_os.networkInterf
 	return [...found].sort();
 }
 //#endregion
+//#region src/lib/compose-env.ts
+function buildComposeEnv({ builderName, proxyMode, proxyEngine, imageRef, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules }, env, hostAddresses = listHostIpv4Addresses) {
+	return {
+		...env,
+		BUILDER_NAME: builderName,
+		PROXY_MODE: proxyMode,
+		PROXY_ENGINE: proxyEngine,
+		ALLOWED_HTTPS_RULES: httpsRules.join("\n"),
+		ALLOWED_HTTP_RULES: httpRules.join("\n"),
+		ALLOWED_IP_RULES: ipRules.join("\n"),
+		ALLOWED_URL_RULES: urlRules.join("\n"),
+		ALLOWED_TLS_RULES: tlsRules.join("\n"),
+		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
+		BUILDCAGE_IMAGE_REF: imageRef,
+		EXTERNAL_RESOLVER: "",
+		HOST_ADDRESSES: hostAddresses().join(" ")
+	};
+}
+//#endregion
 //#region src/core/lib/provenance/errors.ts
 var VerifyImageError = class extends Error {
 	code;
@@ -7315,21 +7334,18 @@ async function main() {
 		urlRules,
 		tlsRules
 	}, (message) => console.log(`::warning::${message}`)), console.log("::group::buildcage: Configured ACL Rules"), logRules("HTTPS", rules.httpsRules), logRules("HTTP", rules.httpRules), logRules("IP", rules.ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules), console.log("::endgroup::");
-	let builderName = getInput("builder_name") || "buildcage", projectName = deriveProjectName(builderName), composeEnv = {
-		...env,
-		BUILDER_NAME: builderName,
-		PROXY_MODE: proxyMode,
-		PROXY_ENGINE: proxyEngine,
-		ALLOWED_HTTPS_RULES: rules.httpsRules.join("\n"),
-		ALLOWED_HTTP_RULES: rules.httpRules.join("\n"),
-		ALLOWED_IP_RULES: rules.ipRules.join("\n"),
-		ALLOWED_URL_RULES: urlRules.join("\n"),
-		ALLOWED_TLS_RULES: tlsRules.join("\n"),
-		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
-		BUILDCAGE_IMAGE_REF: imageRef,
-		EXTERNAL_RESOLVER: "",
-		HOST_ADDRESSES: listHostIpv4Addresses().join(" ")
-	};
+	let builderName = getInput("builder_name") || "buildcage", projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
+		builderName,
+		proxyMode,
+		proxyEngine,
+		imageRef,
+		httpsRules: rules.httpsRules,
+		httpRules: rules.httpRules,
+		ipRules: rules.ipRules,
+		urlRules,
+		tlsRules,
+		knownBlockedRules
+	}, env);
 	try {
 		(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({
 			composeFile,
