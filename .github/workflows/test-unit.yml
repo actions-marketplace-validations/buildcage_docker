@@ -70,6 +70,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
+          # setup-go looks for go.mod at the workspace root by default and
+          # warns that it found none. buildcage-runc has no dependencies at
+          # all, so buildkit-proxy's go.sum is the whole cache key.
+          cache-dependency-path: docker/explicit/buildkit-proxy/go.sum
 
       - name: Test buildcage-runc (inspect engine)
         working-directory: docker/inspect/buildcage-runc
