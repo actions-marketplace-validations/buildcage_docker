@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import type { HostTableRow } from "./host-table.ts";
 
@@ -178,5 +178,3 @@ describe("foldExpectedBlockedRows — a tie broken the other way", () => {
     ]);
   });
 });
-
-reportResults();

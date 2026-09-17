@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { buildExplicitReportData } from "./explicit.ts";
 import type { GenReportParameters } from "../types.ts";
 import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
@@ -86,5 +86,3 @@ describe("buildExplicitReportData", () => {
     expect(result.logLooksPlausible).toBe(true);
   });
 });
-
-reportResults();

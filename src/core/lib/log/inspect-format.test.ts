@@ -1,7 +1,7 @@
 // The proxy writes these lines and this parser reads them, with nothing else
 // holding the two together: a field moved on one side and not the other leaves
 // a report that says the build reached nothing at all.
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { generateHaproxyConfig } from "../acl/haproxy-config.ts";
 import { scanInspectLog } from "./inspect.ts";
 
@@ -143,5 +143,3 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(() => render("buildcage %[var(txn.unknown)]")).toThrow("no sample");
   });
 });
-
-reportResults();

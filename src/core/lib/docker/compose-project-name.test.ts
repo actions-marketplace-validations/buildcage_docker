@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { deriveProjectName, resolveProjectName } from "./compose-project-name.ts";
 
 describe("deriveProjectName", () => {
@@ -37,5 +37,3 @@ describe("resolveProjectName", () => {
     );
   });
 });
-
-reportResults();

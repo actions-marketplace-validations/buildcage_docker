@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { buildUniversalReportData } from "./universal.ts";
 import type { GenReportParameters } from "../types.ts";
 
@@ -100,5 +100,3 @@ describe("buildUniversalReportData", () => {
     expect(result.logLooksPlausible).toBe(false);
   });
 });
-
-reportResults();

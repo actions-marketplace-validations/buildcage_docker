@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { renderInspectDetails } from "./inspect-details.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 
@@ -291,5 +291,3 @@ describe("renderInspectDetails — URL and outcome edges", () => {
     expect(rendered).toMatch(/blocked/);
   });
 });
-
-reportResults();

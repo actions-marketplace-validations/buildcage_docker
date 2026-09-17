@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { renderHostTable } from "./host-table.ts";
 
 describe("renderHostTable", () => {
@@ -86,5 +86,3 @@ describe("a row with no port", () => {
     expect(md.includes("attacker.example:-")).toBe(false);
   });
 });
-
-reportResults();

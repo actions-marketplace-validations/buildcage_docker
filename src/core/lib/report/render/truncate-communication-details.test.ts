@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { truncateForStepSummary } from "./truncate-communication-details.ts";
 
 const HEADER = "## Outbound Traffic Report (restrict mode)\n\n### ✅ Allowed Hosts\n\n";
@@ -86,5 +86,3 @@ describe("markdown the truncator cannot work with", () => {
     expect(truncateForStepSummary(markdown, false)).toBe(markdown);
   });
 });
-
-reportResults();

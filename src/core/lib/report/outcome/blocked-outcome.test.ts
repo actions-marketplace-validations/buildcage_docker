@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import {
   determineBlockedOutcome,
   buildBlockedMessage,
@@ -299,5 +299,3 @@ describe("describeBlockedOutcome", () => {
     );
   });
 });
-
-reportResults();

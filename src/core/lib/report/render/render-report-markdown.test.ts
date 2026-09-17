@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { renderReportMarkdown } from "./render-report-markdown.ts";
 import type {
   GenReportParameters,
@@ -51,11 +51,6 @@ const expectedRows = [
   },
 ];
 
-// test-shim's Assert interface has no doesNotMatch.
-function assertNotMatch(value: string, pattern: RegExp): void {
-  expect(pattern.test(value)).toBe(false);
-}
-
 describe("renderReportMarkdown — universal", () => {
   const base: UniversalReportData = {
     engine: "universal",
@@ -69,7 +64,7 @@ describe("renderReportMarkdown — universal", () => {
   it("renders a bare restrict-mode title, since that is the day-to-day mode", () => {
     const md = renderReportMarkdown({ ...base, passed: [allowedRow] }, "buildcage/docker", "v2");
     expect(md).toMatch(/^## Outbound Traffic Report\n/);
-    assertNotMatch(md, /restrict mode\)/);
+    expect(md).not.toMatch(/restrict mode\)/);
     expect(md).toMatch(/### ✅ Allowed Hosts/);
     expect(md).toMatch(/good\.com/);
   });
@@ -93,7 +88,7 @@ describe("renderReportMarkdown — universal", () => {
 
   it("has no warning when the log is a complete record", () => {
     const md = renderReportMarkdown({ ...base, passed: [allowedRow] }, "buildcage/docker", "v2");
-    assertNotMatch(md, /incomplete/);
+    expect(md).not.toMatch(/incomplete/);
   });
 
   it("renders the audit-mode heading and Audited Hosts table, plus a restrict-mode example", () => {
@@ -115,7 +110,7 @@ describe("renderReportMarkdown — universal", () => {
     );
     expect(md).toMatch(/### 🚫 Blocked Hosts/);
     expect(md).toMatch(/based on the Host header/);
-    assertNotMatch(md, /Communication details/);
+    expect(md).not.toMatch(/Communication details/);
   });
 
   it("uses the real actionRepo in the footer, not a placeholder", () => {
@@ -123,12 +118,12 @@ describe("renderReportMarkdown — universal", () => {
     expect(md).toMatch(
       /Reported by \[buildcage\/docker\]\(https:\/\/github\.com\/buildcage\/docker\)/,
     );
-    assertNotMatch(md, /GITHUB_ACTION_REPOSITORY/);
+    expect(md).not.toMatch(/GITHUB_ACTION_REPOSITORY/);
   });
 
   it("omits the Allowed Hosts table entirely when nothing passed", () => {
     const md = renderReportMarkdown(base, "buildcage/docker", "v2");
-    assertNotMatch(md, /### ✅ Allowed Hosts/);
+    expect(md).not.toMatch(/### ✅ Allowed Hosts/);
   });
 
   it("shows a '(no communication)' note when nothing passed and nothing blocked", () => {
@@ -142,14 +137,14 @@ describe("renderReportMarkdown — universal", () => {
       "buildcage/docker",
       "v2",
     );
-    assertNotMatch(passedMd, /_\(no communication\)_/);
+    expect(passedMd).not.toMatch(/_\(no communication\)_/);
 
     const blockedMd = renderReportMarkdown(
       { ...base, blocked: [blockedRow], blockedCount: 1 },
       "buildcage/docker",
       "v2",
     );
-    assertNotMatch(blockedMd, /_\(no communication\)_/);
+    expect(blockedMd).not.toMatch(/_\(no communication\)_/);
   });
 
   it("uses the title option verbatim, e.g. a run step's em-dash label", () => {
@@ -170,7 +165,7 @@ describe("renderReportMarkdown — universal", () => {
 
   it("omits the Expected column when known_blocked_rules is not set", () => {
     const md = renderReportMarkdown({ ...base, blocked: [blockedRow] }, "buildcage/docker", "v2");
-    assertNotMatch(md, /Expected/);
+    expect(md).not.toMatch(/Expected/);
   });
 
   it("keeps each matched row, having no Communication details to name its host in", () => {
@@ -185,7 +180,7 @@ describe("renderReportMarkdown — universal", () => {
     );
     expect(md).toMatch(/\| a\.sury\.org:443 \|/);
     expect(md).toMatch(/\| b\.sury\.org:443 \|/);
-    assertNotMatch(md, /hosts\)/);
+    expect(md).not.toMatch(/hosts\)/);
   });
 });
 
@@ -217,7 +212,7 @@ describe("renderReportMarkdown — explicit", () => {
     expect(md).toMatch(/Communication details/);
     expect(md).toMatch(/Allowed Urls/);
     expect(md).toMatch(/Blocked Urls/);
-    assertNotMatch(md, /based on the Host header/);
+    expect(md).not.toMatch(/based on the Host header/);
   });
 
   it("folds known_blocked_rules matches into one row naming the rule", () => {
@@ -233,7 +228,7 @@ describe("renderReportMarkdown — explicit", () => {
     expect(md).toMatch(
       /\| \\\*\.sury\.org:\\\* \(2 hosts\) \| HTTPS \| https-not-allowed \| 2 \| ✅ \|/,
     );
-    assertNotMatch(md, /a\.sury\.org/);
+    expect(md).not.toMatch(/a\.sury\.org/);
     expect(md).toMatch(/\| bad\.com:80 \|/);
   });
 });
@@ -279,5 +274,3 @@ describe("renderReportMarkdown — inspect", () => {
     expect(md).toMatch(/allowed_url_rules|GET https:\/\/good\.com/);
   });
 });
-
-reportResults();

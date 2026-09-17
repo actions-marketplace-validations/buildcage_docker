@@ -8,10 +8,13 @@ const productionInputs = globSync(["**/scripts/*.ts"], {
 });
 
 // src/core/lib/acl/*.test.ts is dual-consumed (also runs under vitest);
-// *.property.test.ts siblings are vitest/fast-check only, not qjs-compatible.
+// *.property.test.ts (fast-check) and *.golden.test.ts (reads its fixture off
+// disk) siblings are vitest-only, not qjs-compatible.
 const qjsTestInputs = [
   "src/core/scripts/test/run-tests.qjs.ts",
-  ...globSync(["src/core/lib/acl/*.test.ts"], { exclude: ["**/*.property.test.ts"] }),
+  ...globSync(["src/core/lib/acl/*.test.ts"], {
+    exclude: ["**/*.property.test.ts", "**/*.golden.test.ts"],
+  }),
 ];
 
 function settingsFor(input) {

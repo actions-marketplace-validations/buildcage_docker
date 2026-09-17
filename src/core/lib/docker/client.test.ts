@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { createDocker, parseContainerIds, type SpawnCommand } from "./client.ts";
 import { REPORT_ACTION_SCRIPT_PATH } from "./report-source.ts";
 
@@ -212,5 +212,3 @@ describe("createDocker readFileLines", () => {
     );
   });
 });
-
-reportResults();

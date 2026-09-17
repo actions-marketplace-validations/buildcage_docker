@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { parseDockerInspectEnv, parseDockerInspectLabels } from "./container-env.ts";
 
 describe("parseDockerInspectEnv", () => {
@@ -43,5 +43,3 @@ describe("parseDockerInspectLabels", () => {
     expect(parseDockerInspectLabels("{}")).toStrictEqual({});
   });
 });
-
-reportResults();

@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { aggregate } from "./aggregate.ts";
 
 describe("aggregate", () => {
@@ -47,5 +47,3 @@ describe("aggregate", () => {
     expect(aggregate([])).toStrictEqual([]);
   });
 });
-
-reportResults();

@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,5 +160,3 @@ describe("writeTrafficFile", () => {
     expect(JSON.parse(text).length).toBe(6);
   });
 });
-
-reportResults();
