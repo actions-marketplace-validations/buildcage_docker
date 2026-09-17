@@ -64,16 +64,6 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
-runc (used only by the `run` action's proxy image, docker/Dockerfile)
-  Website : https://github.com/opencontainers/runc
-  License : Apache License 2.0 (Apache-2.0)
-  Source  : https://github.com/opencontainers/runc
-  Note    : Official pre-built release binary, checksum-pinned. Extracted
-            onto the runner host at `run` action startup and used by
-            run-isolated.sh to execute the isolated command.
-
-------------------------------------------------------------------------------
-
 docker/seccomp/builder.json
 
   This file is not part of any Docker image; it ships as part of the action's
