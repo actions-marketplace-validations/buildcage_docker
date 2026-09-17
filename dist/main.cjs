@@ -60,12 +60,6 @@ new class {
 	constructor() {
 		this._buffer = "";
 	}
-	/**
-	* Finds the summary file path from the environment, rejects if env var is not found or file does not exist
-	* Also checks r/w permissions.
-	*
-	* @returns step summary file path
-	*/
 	filePath() {
 		return __awaiter$6(this, void 0, void 0, function* () {
 			if (this._filePath) return this._filePath;
@@ -79,116 +73,44 @@ new class {
 			return this._filePath = pathFromEnv, this._filePath;
 		});
 	}
-	/**
-	* Wraps content in an HTML tag, adding any HTML attributes
-	*
-	* @param {string} tag HTML tag to wrap
-	* @param {string | null} content content within the tag
-	* @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
-	*
-	* @returns {string} content wrapped in HTML element
-	*/
 	wrap(tag, content, attrs = {}) {
 		let htmlAttrs = Object.entries(attrs).map(([key, value]) => ` ${key}="${value}"`).join("");
 		return content ? `<${tag}${htmlAttrs}>${content}</${tag}>` : `<${tag}${htmlAttrs}>`;
 	}
-	/**
-	* Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
-	*
-	* @param {SummaryWriteOptions} [options] (optional) options for write operation
-	*
-	* @returns {Promise<Summary>} summary instance
-	*/
 	write(options) {
 		return __awaiter$6(this, void 0, void 0, function* () {
 			let overwrite = !!options?.overwrite, filePath = yield this.filePath();
 			return yield (overwrite ? writeFile : appendFile)(filePath, this._buffer, { encoding: "utf8" }), this.emptyBuffer();
 		});
 	}
-	/**
-	* Clears the summary buffer and wipes the summary file
-	*
-	* @returns {Summary} summary instance
-	*/
 	clear() {
 		return __awaiter$6(this, void 0, void 0, function* () {
 			return this.emptyBuffer().write({ overwrite: !0 });
 		});
 	}
-	/**
-	* Returns the current summary buffer as a string
-	*
-	* @returns {string} string of summary buffer
-	*/
 	stringify() {
 		return this._buffer;
 	}
-	/**
-	* If the summary buffer is empty
-	*
-	* @returns {boolen} true if the buffer is empty
-	*/
 	isEmptyBuffer() {
 		return this._buffer.length === 0;
 	}
-	/**
-	* Resets the summary buffer without writing to summary file
-	*
-	* @returns {Summary} summary instance
-	*/
 	emptyBuffer() {
 		return this._buffer = "", this;
 	}
-	/**
-	* Adds raw text to the summary buffer
-	*
-	* @param {string} text content to add
-	* @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
-	*
-	* @returns {Summary} summary instance
-	*/
 	addRaw(text, addEOL = !1) {
 		return this._buffer += text, addEOL ? this.addEOL() : this;
 	}
-	/**
-	* Adds the operating system-specific end-of-line marker to the buffer
-	*
-	* @returns {Summary} summary instance
-	*/
 	addEOL() {
 		return this.addRaw(os.EOL);
 	}
-	/**
-	* Adds an HTML codeblock to the summary buffer
-	*
-	* @param {string} code content to render within fenced code block
-	* @param {string} lang (optional) language to syntax highlight code
-	*
-	* @returns {Summary} summary instance
-	*/
 	addCodeBlock(code, lang) {
 		let attrs = Object.assign({}, lang && { lang }), element = this.wrap("pre", this.wrap("code", code), attrs);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML list to the summary buffer
-	*
-	* @param {string[]} items list of items to render
-	* @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
-	*
-	* @returns {Summary} summary instance
-	*/
 	addList(items, ordered = !1) {
 		let tag = ordered ? "ol" : "ul", listItems = items.map((item) => this.wrap("li", item)).join(""), element = this.wrap(tag, listItems);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML table to the summary buffer
-	*
-	* @param {SummaryTableCell[]} rows table rows
-	*
-	* @returns {Summary} summary instance
-	*/
 	addTable(rows) {
 		let tableBody = rows.map((row) => {
 			let cells = row.map((cell) => {
@@ -200,27 +122,10 @@ new class {
 		}).join(""), element = this.wrap("table", tableBody);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds a collapsable HTML details element to the summary buffer
-	*
-	* @param {string} label text for the closed state
-	* @param {string} content collapsable content
-	*
-	* @returns {Summary} summary instance
-	*/
 	addDetails(label, content) {
 		let element = this.wrap("details", this.wrap("summary", label) + content);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML image tag to the summary buffer
-	*
-	* @param {string} src path to the image you to embed
-	* @param {string} alt text description of the image
-	* @param {SummaryImageOptions} options (optional) addition image attributes
-	*
-	* @returns {Summary} summary instance
-	*/
 	addImage(src, alt, options) {
 		let { width, height } = options || {}, attrs = Object.assign(Object.assign({}, width && { width }), height && { height }), element = this.wrap("img", null, Object.assign({
 			src,
@@ -228,14 +133,6 @@ new class {
 		}, attrs));
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML section heading element
-	*
-	* @param {string} text heading text
-	* @param {number | string} [level=1] (optional) the heading level, default: 1
-	*
-	* @returns {Summary} summary instance
-	*/
 	addHeading(text, level) {
 		let tag = `h${level}`, allowedTag = [
 			"h1",
@@ -247,44 +144,18 @@ new class {
 		].includes(tag) ? tag : "h1", element = this.wrap(allowedTag, text);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML thematic break (<hr>) to the summary buffer
-	*
-	* @returns {Summary} summary instance
-	*/
 	addSeparator() {
 		let element = this.wrap("hr", null);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML line break (<br>) to the summary buffer
-	*
-	* @returns {Summary} summary instance
-	*/
 	addBreak() {
 		let element = this.wrap("br", null);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML blockquote to the summary buffer
-	*
-	* @param {string} text quote text
-	* @param {string} cite (optional) citation url
-	*
-	* @returns {Summary} summary instance
-	*/
 	addQuote(text, cite) {
 		let attrs = Object.assign({}, cite && { cite }), element = this.wrap("blockquote", text, attrs);
 		return this.addRaw(element).addEOL();
 	}
-	/**
-	* Adds an HTML anchor tag to the summary buffer
-	*
-	* @param {string} text link text/content
-	* @param {string} href hyperlink
-	*
-	* @returns {Summary} summary instance
-	*/
 	addLink(text, href) {
 		let element = this.wrap("a", text, { href });
 		return this.addRaw(element).addEOL();
@@ -292,25 +163,10 @@ new class {
 }();
 const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs.promises;
 process.platform, fs.constants.O_RDONLY, process.platform, events.EventEmitter, events.EventEmitter, os.default.platform(), os.default.arch();
-/**
-* The code to exit an action
-*/
 var ExitCode;
 (function(ExitCode) {
-	/**
-	* A code indicating that the action was a failure
-	*/
 	ExitCode[ExitCode.Success = 0] = "Success", ExitCode[ExitCode.Failure = 1] = "Failure";
 })(ExitCode ||= {});
-/**
-* Gets the value of an input.
-* Unless trimWhitespace is set to false in InputOptions, the value is also trimmed.
-* Returns an empty string if the value is not defined.
-*
-* @param     name     name of the input to get
-* @param     options  optional. See InputOptions.
-* @returns   string
-*/
 function getInput(name, options) {
 	let val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
 	if (options && options.required && !val) throw Error(`Input required and not supplied: ${name}`);
@@ -318,23 +174,12 @@ function getInput(name, options) {
 }
 //#endregion
 //#region src/core/lib/errors.ts
-/**
-* Base class for an action's own "intentional" errors — a caught failure
-* whose message is safe to print directly via ::error::, as opposed to an
-* unexpected one. A top-level catch checks `instanceof ActionError`.
-* `name` is derived from `new.target`, so a subclass needs no constructor
-* of its own to get its own name.
-*/
 var ActionError = class extends Error {
 	code;
 	constructor(message, code) {
 		super(message), this.name = new.target.name, this.code = code;
 	}
 };
-/**
-* Safely extract a message from a caught value of unknown shape — a plain
-* `Error` most of the time, but `catch` doesn't guarantee that.
-*/
 function errorMessage(e) {
 	return e instanceof Error ? e.message : String(e);
 }
@@ -343,30 +188,6 @@ function errorMessage(e) {
 var SetupError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/acl/partial-wildcard.ts
-/**
-* Domain pattern compiler for the `inspect` engine, which allows a wildcard
-* inside a label: `abc*.amazonaws.com`.
-*
-* The shared compiler in wildcard-rules.ts rejects that, requiring a label
-* containing `*` to be exactly `*` or `**`. For the other engines that is only
-* a restriction on how a rule can be phrased. For `inspect` it would be a
-* hazard, because the resolver's scope is generated from these same patterns:
-* a rule unable to say "only names beginning with abc" forces the author to
-* write `*.amazonaws.com` instead, widening what the build is allowed to
-* resolve and therefore what it can leak through a DNS query alone.
-*
-* The wildcard vocabulary is otherwise unchanged, and keeps the same meaning
-* wherever it appears in a label:
-*
-*   `**` — one or more characters, dots included
-*   `*`  — one or more characters, dots excluded
-*   `?`  — a single character, dots excluded
-*
-* Kept separate from wildcard-rules.ts rather than added to it, so widening
-* this grammar cannot change what the `universal` and `explicit` engines
-* accept.
-*/
-/** Characters that must be escaped to appear literally in a regex. */
 const REGEX_META = /[.+^$()[\]{}|\\]/g, DOMAIN = {
 	across: ".+",
 	within: "[^.]+",
@@ -376,10 +197,6 @@ const REGEX_META = /[.+^$()[\]{}|\\]/g, DOMAIN = {
 	within: "[^/]+",
 	single: "[^/]"
 };
-/**
-* Compile one atom (a domain label or a path segment), allowing wildcards to
-* sit among literal text.
-*/
 function atomToRegex(atom, vocab) {
 	let out = "";
 	for (let i = 0; i < atom.length; i++) {
@@ -395,41 +212,20 @@ function atomToRegex(atom, vocab) {
 	}
 	return out;
 }
-/**
-* Convert a domain pattern to a regex string, without anchors or port.
-*
-* @throws {Error} if a label is empty
-*/
 function domainToRegexPartial(domain) {
 	return domain.split(".").map((label) => {
 		if (label === "") throw Error(`Invalid domain "${domain}": empty label`);
 		return atomToRegex(label, DOMAIN);
 	}).join("\\.");
 }
-/**
-* Convert a path pattern to a regex fragment, without anchors and keeping the
-* leading `/`.
-*
-* Empty segments are allowed, unlike domain labels: a path begins with `/`, so
-* splitting always yields one.
-*/
 function pathToRegexPartial(path) {
 	return path === "" ? "" : path.split("/").map((segment) => atomToRegex(segment, PATH)).join("/");
 }
-/**
-* Convert a `<domain>:<port|*>` pattern to a regex string, without anchors.
-*
-* Mirrors wildcardToRegex's shape so callers can split the result on the last
-* colon to recover the host and port halves.
-*
-* @throws {Error} if the pattern is malformed
-*/
 function wildcardToRegexPartial(pattern) {
 	if (!/^[^:]+:(?:\d+|\*)$/.test(pattern)) throw Error(`Invalid pattern "${pattern}"`);
 	let colonIndex = pattern.lastIndexOf(":"), domain = pattern.slice(0, colonIndex), port = pattern.slice(colonIndex + 1);
 	return `${domainToRegexPartial(domain)}:${port === "*" ? "\\d+" : port}`;
 }
-/** True if `regex` carries a `|` outside every group and character class. */
 function hasTopLevelAlternation(regex) {
 	let depth = 0, inClass = !1;
 	for (let i = 0; i < regex.length; i++) {
@@ -443,59 +239,21 @@ function hasTopLevelAlternation(regex) {
 	}
 	return !1;
 }
-/**
-* A bracket written as a literal. One in the half taken for the host means
-* the `:` the split chose was not the port separator, an IPv6 authority
-* (`\[::1\]:443`) above all. A character class keeps its `[` unescaped, so
-* `web[0-9]\.example\.com` is unaffected.
-*/
 const HOST_LITERAL_ILLEGAL = /\\[[\]]/;
-/**
-* Check part of a `~` rule against what the rule syntax can represent.
-*
-* @throws {Error} if the text carries a top-level `|`, or a host half holds
-*   a character no hostname can
-*/
 function checkRawRegexHalf(text, label, rule, hostHalf) {
 	if (hasTopLevelAlternation(text)) throw Error(`Invalid regex in rule "${rule}": the ${label} "${text}" has a top-level "|". Anchors bind to its first and last branch rather than to the whole ${label}, so write one rule per alternative, or put the "|" inside a group, as in "(a|b)\\.example\\.com"`);
 	if (hostHalf && HOST_LITERAL_ILLEGAL.test(text)) throw Error(`Invalid regex in rule "${rule}": the ${label} "${text}" holds a character no hostname can, so the ":" this rule was split at is not its port separator. An IPv6 address is not supported here, in a "~" rule any more than in a literal one`);
 }
-/** True if `regex` ends in a `$` that is an anchor rather than a literal. */
 function endsAnchored(regex) {
 	if (!regex.endsWith("$")) return !1;
 	let backslashes = 0;
 	for (let i = regex.length - 2; i >= 0 && regex[i] === "\\"; i--) backslashes++;
 	return backslashes % 2 == 0;
 }
-/**
-* Anchor a `~` rule's host half at both ends.
-*
-* Both engines match a `~` rule as a search rather than a full match
-* (HAProxy's `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443`
-* would also admit `evil-example.com:4430`. A URL rule's author cannot write
-* the anchors themselves, their `^` going to the scheme and their `$` to the
-* path, and a host rule is treated the same way.
-*
-* Concatenation suffices because checkRawRegexHalf has already refused a
-* top-level `|`, the one construct it would bind to only half of.
-*/
 function anchorRawRegex(regex) {
 	return `${regex.startsWith("^") ? "" : "^"}${regex}${endsAnchored(regex) ? "" : "$"}`;
 }
-/**
-* Where a port pattern starts in a `<host>[:<port>]` regex fragment written
-* by a user: a bare `:`, or the `(` of a group opening right at the colon
-* (`(:8443)?`, `(:443|:8443)`). Splitting there, rather than at the last `:`
-* in the whole fragment, keeps a port group's own `(` out of the host half
-* so both halves stay balanced regexes on their own.
-*/
 const PORT_PATTERN_START = /\(:|:/;
-/**
-* Split a `<host>[:<port>]` regex fragment -- a `~` rule's own text, minus
-* any scheme/path around it -- into its domain-only prefix and the port
-* pattern (including its own leading `:` or `(`). `portPattern` is `null`
-* when the fragment names no port at all.
-*/
 function splitDomainFromPortPattern(hostPlusPort) {
 	let match = PORT_PATTERN_START.exec(hostPlusPort);
 	return match ? {
@@ -506,17 +264,6 @@ function splitDomainFromPortPattern(hostPlusPort) {
 		portPattern: null
 	};
 }
-/**
-* Extract the host-only fragment from a `~` host rule's raw regex, for the
-* resolver's allowlist: a DNS query carries no port, so whatever names a port
-* is dropped here regardless of its shape. Enforcement uses the raw regex
-* directly instead (see haproxy-rules.ts), matched as one expression against
-* the connection, so this function exists only for coredns-config.ts.
-*
-* @throws {Error} if the regex is invalid, it carries a top-level `|`, it
-*   names no port at all (a port is always required), or the host half does
-*   not compile as a regex on its own or holds a character no hostname can
-*/
 function splitRawRegexHost(pattern) {
 	let regex = pattern.slice(1);
 	try {
@@ -538,74 +285,25 @@ function splitRawRegexHost(pattern) {
 }
 //#endregion
 //#region src/core/lib/acl/wildcard-rules.ts
-/**
-* Rule conversion library for buildcage container.
-* Converts wildcard patterns to regex strings for HAProxy ACLs.
-*/
-/**
-* Split a whitespace-separated rules string into individual rule tokens.
-*/
 function splitRuleTokens(rulesInput) {
 	return rulesInput?.trim().split(/\s+/).filter(Boolean) ?? [];
 }
-/**
-* Split+validate a space-separated rules string, returning the raw
-* (unconverted) rule tokens — for callers that need the original
-* wildcard/~regex syntax preserved, such as known_blocked_rules.
-*
-* @throws {Error} if any rule has invalid wildcard/regex syntax
-*/
 function parseAndValidateRules(rulesInput) {
 	let rules = splitRuleTokens(rulesInput);
 	return rules.forEach(convertRule), rules;
 }
-/**
-* `known_blocked_rules` only: give a rule that names no port the `:*` the
-* syntax otherwise requires.
-*
-* Every other rule input is matched against a connection, where the port is
-* part of what is being permitted. This one is matched against a row of the
-* report, and a row for a name the resolver refused has no port at all,
-* nothing having been connected to. Requiring one there means writing a port
-* that was never involved, which is every DNS row.
-*/
 function completeRulePort(rule) {
 	if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
 	let regex = rule.slice(1);
 	return splitDomainFromPortPattern(regex).portPattern === null ? `~${endsAnchored(regex) ? regex.slice(0, -1) : regex}:\\d+` : rule;
 }
-/**
-* Split+validate `known_blocked_rules`, completing a missing port first. The
-* completed text is what is returned, so everything downstream sees one shape.
-*
-* @throws {Error} if any rule has invalid wildcard/regex syntax
-*/
 function parseAndValidateKnownBlockedRules(rulesInput) {
 	let rules = splitRuleTokens(rulesInput).map(completeRulePort);
 	return rules.forEach(convertRule), rules;
 }
-/**
-* Convert a single rule (wildcard or `~`-prefixed regex) to a regex string.
-*
-* The `~` case reuses the `inspect` engine's own validator (a port is always
-* required there too) so both engines reject the same malformed regex the
-* same way, instead of this engine silently accepting a rule that then never
-* matches. anchorRawRegex then makes it cover a whole `host:port`, as a
-* wildcard rule does.
-*/
 function convertRule(rule) {
 	return rule.startsWith("~") ? (splitRawRegexHost(rule), anchorRawRegex(rule.slice(1))) : `^${wildcardToRegex(rule)}$`;
 }
-/**
-* Convert a domain wildcard to a regex string (without anchors or port).
-*
-* Supported wildcards:
-*   `**` — matches one or more characters including dots
-*   `*`  — matches one or more characters excluding dots
-*   `?`  — matches a single character excluding dots
-*
-* A dot-separated part containing `*` must be exactly `*` or `**`.
-*/
 function domainToRegex(domain) {
 	return domain.split(".").map((part) => {
 		if (part === "**") return ".+";
@@ -614,9 +312,6 @@ function domainToRegex(domain) {
 		return part.replace(/[.+^$()[\]{}|\\]/g, "\\$&").replace(/\?/g, "[^.]");
 	}).join("\\.");
 }
-/**
-* Convert a wildcard pattern (`<domain>:<port|*>`) to a regex string (without anchors).
-*/
 function wildcardToRegex(pattern) {
 	if (!/^[^:]+:(?:\d+|\*)$/.test(pattern)) throw Error(`Invalid pattern "${pattern}"`);
 	let [domain, port] = pattern.split(":"), portRegex = port === "*" ? "\\d+" : port;
@@ -624,15 +319,7 @@ function wildcardToRegex(pattern) {
 }
 //#endregion
 //#region src/core/lib/acl/rules.ts
-/**
-* Thrown when an ACL rule input (allowed_https_rules/allowed_http_rules/
-* allowed_ip_rules/known_blocked_rules) fails to parse — shared by the
-* setup and run actions, which both accept the same rule syntax.
-*/
 var InvalidRulesError = class extends ActionError {};
-/**
-* Rethrow a rule-parser's syntax errors as an InvalidRulesError.
-*/
 function parseRulesOrThrow(rulesInput) {
 	try {
 		return parseAndValidateRules(rulesInput);
@@ -640,10 +327,6 @@ function parseRulesOrThrow(rulesInput) {
 		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
 	}
 }
-/**
-* Same, for `known_blocked_rules`, whose missing ports are completed rather
-* than rejected; see completeRulePort.
-*/
 function parseKnownBlockedRulesOrThrow(rulesInput) {
 	try {
 		return parseAndValidateKnownBlockedRules(rulesInput);
@@ -651,10 +334,6 @@ function parseKnownBlockedRulesOrThrow(rulesInput) {
 		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
 	}
 }
-/**
-* Build ACL rules from input strings. Rules are passed through as-is
-* (wildcard format), validated eagerly.
-*/
 function buildACLRules({ httpsRulesInput, httpRulesInput, ipRulesInput }) {
 	return {
 		httpsRules: parseRulesOrThrow(httpsRulesInput),
@@ -664,51 +343,10 @@ function buildACLRules({ httpsRulesInput, httpRulesInput, ipRulesInput }) {
 }
 //#endregion
 //#region src/core/lib/acl/url-rules.ts
-/**
-* URL rule compiler for the squid-based proxy engine.
-*
-* A rule is a method list followed by a URL pattern:
-*
-*   GET https://registry.npmjs.org/@myorg/**
-*   GET|HEAD https://example.com/public/*
-*   * https://internal.example.com
-*
-* Methods may be separated by `|` or `,`, and `*` means any method. The method
-* is required: there is no default, so a rule always states what it permits.
-* Because a rule contains a space, the input is split on NEWLINES, unlike the
-* whitespace-separated host rules in wildcard-rules.ts.
-*
-* The URL pattern extends the host rule syntax to a path, reusing the same
-* wildcard vocabulary applied to path segments instead of dot-separated labels:
-*
-*   `**` — matches across separators
-*   `*`  — one or more characters, not crossing a separator
-*   `?`  — a single character
-*
-* A wildcard may sit among literal text, in a path segment as in a domain
-* label; see partial-wildcard.ts for why that matters.
-*
-* A `~` prefix on the URL passes the remainder through as a raw regex. Every
-* generated regex sticks to syntax valid in both JavaScript and POSIX ERE,
-* because squid matches with regcomp(3): no `(?:` groups and no `\\d`. A `~`
-* rule is the user's own, so it must be written in POSIX ERE too.
-*
-* Path traversal is NOT handled here. `*` cannot cross a `/`, but a segment
-* that IS `..` still matches it, and `**` crosses freely — so the generated
-* squid.conf carries one global guard rejecting `..` path segments. Squid
-* decodes %-escapes before matching, so that guard catches the encoded forms
-* too; see the squid config generator.
-*/
-/** The scheme's own port, tried without being spelled out at all in a `~` URL rule's host half. */
 const DEFAULT_PORT = {
 	https: "443",
 	http: "80"
 };
-/**
-* Parse the method list preceding a URL.
-*
-* @throws {Error} if a method is not a bare token
-*/
 function parseMethods(spec, rule) {
 	let tokens = spec.split(/[|,]/).map((t) => t.trim()).filter(Boolean);
 	if (tokens.length === 0) throw Error(`Invalid rule "${rule}": no method given`);
@@ -716,11 +354,6 @@ function parseMethods(spec, rule) {
 	for (let token of tokens) if (!/^[A-Za-z]+$/.test(token)) throw Error(`Invalid method "${token}" in rule "${rule}"`);
 	return [...new Set(tokens.map((t) => t.toUpperCase()))];
 }
-/**
-* Split a URL pattern into scheme, authority (host:port) and path.
-*
-* @throws {Error} if the pattern is not an http(s) URL, or carries a fragment
-*/
 function splitUrl(url, rule) {
 	let match = /^(https?):\/\/([^/]+)(\/.*)?$/.exec(url);
 	if (!match) throw Error(`Invalid URL in rule "${rule}": expected http:// or https:// followed by a host`);
@@ -731,32 +364,7 @@ function splitUrl(url, rule) {
 		path: match[3] ?? ""
 	};
 }
-/** A literal `/`, or its escaped form `\/`. */
 const SLASH_TOKEN = /\\?\//, SCHEME_SEP = /:(?:\\?\/){2}/;
-/**
-* Split a `~` rule's raw regex into a host half and a path half: the
-* `inspect` engine matches a URL rule's host and path as two separate
-* expressions, never as one full-URL regex (see haproxy-config.ts's
-* ruleBlock), so the regex has to be cut at the first `/` after `://`.
-*
-* Only the anchors the author cannot write are supplied. The host half gets
-* both, its `^` having gone to the scheme and its `$` to the path. The path
-* half gets `^` alone: a `$` at the end of the URL lands at the end of the
-* path, so whether the path is exact or a prefix stays the author's to say.
-*
-* The host half's port is optional, exactly as in a literal URL: the proxy
-* tries it against the connection's host both bare and with the real port,
-* so a pattern with no port at all matches only the scheme's default port,
-* and one ending in an optional port group (`(:8443)?`) matches either.
-* `authorityRegex` is the same host half with its port pattern dropped --
-* from its own `:`, or the `(` opening a group right at the colon -- for
-* the resolver's allowlist, which has no notion of a port to match against
-* either way; see splitDomainFromPortPattern.
-*
-* @throws {Error} if the text can't be split into a host and a path, either
-*   half carries a top-level `|`, the host half holds a character no hostname
-*   can, or a half fails to compile as a regex on its own
-*/
 function splitRawRegexUrl(regex, rule) {
 	checkRawRegexHalf(regex, "expression", rule, !1);
 	let schemeSep = SCHEME_SEP.exec(regex);
@@ -783,19 +391,6 @@ function splitRawRegexUrl(regex, rule) {
 		pathRegex
 	};
 }
-/**
-* Compile the URL half of a rule to a regex matching the URL squid sees.
-*
-* The port is optional in the pattern: when omitted, or when it is the
-* scheme's default, the generated regex accepts both the bare host and the
-* host with an explicit default port, because clients and proxies disagree
-* about whether to spell it out.
-*
-* A pattern with no path matches any path on that host, which keeps a URL
-* rule without a path equivalent to the host rule it looks like.
-*
-* @throws {Error} if the pattern has invalid URL or wildcard syntax
-*/
 function compileUrl(url, rule) {
 	if (url.startsWith("~")) {
 		let regex = url.slice(1);
@@ -827,11 +422,6 @@ function compileUrl(url, rule) {
 		isRegex: !1
 	};
 }
-/**
-* Compile one rule line: `<methods> <url>`.
-*
-* @throws {Error} if the line is malformed
-*/
 function convertUrlRule(rule) {
 	let trimmed = rule.trim(), separator = /\s+/.exec(trimmed);
 	if (!separator) throw Error(`Invalid rule "${trimmed}": expected a method and a URL, e.g. "GET https://example.com/x"`);
@@ -850,36 +440,14 @@ function convertUrlRule(rule) {
 		raw: trimmed
 	};
 }
-/**
-* Split a rules input into rule lines. Newline-separated, because a rule
-* contains a space between its method list and its URL. A blank line, or a
-* line starting with `#`, is dropped — only a full-line `#`, since a `~`
-* rule's own regex might legitimately contain one.
-*/
 function splitUrlRuleLines(rulesInput) {
 	return rulesInput?.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#")) ?? [];
 }
-/**
-* Compile a newline-separated URL rules input.
-*
-* @throws {Error} if any rule is malformed
-*/
 function buildUrlRules(rulesInput) {
 	return splitUrlRuleLines(rulesInput).map(convertUrlRule);
 }
 //#endregion
 //#region src/lib/engine-rule-support.ts
-/**
-* Only `inspect` terminates TLS, so it's the only engine that can see an HTTP
-* method or a path — `allowed_url_rules` and `allowed_tls_rules` are no-ops on
-* `universal` / `explicit`. Called once at setup, before the container starts,
-* so a mismatch is caught immediately instead of silently not enforcing.
-*
-* In `restrict` mode this is an error: a rule that looks like it protects the
-* build but can't actually be enforced is worse than no rule at all. In
-* `audit` mode nothing is enforced anyway, so it's a warning — the build
-* still runs, with these rules ignored.
-*/
 function checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, warn) {
 	if (proxyEngine === "inspect") return;
 	let unsupported = [];
@@ -893,22 +461,8 @@ function checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules 
 }
 //#endregion
 //#region src/lib/host-addresses.ts
-/**
-* Every IPv4 address the runner itself holds, refused by the engine as a
-* resolved destination.
-*
-* The guard allows RFC1918 so that a name pointing at an internal mirror keeps
-* working (see INTERNAL_RANGES in core/lib/acl/haproxy-rules.ts). The runner is
-* the one part of RFC1918 that is never a mirror. A published container port
-* answers on every address the runner holds, so the whole list is needed and
-* not just the gateway.
-*
-* Only the runner can see docker0 and the other bridges, which is why this does
-* not run in the container. The compose network's own gateway is missing here
-* and the engine's init script supplies it. Loopback is left to 127.0.0.0/8.
-*/
 function listHostIpv4Addresses({ networkInterfaces: list = node_os.networkInterfaces } = {}) {
-	let found = /* @__PURE__ */ new Set();
+	let found = new Set();
 	for (let infos of Object.values(list())) for (let info of infos ?? []) (info.family === "IPv4" || info.family === 4) && (info.internal || found.add(info.address));
 	return [...found].sort();
 }
@@ -922,19 +476,7 @@ var VerifyImageError = class extends Error {
 }, ProvenanceError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/provenance/oci-registry.ts
-/**
-* oci-registry.ts — OCI registry I/O helpers
-*
-* All errors are thrown as VerifyImageError (see errors.ts).
-* Callers do not need to catch and re-wrap; just let them propagate.
-*/
 const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json", MANIFEST_MEDIA_TYPES = ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"], INDEX_MEDIA_TYPES = ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"];
-/**
-* Read the base64 Basic-auth credential for ghcr.io from Docker's config.json.
-* Returns the raw `auth` string (base64) if found, or null if not logged in.
-* Credential helpers (credsStore/credHelpers) are not supported — only direct
-* base64 auth written by `docker login` / `docker/login-action` is detected.
-*/
 function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileSync) {
 	try {
 		let configDir = _env.DOCKER_CONFIG ?? node_path.default.join(node_os.default.homedir(), ".docker"), config = JSON.parse(_readFileSync(node_path.default.join(configDir, "config.json"), "utf8"));
@@ -944,13 +486,6 @@ function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileS
 		return null;
 	}
 }
-/**
-* Fetch the manifest digest for a container image tag via the OCI registry API.
-* Uses HEAD /v2/{repo}/manifests/{tag} and reads the Docker-Content-Digest header.
-*
-* Throws VerifyImageError(NOT_FOUND) when the tag does not exist.
-* Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
-*/
 async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
 	let url = `https://${registry}/v2/${repo}/manifests/${tag}`, headers = {
 		Authorization: `Bearer ${token}`,
@@ -972,13 +507,6 @@ async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
 		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error fetching manifest digest for ${registry}/${repo}:${tag}: ${errorMessage(err)}`, "TRANSIENT");
 	}
 }
-/**
-* Fetch an image's config labels, walking index to platform manifest to config
-* blob. Every hop is addressed by a digest read from the one before, so the
-* chain hangs off the digest the signature covers rather than any tag. Like the
-* rest of this module it trusts the registry to serve what a digest addresses;
-* the `docker pull` is what checks those bytes.
-*/
 async function fetchImageConfigLabels(registry, repo, digest, token, _fetch = fetch) {
 	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, image = `${registry}/${repo}@${digest}`, accept = [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", "), root = await fetchRegistryJson(`${api}/manifests/${digest}`, {
 		...headers,
@@ -996,7 +524,6 @@ async function fetchImageConfigLabels(registry, repo, digest, token, _fetch = fe
 	if (!configDigest) throw new VerifyImageError(`No image config in manifest for ${image}`, "NOT_FOUND");
 	return (await fetchRegistryJson(`${api}/blobs/${configDigest}`, headers, `image config for ${image}`, _fetch)).config?.Labels ?? {};
 }
-/** GET a registry JSON document, mapping response statuses onto VerifyImageError. */
 async function fetchRegistryJson(url, headers, what, _fetch) {
 	try {
 		let resp = await _fetch(url, { headers });
@@ -1009,13 +536,6 @@ async function fetchRegistryJson(url, headers, what, _fetch) {
 		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error fetching ${what}: ${errorMessage(err)}`, "TRANSIENT");
 	}
 }
-/**
-* Fetch a pull token via Docker Token Authentication.
-*
-* If Docker credentials for the registry are available (basicAuth from
-* readGhcrBasicAuth), uses Basic auth directly — no anonymous attempt.
-* Otherwise falls back to anonymous access (public packages).
-*/
 async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
 	let url = `https://${registry}/token?scope=repository:${repo}:pull&service=${registry}`;
 	if (basicAuth) try {
@@ -1035,13 +555,6 @@ async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
 		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error fetching registry token: ${errorMessage(err)}`, "TRANSIENT");
 	}
 }
-/**
-* Pull the Sigstore Bundle from the OCI registry.
-* Tries the OCI 1.1 Referrers API first; falls back to the sha256-<hex> tag scheme.
-*
-* Throws VerifyImageError(NOT_FOUND) when no bundle exists for this digest.
-* Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
-*/
 async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
 	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` };
 	try {
@@ -1117,7 +630,7 @@ async function fetchBundleBlob(api, blobDigest, headers, _fetch = fetch) {
 }
 //#endregion
 //#region node_modules/.pnpm/@sigstore+protobuf-specs@0.5.1/node_modules/@sigstore/protobuf-specs/dist/__generated__/envelope.js
-var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
+var require_envelope = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Signature = exports.Envelope = void 0, exports.Envelope = {
 		fromJSON(object) {
 			return {
@@ -1151,7 +664,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_timestamp$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_timestamp$3 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Timestamp = void 0, exports.Timestamp = {
 		fromJSON(object) {
 			return {
@@ -1167,25 +680,11 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_sigstore_common = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sigstore_common = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.TimeRange = exports.X509CertificateChain = exports.SubjectAlternativeName = exports.X509Certificate = exports.DistinguishedName = exports.ObjectIdentifierValuePair = exports.ObjectIdentifier = exports.PublicKeyIdentifier = exports.PublicKey = exports.RFC3161SignedTimestamp = exports.LogId = exports.MessageSignature = exports.HashOutput = exports.SubjectAlternativeNameType = exports.PublicKeyDetails = exports.HashAlgorithm = void 0, exports.hashAlgorithmFromJSON = hashAlgorithmFromJSON, exports.hashAlgorithmToJSON = hashAlgorithmToJSON, exports.publicKeyDetailsFromJSON = publicKeyDetailsFromJSON, exports.publicKeyDetailsToJSON = publicKeyDetailsToJSON, exports.subjectAlternativeNameTypeFromJSON = subjectAlternativeNameTypeFromJSON, exports.subjectAlternativeNameTypeToJSON = subjectAlternativeNameTypeToJSON;
 	let timestamp_1 = require_timestamp$3();
-	/**
-	* Only a subset of the secure hash standard algorithms are supported.
-	* See <https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf> for more
-	* details.
-	* UNSPECIFIED SHOULD not be used, primary reason for inclusion is to force
-	* any proto JSON serialization to emit the used hash algorithm, as default
-	* option is to *omit* the default value of an enum (which is the first
-	* value, represented by '0'.
-	*/
 	var HashAlgorithm;
 	(function(HashAlgorithm) {
-		/**
-		* SHA3_384 - Used for LMS
-		*
-		* @deprecated
-		*/
 		HashAlgorithm[HashAlgorithm.HASH_ALGORITHM_UNSPECIFIED = 0] = "HASH_ALGORITHM_UNSPECIFIED", HashAlgorithm[HashAlgorithm.SHA2_256 = 1] = "SHA2_256", HashAlgorithm[HashAlgorithm.SHA2_384 = 2] = "SHA2_384", HashAlgorithm[HashAlgorithm.SHA2_512 = 3] = "SHA2_512", HashAlgorithm[HashAlgorithm.SHA3_256 = 4] = "SHA3_256", HashAlgorithm[HashAlgorithm.SHA3_384 = 5] = "SHA3_384";
 	})(HashAlgorithm || (exports.HashAlgorithm = HashAlgorithm = {}));
 	function hashAlgorithmFromJSON(object) {
@@ -1216,25 +715,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			default: throw new globalThis.Error("Unrecognized enum value " + object + " for enum HashAlgorithm");
 		}
 	}
-	/**
-	* Details of a specific public key, capturing the the key encoding method,
-	* and signature algorithm.
-	*
-	* PublicKeyDetails captures the public key/hash algorithm combinations
-	* recommended in the Sigstore ecosystem.
-	*
-	* This is modelled as a linear set as we want to provide a small number of
-	* opinionated options instead of allowing every possible permutation.
-	*
-	* Any changes to this enum MUST be reflected in the algorithm registry.
-	*
-	* See: <https://github.com/sigstore/architecture-docs/blob/main/algorithm-registry.md>
-	*
-	* To avoid the possibility of contradicting formats such as PKCS1 with
-	* ED25519 the valid permutations are listed as a linear set instead of a
-	* cartesian set (i.e one combined variable instead of two, one for encoding
-	* and one for the signature algorithm).
-	*/
 	var PublicKeyDetails;
 	(function(PublicKeyDetails) {
 		PublicKeyDetails[PublicKeyDetails.PUBLIC_KEY_DETAILS_UNSPECIFIED = 0] = "PUBLIC_KEY_DETAILS_UNSPECIFIED", PublicKeyDetails[PublicKeyDetails.PKCS1_RSA_PKCS1V5 = 1] = "PKCS1_RSA_PKCS1V5", PublicKeyDetails[PublicKeyDetails.PKCS1_RSA_PSS = 2] = "PKCS1_RSA_PSS", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PKCS1V5 = 3] = "PKIX_RSA_PKCS1V5", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PSS = 4] = "PKIX_RSA_PSS", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PKCS1V15_2048_SHA256 = 9] = "PKIX_RSA_PKCS1V15_2048_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PKCS1V15_3072_SHA256 = 10] = "PKIX_RSA_PKCS1V15_3072_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PKCS1V15_4096_SHA256 = 11] = "PKIX_RSA_PKCS1V15_4096_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PSS_2048_SHA256 = 16] = "PKIX_RSA_PSS_2048_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PSS_3072_SHA256 = 17] = "PKIX_RSA_PSS_3072_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_RSA_PSS_4096_SHA256 = 18] = "PKIX_RSA_PSS_4096_SHA256", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P256_HMAC_SHA_256 = 6] = "PKIX_ECDSA_P256_HMAC_SHA_256", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P256_SHA_256 = 5] = "PKIX_ECDSA_P256_SHA_256", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P384_SHA_384 = 12] = "PKIX_ECDSA_P384_SHA_384", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P521_SHA_512 = 13] = "PKIX_ECDSA_P521_SHA_512", PublicKeyDetails[PublicKeyDetails.PKIX_ED25519 = 7] = "PKIX_ED25519", PublicKeyDetails[PublicKeyDetails.PKIX_ED25519_PH = 8] = "PKIX_ED25519_PH", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P384_SHA_256 = 19] = "PKIX_ECDSA_P384_SHA_256", PublicKeyDetails[PublicKeyDetails.PKIX_ECDSA_P521_SHA_256 = 20] = "PKIX_ECDSA_P521_SHA_256", PublicKeyDetails[PublicKeyDetails.LMS_SHA256 = 14] = "LMS_SHA256", PublicKeyDetails[PublicKeyDetails.LMOTS_SHA256 = 15] = "LMOTS_SHA256", PublicKeyDetails[PublicKeyDetails.ML_DSA_44 = 23] = "ML_DSA_44", PublicKeyDetails[PublicKeyDetails.ML_DSA_65 = 21] = "ML_DSA_65", PublicKeyDetails[PublicKeyDetails.ML_DSA_87 = 22] = "ML_DSA_87";
@@ -1323,11 +803,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	var SubjectAlternativeNameType;
 	(function(SubjectAlternativeNameType) {
-		/**
-		* OTHER_NAME - OID 1.3.6.1.4.1.57264.1.7
-		* See https://github.com/sigstore/fulcio/blob/main/docs/oid-info.md#1361415726417--othername-san
-		* for more details.
-		*/
 		SubjectAlternativeNameType[SubjectAlternativeNameType.SUBJECT_ALTERNATIVE_NAME_TYPE_UNSPECIFIED = 0] = "SUBJECT_ALTERNATIVE_NAME_TYPE_UNSPECIFIED", SubjectAlternativeNameType[SubjectAlternativeNameType.EMAIL = 1] = "EMAIL", SubjectAlternativeNameType[SubjectAlternativeNameType.URI = 2] = "URI", SubjectAlternativeNameType[SubjectAlternativeNameType.OTHER_NAME = 3] = "OTHER_NAME";
 	})(SubjectAlternativeNameType || (exports.SubjectAlternativeNameType = SubjectAlternativeNameType = {}));
 	function subjectAlternativeNameTypeFromJSON(object) {
@@ -1501,7 +976,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_sigstore_rekor = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sigstore_rekor = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.TransparencyLogEntry = exports.InclusionPromise = exports.InclusionProof = exports.Checkpoint = exports.KindVersion = void 0;
 	let sigstore_common_1 = require_sigstore_common();
 	exports.KindVersion = {
@@ -1571,7 +1046,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_sigstore_bundle = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sigstore_bundle = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Bundle = exports.VerificationMaterial = exports.TimestampVerificationData = void 0;
 	let envelope_1 = require_envelope(), sigstore_common_1 = require_sigstore_common(), sigstore_rekor_1 = require_sigstore_rekor();
 	exports.TimestampVerificationData = {
@@ -1625,22 +1100,11 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_sigstore_trustroot = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sigstore_trustroot = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ClientTrustConfig = exports.ServiceConfiguration = exports.Service = exports.SigningConfig = exports.TrustedRoot = exports.CertificateAuthority = exports.TransparencyLogInstance = exports.ServiceSelector = void 0, exports.serviceSelectorFromJSON = serviceSelectorFromJSON, exports.serviceSelectorToJSON = serviceSelectorToJSON;
 	let sigstore_common_1 = require_sigstore_common();
-	/**
-	* ServiceSelector specifies how a client SHOULD select a set of
-	* Services to connect to. A client SHOULD throw an error if
-	* the value is SERVICE_SELECTOR_UNDEFINED.
-	*/
 	var ServiceSelector;
 	(function(ServiceSelector) {
-		/**
-		* EXACT - Clients SHOULD select a specific number of Services based on
-		* supported API version and validity window, using the provided
-		* `count`. It is up to the client implementation to decide how to
-		* select the Service, e.g. random or round-robin.
-		*/
 		ServiceSelector[ServiceSelector.SERVICE_SELECTOR_UNDEFINED = 0] = "SERVICE_SELECTOR_UNDEFINED", ServiceSelector[ServiceSelector.ALL = 1] = "ALL", ServiceSelector[ServiceSelector.ANY = 2] = "ANY", ServiceSelector[ServiceSelector.EXACT = 3] = "EXACT";
 	})(ServiceSelector || (exports.ServiceSelector = ServiceSelector = {}));
 	function serviceSelectorFromJSON(object) {
@@ -1764,7 +1228,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_sigstore_verification = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sigstore_verification = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Input = exports.Artifact = exports.ArtifactVerificationOptions_ObserverTimestampOptions = exports.ArtifactVerificationOptions_TlogIntegratedTimestampOptions = exports.ArtifactVerificationOptions_TimestampAuthorityOptions = exports.ArtifactVerificationOptions_CtlogOptions = exports.ArtifactVerificationOptions_TlogOptions = exports.ArtifactVerificationOptions = exports.PublicKeyIdentities = exports.CertificateIdentities = exports.CertificateIdentity = void 0;
 	let sigstore_bundle_1 = require_sigstore_bundle(), sigstore_common_1 = require_sigstore_common(), sigstore_trustroot_1 = require_sigstore_trustroot();
 	exports.CertificateIdentity = {
@@ -1912,7 +1376,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_dist$6 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$6 = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -1928,7 +1392,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (var p in m) p !== "default" && !Object.prototype.hasOwnProperty.call(exports$2, p) && __createBinding(exports$2, m, p);
 	};
 	Object.defineProperty(exports, "__esModule", { value: !0 }), __exportStar(require_envelope(), exports), __exportStar(require_sigstore_bundle(), exports), __exportStar(require_sigstore_common(), exports), __exportStar(require_sigstore_rekor(), exports), __exportStar(require_sigstore_trustroot(), exports), __exportStar(require_sigstore_verification(), exports);
-})), require_bundle$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_bundle$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.BUNDLE_V03_MEDIA_TYPE = exports.BUNDLE_V03_LEGACY_MEDIA_TYPE = exports.BUNDLE_V02_MEDIA_TYPE = exports.BUNDLE_V01_MEDIA_TYPE = void 0, exports.isBundleWithCertificateChain = isBundleWithCertificateChain, exports.isBundleWithPublicKey = isBundleWithPublicKey, exports.isBundleWithMessageSignature = isBundleWithMessageSignature, exports.isBundleWithDsseEnvelope = isBundleWithDsseEnvelope, exports.BUNDLE_V01_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle+json;version=0.1", exports.BUNDLE_V02_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle+json;version=0.2", exports.BUNDLE_V03_LEGACY_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle+json;version=0.3", exports.BUNDLE_V03_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
 	function isBundleWithCertificateChain(b) {
 		return b.verificationMaterial.content.$case === "x509CertificateChain";
@@ -1942,7 +1406,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isBundleWithDsseEnvelope(b) {
 		return b.content.$case === "dsseEnvelope";
 	}
-})), require_build = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_build = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.toMessageSignatureBundle = toMessageSignatureBundle, exports.toDSSEBundle = toDSSEBundle;
 	let protobuf_specs_1 = require_dist$6(), bundle_1 = require_bundle$1();
 	function toMessageSignatureBundle(options) {
@@ -2003,14 +1467,14 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			publicKey: { hint: options.keyHint || "" }
 		};
 	}
-})), require_error$6 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$6 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ValidationError = void 0, exports.ValidationError = class extends Error {
 		fields;
 		constructor(message, fields) {
 			super(message), this.fields = fields;
 		}
 	};
-})), require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_validate = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.assertBundle = assertBundle, exports.assertBundleV01 = assertBundleV01, exports.isBundleV01 = isBundleV01, exports.assertBundleV02 = assertBundleV02, exports.assertBundleLatest = assertBundleLatest;
 	let error_1 = require_error$6();
 	function assertBundle(b) {
@@ -2078,7 +1542,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		let invalidValues = [];
 		return b.verificationMaterial?.content?.$case === "x509CertificateChain" && invalidValues.push("verificationMaterial.content.$case"), invalidValues;
 	}
-})), require_serialized = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_serialized = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.envelopeToJSON = exports.envelopeFromJSON = exports.bundleToJSON = exports.bundleFromJSON = void 0;
 	let protobuf_specs_1 = require_dist$6(), bundle_1 = require_bundle$1(), validate_1 = require_validate();
 	exports.bundleFromJSON = (obj) => {
@@ -2094,7 +1558,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return bundle;
 	}, exports.bundleToJSON = (bundle) => protobuf_specs_1.Bundle.toJSON(bundle), exports.envelopeFromJSON = (obj) => protobuf_specs_1.Envelope.fromJSON(obj), exports.envelopeToJSON = (envelope) => protobuf_specs_1.Envelope.toJSON(envelope);
-})), require_dist$5 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$5 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.isBundleV01 = exports.assertBundleV02 = exports.assertBundleV01 = exports.assertBundleLatest = exports.assertBundle = exports.envelopeToJSON = exports.envelopeFromJSON = exports.bundleToJSON = exports.bundleFromJSON = exports.ValidationError = exports.isBundleWithPublicKey = exports.isBundleWithMessageSignature = exports.isBundleWithDsseEnvelope = exports.isBundleWithCertificateChain = exports.BUNDLE_V03_MEDIA_TYPE = exports.BUNDLE_V03_LEGACY_MEDIA_TYPE = exports.BUNDLE_V02_MEDIA_TYPE = exports.BUNDLE_V01_MEDIA_TYPE = exports.toMessageSignatureBundle = exports.toDSSEBundle = void 0;
 	var build_1 = require_build();
 	Object.defineProperty(exports, "toDSSEBundle", {
@@ -2206,7 +1670,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return validate_1.isBundleV01;
 		}
 	});
-})), require_appdata = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_appdata = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2215,30 +1679,27 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function appDataPath(name) {
 		let homedir = os_1$1.default.homedir();
 		switch (process.platform) {
-			/* istanbul ignore next */
 			case "darwin": {
 				let appSupport = path_1$2.default.join(homedir, "Library", "Application Support");
 				return path_1$2.default.join(appSupport, name);
 			}
-			/* istanbul ignore next */
 			case "win32": {
 				let localAppData = process.env.LOCALAPPDATA || path_1$2.default.join(homedir, "AppData", "Local");
 				return path_1$2.default.join(localAppData, name, "Data");
 			}
-			/* istanbul ignore next */
 			default: {
 				let localData = process.env.XDG_DATA_HOME || path_1$2.default.join(homedir, ".local", "share");
 				return path_1$2.default.join(localData, name);
 			}
 		}
 	}
-})), require_error$5 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$5 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.UnsupportedAlgorithmError = exports.CryptoError = exports.LengthOrHashMismatchError = exports.UnsignedMetadataError = exports.RepositoryError = exports.ValueError = void 0, exports.ValueError = class extends Error {};
 	var RepositoryError = class extends Error {};
 	exports.RepositoryError = RepositoryError, exports.UnsignedMetadataError = class extends RepositoryError {}, exports.LengthOrHashMismatchError = class extends RepositoryError {};
 	var CryptoError = class extends Error {};
 	exports.CryptoError = CryptoError, exports.UnsupportedAlgorithmError = class extends CryptoError {};
-})), require_guard = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_guard = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.isDefined = isDefined, exports.isObject = isObject, exports.isStringArray = isStringArray, exports.isObjectArray = isObjectArray, exports.isStringRecord = isStringRecord, exports.isObjectRecord = isObjectRecord;
 	function isDefined(val) {
 		return val !== void 0;
@@ -2258,7 +1719,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isObjectRecord(value) {
 		return typeof value == "object" && !!value && Object.keys(value).every((k) => typeof k == "string") && Object.values(value).every((v) => typeof v == "object" && !!v);
 	}
-})), require_lib$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_lib$1 = __commonJSMin(((exports, module) => {
 	function canonicalize(object) {
 		let buffer = [];
 		if (typeof object == "string") buffer.push(canonicalizeString(object));
@@ -2284,7 +1745,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		return "\"" + string.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\"";
 	}
 	module.exports = { canonicalize };
-})), require_verify = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_verify = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2294,7 +1755,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		let canonicalData = Buffer.from((0, canonical_json_1.canonicalize)(metaDataSignedData));
 		return crypto_1$4.default.verify(void 0, canonicalData, key, Buffer.from(signature, "hex"));
 	};
-})), require_utils = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_utils = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -2329,7 +1790,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		};
 	})();
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.crypto = exports.guard = void 0, exports.guard = __importStar(require_guard()), exports.crypto = __importStar(require_verify());
-})), require_base = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_base = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2362,7 +1823,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return other instanceof Signed && this.specVersion === other.specVersion && this.expires === other.expires && this.version === other.version && util_1$10.default.isDeepStrictEqual(this.unrecognizedFields, other.unrecognizedFields);
 		}
 		isExpired(referenceTime) {
-			return referenceTime ||= /* @__PURE__ */ new Date(), referenceTime >= new Date(this.expires);
+			return referenceTime ||= new Date(), referenceTime >= new Date(this.expires);
 		}
 		static commonFieldsFromJSON(data) {
 			let { spec_version, expires, version, ...rest } = data;
@@ -2383,7 +1844,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isNumeric(str) {
 		return !isNaN(Number(str));
 	}
-})), require_file = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_file = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2488,7 +1949,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function validateLength(length) {
 		if (length < 0) throw new error_1.ValueError("Length must be at least 0");
 	}
-})), require_oid$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_oid$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.encodeOIDString = encodeOIDString;
 	function encodeOIDString(oid) {
 		let parts = oid.split("."), first = parseInt(parts[0], 10) * 40 + parseInt(parts[1], 10), rest = [];
@@ -2508,7 +1969,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (; value > 0;) bytes.unshift(value & 127 | mask), value >>= 7, mask = 128;
 		return bytes;
 	}
-})), require_key$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_key$2 = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2595,7 +2056,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			bitString
 		]);
 	} }, isHex = (key) => /^[0-9a-fA-F]+$/.test(key);
-})), require_key$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_key$1 = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -2651,7 +2112,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 	};
-})), require_commonjs$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_commonjs$2 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.range = exports.balanced = void 0, exports.balanced = (a, b, str) => {
 		let ma = a instanceof RegExp ? maybeMatch(a, str) : a, mb = b instanceof RegExp ? maybeMatch(b, str) : b, r = ma !== null && mb != null && (0, exports.range)(ma, mb, str);
 		return r && {
@@ -2682,7 +2143,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return result;
 	};
-})), require_commonjs$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_commonjs$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.EXPANSION_MAX_LENGTH = exports.EXPANSION_MAX = void 0, exports.expand = expand;
 	let balanced_match_1 = require_commonjs$2(), escSlash = "\0SLASH" + Math.random() + "\0", escOpen = "\0OPEN" + Math.random() + "\0", escClose = "\0CLOSE" + Math.random() + "\0", escComma = "\0COMMA" + Math.random() + "\0", escPeriod = "\0PERIOD" + Math.random() + "\0", escSlashPattern = new RegExp(escSlash, "g"), escOpenPattern = new RegExp(escOpen, "g"), escClosePattern = new RegExp(escClose, "g"), escCommaPattern = new RegExp(escComma, "g"), escPeriodPattern = new RegExp(escPeriod, "g"), slashPattern = /\\\\/g, openPattern = /\\{/g, closePattern = /\\}/g, commaPattern = /\\,/g, periodPattern = /\\\./g;
 	exports.EXPANSION_MAX = 1e5, exports.EXPANSION_MAX_LENGTH = 4e6;
@@ -2695,11 +2156,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function unescapeBraces(str) {
 		return str.replace(escSlashPattern, "\\").replace(escOpenPattern, "{").replace(escClosePattern, "}").replace(escCommaPattern, ",").replace(escPeriodPattern, ".");
 	}
-	/**
-	* Basically just str.split(","), but handling cases
-	* where we have nested braced sections, which should be
-	* treated as individual members, like {a,{b,c},d}
-	*/
 	function parseCommaParts(str) {
 		if (!str) return [""];
 		let parts = [], m = (0, balanced_match_1.balanced)("{", "}", str);
@@ -2740,9 +2196,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	function expandSequence(body, isAlphaSequence, max) {
 		let n = body.split(/\.\./), N = [];
-		/* c8 ignore start */
 		if (n[0] === void 0 || n[1] === void 0) return N;
-		/* c8 ignore stop */
 		let x = numeric(n[0]), y = numeric(n[1]), width = Math.max(n[0].length, n[1].length), incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1, test = lte;
 		y < x && (incr *= -1, test = gte);
 		let pad = n.some(isPadded);
@@ -2797,12 +2251,12 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return acc;
 	}
-})), require_assert_valid_pattern = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_assert_valid_pattern = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.assertValidPattern = void 0, exports.assertValidPattern = (pattern) => {
 		if (typeof pattern != "string") throw TypeError("invalid pattern");
 		if (pattern.length > 65536) throw TypeError("pattern is too long");
 	};
-})), require_brace_expressions = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_brace_expressions = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.parseClass = void 0;
 	let posixClasses = {
 		"[:alnum:]": ["\\p{L}\\p{Nl}\\p{Nd}", !0],
@@ -2826,9 +2280,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}, braceEscape = (s) => s.replace(/[[\]\\-]/g, "\\$&"), regexpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), rangesToString = (ranges) => ranges.join("");
 	exports.parseClass = (glob, position) => {
 		let pos = position;
-		/* c8 ignore start */
 		if (glob.charAt(pos) !== "[") throw Error("not in a brace expression");
-		/* c8 ignore stop */
 		let ranges = [], negs = [], i = pos + 1, sawStart = !1, uflag = !1, escaping = !1, negate = !1, endPos = pos, rangeStart = "";
 		WHILE: for (; i < glob.length;) {
 			let c = glob.charAt(i);
@@ -2899,18 +2351,18 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			!0
 		];
 	};
-})), require_unescape = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_unescape = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.unescape = void 0, exports.unescape = (s, { windowsPathsNoEscape = !1, magicalBraces = !0 } = {}) => magicalBraces ? windowsPathsNoEscape ? s.replace(/\[([^/\\])\]/g, "$1") : s.replace(/((?!\\).|^)\[([^/\\])\]/g, "$1$2").replace(/\\([^/])/g, "$1") : windowsPathsNoEscape ? s.replace(/\[([^/\\{}])\]/g, "$1") : s.replace(/((?!\\).|^)\[([^/\\{}])\]/g, "$1$2").replace(/\\([^/{}])/g, "$1");
-})), require_ast = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_ast = __commonJSMin(((exports) => {
 	var _a;
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.AST = void 0;
-	let brace_expressions_js_1 = require_brace_expressions(), unescape_js_1 = require_unescape(), types = /* @__PURE__ */ new Set([
+	let brace_expressions_js_1 = require_brace_expressions(), unescape_js_1 = require_unescape(), types = new Set([
 		"!",
 		"?",
 		"+",
 		"*",
 		"@"
-	]), isExtglobType = (c) => types.has(c), isExtglobAST = (c) => isExtglobType(c.type), adoptionMap = /* @__PURE__ */ new Map([
+	]), isExtglobType = (c) => types.has(c), isExtglobAST = (c) => isExtglobType(c.type), adoptionMap = new Map([
 		["!", ["@"]],
 		["?", ["?", "@"]],
 		["@", ["@"]],
@@ -2921,11 +2373,11 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			"@"
 		]],
 		["+", ["+", "@"]]
-	]), adoptionWithSpaceMap = /* @__PURE__ */ new Map([
+	]), adoptionWithSpaceMap = new Map([
 		["!", ["?"]],
 		["@", ["?"]],
 		["+", ["?", "*"]]
-	]), adoptionAnyMap = /* @__PURE__ */ new Map([
+	]), adoptionAnyMap = new Map([
 		["!", ["?", "@"]],
 		["?", ["?", "@"]],
 		["@", ["?", "@"]],
@@ -2941,18 +2393,18 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			"?",
 			"*"
 		]]
-	]), usurpMap = /* @__PURE__ */ new Map([
-		["!", /* @__PURE__ */ new Map([["!", "@"]])],
-		["?", /* @__PURE__ */ new Map([["*", "*"], ["+", "*"]])],
-		["@", /* @__PURE__ */ new Map([
+	]), usurpMap = new Map([
+		["!", new Map([["!", "@"]])],
+		["?", new Map([["*", "*"], ["+", "*"]])],
+		["@", new Map([
 			["!", "!"],
 			["?", "?"],
 			["@", "@"],
 			["*", "*"],
 			["+", "+"]
 		])],
-		["+", /* @__PURE__ */ new Map([["?", "*"], ["*", "*"]])]
-	]), startNoDot = "(?!\\.)", addPatternStart = /* @__PURE__ */ new Set(["[", "."]), justDots = /* @__PURE__ */ new Set(["..", "."]), reSpecials = /* @__PURE__ */ new Set("().*{}+?[]^$\\!"), regExpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), starNoEmpty = "[^/]+?", ID = 0;
+		["+", new Map([["?", "*"], ["*", "*"]])]
+	]), startNoDot = "(?!\\.)", addPatternStart = new Set(["[", "."]), justDots = new Set(["..", "."]), reSpecials = new Set("().*{}+?[]^$\\!"), regExpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), starNoEmpty = "[^/]+?", ID = 0;
 	var AST = class {
 		type;
 		#root;
@@ -2986,9 +2438,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			this.type = type, type && (this.#hasMagic = !0), this.#parent = parent, this.#root = this.#parent ? this.#parent.#root : this, this.#options = this.#root === this ? options : this.#root.#options, this.#negs = this.#root === this ? [] : this.#root.#negs, type === "!" && !this.#root.#filledNegs && this.#negs.push(this), this.#parentIndex = this.#parent ? this.#parent.#parts.length : 0;
 		}
 		get hasMagic() {
-			/* c8 ignore start */
 			if (this.#hasMagic !== void 0) return this.#hasMagic;
-			/* c8 ignore stop */
 			for (let p of this.#parts) if (typeof p != "string" && (p.type || p.hasMagic)) return this.#hasMagic = !0;
 			return this.#hasMagic;
 		}
@@ -2996,7 +2446,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return this.#toString === void 0 ? this.#toString = this.type ? this.type + "(" + this.#parts.map((p) => String(p)).join("|") + ")" : this.#parts.map((p) => String(p)).join("") : this.#toString;
 		}
 		#fillNegs() {
-			/* c8 ignore start */
 			if (this !== this.#root) throw Error("should only call on root");
 			if (this.#filledNegs) return this;
 			this.toString(), this.#filledNegs = !0;
@@ -3006,9 +2455,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				let p = n, pp = p.#parent;
 				for (; pp;) {
 					for (let i = p.#parentIndex + 1; !pp.type && i < pp.#parts.length; i++) for (let part of n.#parts) {
-						/* c8 ignore start */
 						if (typeof part == "string") throw Error("string part in extglob AST??");
-						/* c8 ignore stop */
 						part.copyIn(pp.#parts[i]);
 					}
 					p = pp, pp = p.#parent;
@@ -3018,9 +2465,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		push(...parts) {
 			for (let p of parts) if (p !== "") {
-				/* c8 ignore start */
 				if (typeof p != "string" && !(p instanceof _a && p.#parent === this)) throw Error("invalid part: " + p);
-				/* c8 ignore stop */
 				this.#parts.push(p);
 			}
 		}
@@ -3043,9 +2488,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			if (this.#root === this || this.#parent?.type === "!") return !0;
 			if (!this.#parent?.isEnd()) return !1;
 			if (!this.type) return this.#parent?.isEnd();
-			/* c8 ignore start */
 			let pl = this.#parent ? this.#parent.#parts.length : 0;
-			/* c8 ignore stop */
 			return this.#parentIndex === pl - 1;
 		}
 		copyIn(part) {
@@ -3099,7 +2542,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 					inBrace = !0, braceStart = i, braceNeg = !1, acc += c;
 					continue;
 				}
-				/* c8 ignore stop */
 				if (!opt.noext && isExtglobType(c) && str.charAt(i) === "(" && (extDepth <= maxDepth || ast && ast.#canAdoptType(c))) {
 					let depthAdd = ast && ast.#canAdoptType(c) ? 0 : 1;
 					part.push(acc), acc = "";
@@ -3147,9 +2589,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		#usurp(child) {
 			let m = usurpMap.get(this.type), gc = child.#parts[0], nt = m?.get(gc.type);
-			/* c8 ignore start - impossible */
 			if (!nt) return !1;
-			/* c8 ignore stop */
 			this.#parts = gc.#parts;
 			for (let p of this.#parts) typeof p == "object" && (p.#parent = this);
 			this.type = nt, this.#toString = void 0, this.#emptyExt = !1;
@@ -3159,9 +2599,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return _a.#parseAST(pattern, ast, 0, options, 0), ast;
 		}
 		toMMPattern() {
-			/* c8 ignore start */
 			if (this !== this.#root) return this.#root.toMMPattern();
-			/* c8 ignore stop */
 			let glob = this.toString(), [re, body, hasMagic, uflag] = this.toRegExpSource();
 			if (!(hasMagic || this.#hasMagic || this.#options.nocase && !this.#options.nocaseMagicOnly && glob.toUpperCase() !== glob.toLowerCase())) return body;
 			let flags = (this.#options.nocase ? "i" : "") + (uflag ? "u" : "");
@@ -3232,9 +2670,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		#partsToRegExp(dot) {
 			return this.#parts.map((p) => {
-				/* c8 ignore start */
 				if (typeof p == "string") throw Error("string type in extglob ast??");
-				/* c8 ignore stop */
 				let [re, _, _hasMagic, uflag] = p.toRegExpSource(dot);
 				return this.#uflag = this.#uflag || uflag, re;
 			}).filter((p) => !(this.isStart() && this.isEnd()) || !!p).join("|");
@@ -3278,9 +2714,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 	};
 	exports.AST = AST, _a = AST;
-})), require_escape = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_escape = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.escape = void 0, exports.escape = (s, { windowsPathsNoEscape = !1, magicalBraces = !1 } = {}) => magicalBraces ? windowsPathsNoEscape ? s.replace(/[?*()[\]{}]/g, "[$&]") : s.replace(/[?*()[\]\\{}]/g, "\\$&") : windowsPathsNoEscape ? s.replace(/[?*()[\]]/g, "[$&]") : s.replace(/[?*()[\]\\]/g, "\\$&");
-})), require_commonjs = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_commonjs = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.unescape = exports.escape = exports.AST = exports.Minimatch = exports.match = exports.makeRe = exports.braceExpand = exports.defaults = exports.filter = exports.GLOBSTAR = exports.sep = exports.minimatch = void 0;
 	let brace_expansion_1 = require_commonjs$1(), assert_valid_pattern_js_1 = require_assert_valid_pattern(), ast_js_1 = require_ast(), escape_js_1 = require_escape(), unescape_js_1 = require_unescape();
 	exports.minimatch = (p, pattern, options = {}) => ((0, assert_valid_pattern_js_1.assertValidPattern)(pattern), !options.nocomment && pattern.charAt(0) === "#" ? !1 : new Minimatch(pattern, options).match(p));
@@ -3321,11 +2757,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				}
 			},
 			AST: class extends orig.AST {
-				/* c8 ignore start */
 				constructor(type, parent, options = {}) {
 					super(type, parent, ext(def, options));
 				}
-				/* c8 ignore stop */
 				static fromGlob(pattern, options = {}) {
 					return orig.AST.fromGlob(pattern, ext(def, options));
 				}
@@ -3585,9 +3019,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			for (fi = fileIndex, pi = patternIndex, fl = file.length, pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
 				this.debug("matchOne loop");
 				let p = pattern[pi], f = file[fi];
-				/* c8 ignore start */
 				if (this.debug(pattern, p, f), p === !1 || p === exports.GLOBSTAR) return !1;
-				/* c8 ignore stop */
 				let hit;
 				if (typeof p == "string" ? (hit = f === p, this.debug("string match", p, f, hit)) : (hit = p.test(f), this.debug("pattern match", p, f, hit)), !hit) return !1;
 			}
@@ -3595,7 +3027,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			if (fi === fl) return partial;
 			if (pi === pl) return fi === fl - 1 && file[fi] === "";
 			throw Error("wtf?");
-			/* c8 ignore stop */
 		}
 		braceExpand() {
 			return (0, exports.braceExpand)(this.pattern, this.options);
@@ -3637,7 +3068,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			} catch {
 				this.regexp = !1;
 			}
-			/* c8 ignore stop */
 			return this.regexp;
 		}
 		slashSplit(p) {
@@ -3666,7 +3096,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 	};
 	exports.Minimatch = Minimatch;
-	/* c8 ignore start */
 	var ast_js_2 = require_ast();
 	Object.defineProperty(exports, "AST", {
 		enumerable: !0,
@@ -3688,7 +3117,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return unescape_js_2.unescape;
 		}
 	}), exports.minimatch.AST = ast_js_1.AST, exports.minimatch.Minimatch = Minimatch, exports.minimatch.escape = escape_js_1.escape, exports.minimatch.unescape = unescape_js_1.unescape;
-})), require_role = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_role = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -3700,12 +3129,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		"snapshot",
 		"timestamp"
 	];
-	/**
-	* Container that defines which keys are required to sign roles metadata.
-	*
-	* Role defines how many keys are required to successfully sign the roles
-	* metadata, and which keys are accepted.
-	*/
 	var Role = class Role {
 		keyIDs;
 		threshold;
@@ -3809,17 +3232,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		equals(other) {
 			return other instanceof SuccinctRoles && super.equals(other) && this.bitLength === other.bitLength && this.namePrefix === other.namePrefix;
 		}
-		/***
-		* Calculates the name of the delegated role responsible for 'target_filepath'.
-		*
-		* The target at path ''target_filepath' is assigned to a bin by casting
-		* the left-most 'bit_length' of bits of the file path hash digest to
-		* int, using it as bin index between 0 and '2**bit_length - 1'.
-		*
-		* Args:
-		*  target_filepath: URL path to a target file, relative to a base
-		*  targets URL.
-		*/
 		getRoleForTarget(targetFilepath) {
 			let hashBytes = crypto_1$1.default.createHash("sha256").update(targetFilepath).digest().subarray(0, 4), shiftValue = 32 - this.bitLength, suffix = (hashBytes.readUInt32BE() >>> shiftValue).toString(16).padStart(this.suffixLen, "0");
 			return `${this.namePrefix}-${suffix}`;
@@ -3830,13 +3242,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				yield `${this.namePrefix}-${suffix}`;
 			}
 		}
-		/***
-		* Determines whether the given ``role_name`` is in one of
-		* the delegated roles that ``SuccinctRoles`` represents.
-		*
-		* Args:
-		*  role_name: The name of the role to check against.
-		*/
 		isDelegatedRole(roleName) {
 			let desiredPrefix = this.namePrefix + "-";
 			if (!roleName.startsWith(desiredPrefix)) return !1;
@@ -3867,7 +3272,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 	};
-})), require_root = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_root = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -3957,7 +3362,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return roles;
 	}
-})), require_signature = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_signature = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Signature = void 0, exports.Signature = class Signature {
 		keyID;
 		sig;
@@ -3981,7 +3386,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 	};
-})), require_snapshot = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_snapshot = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -4032,7 +3437,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return meta;
 	}
-})), require_delegations = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_delegations = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -4107,7 +3512,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return roleMap;
 	}
-})), require_targets = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_targets = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -4172,7 +3577,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return delegations;
 	}
-})), require_timestamp$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_timestamp$2 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Timestamp = void 0;
 	let base_1 = require_base(), file_1 = require_file(), utils_1 = require_utils();
 	exports.Timestamp = class Timestamp extends base_1.Signed {
@@ -4212,7 +3617,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return snapshotMeta;
 	}
-})), require_metadata = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_metadata = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -4242,7 +3647,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				default: throw TypeError("invalid metadata type");
 			}
 			if (!role) throw new error_1.ValueError(`no delegation found for ${delegatedRole}`);
-			let signingKeys = /* @__PURE__ */ new Set();
+			let signingKeys = new Set();
 			if (role.keyIDs.forEach((keyID) => {
 				let key = keys[keyID];
 				if (key) try {
@@ -4289,7 +3694,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			}), new Metadata(signedObj, sigMap, rest);
 		}
 	};
-})), require_dist$4 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$4 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Timestamp = exports.Targets = exports.Snapshot = exports.Signature = exports.Root = exports.Metadata = exports.Key = exports.TargetFile = exports.MetaFile = exports.ValueError = exports.MetadataKind = void 0;
 	var base_1 = require_base();
 	Object.defineProperty(exports, "MetadataKind", {
@@ -4366,24 +3771,8 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return timestamp_1.Timestamp;
 		}
 	});
-})), require_ms = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* Helpers.
-	*/
+})), require_ms = __commonJSMin(((exports, module) => {
 	var s = 1e3, m = s * 60, h = m * 60, d = h * 24, w = d * 7, y = d * 365.25;
-	/**
-	* Parse or format the given `val`.
-	*
-	* Options:
-	*
-	*  - `long` verbose formatting [false]
-	*
-	* @param {String|Number} val
-	* @param {Object} [options]
-	* @throws {Error} throw an error if val is not a non-empty string or a number
-	* @return {String|Number}
-	* @api public
-	*/
 	module.exports = function(val, options) {
 		options ||= {};
 		var type = typeof val;
@@ -4391,13 +3780,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		if (type === "number" && isFinite(val)) return options.long ? fmtLong(val) : fmtShort(val);
 		throw Error("val is not a non-empty string or a valid number. val=" + JSON.stringify(val));
 	};
-	/**
-	* Parse the given `str` and return milliseconds.
-	*
-	* @param {String} str
-	* @return {Number}
-	* @api private
-	*/
 	function parse(str) {
 		if (str = String(str), !(str.length > 100)) {
 			var match = /^(-?(?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i.exec(str);
@@ -4440,73 +3822,34 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			}
 		}
 	}
-	/**
-	* Short format for `ms`.
-	*
-	* @param {Number} ms
-	* @return {String}
-	* @api private
-	*/
 	function fmtShort(ms) {
 		var msAbs = Math.abs(ms);
 		return msAbs >= d ? Math.round(ms / d) + "d" : msAbs >= h ? Math.round(ms / h) + "h" : msAbs >= m ? Math.round(ms / m) + "m" : msAbs >= s ? Math.round(ms / s) + "s" : ms + "ms";
 	}
-	/**
-	* Long format for `ms`.
-	*
-	* @param {Number} ms
-	* @return {String}
-	* @api private
-	*/
 	function fmtLong(ms) {
 		var msAbs = Math.abs(ms);
 		return msAbs >= d ? plural(ms, msAbs, d, "day") : msAbs >= h ? plural(ms, msAbs, h, "hour") : msAbs >= m ? plural(ms, msAbs, m, "minute") : msAbs >= s ? plural(ms, msAbs, s, "second") : ms + " ms";
 	}
-	/**
-	* Pluralization helper.
-	*/
 	function plural(ms, msAbs, n, name) {
 		var isPlural = msAbs >= n * 1.5;
 		return Math.round(ms / n) + " " + name + (isPlural ? "s" : "");
 	}
-})), require_common = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* This is the common logic for both the Node.js and web browser
-	* implementations of `debug()`.
-	*/
+})), require_common = __commonJSMin(((exports, module) => {
 	function setup(env) {
-		/**
-		* Map of special "%n" handling functions, for the debug "format" argument.
-		*
-		* Valid key names are a single, lower or upper-case letter, i.e. "n" and "N".
-		*/
 		createDebug.debug = createDebug, createDebug.default = createDebug, createDebug.coerce = coerce, createDebug.disable = disable, createDebug.enable = enable, createDebug.enabled = enabled, createDebug.humanize = require_ms(), createDebug.destroy = destroy, Object.keys(env).forEach((key) => {
 			createDebug[key] = env[key];
 		}), createDebug.names = [], createDebug.skips = [], createDebug.formatters = {};
-		/**
-		* Selects a color for a debug namespace
-		* @param {String} namespace The namespace string for the debug instance to be colored
-		* @return {Number|String} An ANSI color code for the given namespace
-		* @api private
-		*/
 		function selectColor(namespace) {
 			let hash = 0;
 			for (let i = 0; i < namespace.length; i++) hash = (hash << 5) - hash + namespace.charCodeAt(i), hash |= 0;
 			return createDebug.colors[Math.abs(hash) % createDebug.colors.length];
 		}
 		createDebug.selectColor = selectColor;
-		/**
-		* Create a debugger with the given `namespace`.
-		*
-		* @param {String} namespace
-		* @return {Function}
-		* @api public
-		*/
 		function createDebug(namespace) {
 			let prevTime, enableOverride = null, namespacesCache, enabledCache;
 			function debug(...args) {
 				if (!debug.enabled) return;
-				let self = debug, curr = Number(/* @__PURE__ */ new Date());
+				let self = debug, curr = Number(new Date());
 				self.diff = curr - (prevTime || curr), self.prev = prevTime, self.curr = curr, prevTime = curr, args[0] = createDebug.coerce(args[0]), typeof args[0] != "string" && args.unshift("%O");
 				let index = 0;
 				args[0] = args[0].replace(/%([a-zA-Z%])/g, (match, format) => {
@@ -4533,26 +3876,11 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			let newDebug = createDebug(this.namespace + (delimiter === void 0 ? ":" : delimiter) + namespace);
 			return newDebug.log = this.log, newDebug;
 		}
-		/**
-		* Enables a debug mode by namespaces. This can include modes
-		* separated by a colon and wildcards.
-		*
-		* @param {String} namespaces
-		* @api public
-		*/
 		function enable(namespaces) {
 			createDebug.save(namespaces), createDebug.namespaces = namespaces, createDebug.names = [], createDebug.skips = [];
 			let split = (typeof namespaces == "string" ? namespaces : "").trim().replace(/\s+/g, ",").split(",").filter(Boolean);
 			for (let ns of split) ns[0] === "-" ? createDebug.skips.push(ns.slice(1)) : createDebug.names.push(ns);
 		}
-		/**
-		* Checks if the given string matches a namespace template, honoring
-		* asterisks as wildcards.
-		*
-		* @param {String} search
-		* @param {String} template
-		* @return {Boolean}
-		*/
 		function matchesTemplate(search, template) {
 			let searchIndex = 0, templateIndex = 0, starIndex = -1, matchIndex = 0;
 			for (; searchIndex < search.length;) if (templateIndex < template.length && (template[templateIndex] === search[searchIndex] || template[templateIndex] === "*")) template[templateIndex] === "*" ? (starIndex = templateIndex, matchIndex = searchIndex, templateIndex++) : (searchIndex++, templateIndex++);
@@ -4561,76 +3889,37 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			for (; templateIndex < template.length && template[templateIndex] === "*";) templateIndex++;
 			return templateIndex === template.length;
 		}
-		/**
-		* Disable debug output.
-		*
-		* @return {String} namespaces
-		* @api public
-		*/
 		function disable() {
 			let namespaces = [...createDebug.names, ...createDebug.skips.map((namespace) => "-" + namespace)].join(",");
 			return createDebug.enable(""), namespaces;
 		}
-		/**
-		* Returns true if the given mode name is enabled, false otherwise.
-		*
-		* @param {String} name
-		* @return {Boolean}
-		* @api public
-		*/
 		function enabled(name) {
 			for (let skip of createDebug.skips) if (matchesTemplate(name, skip)) return !1;
 			for (let ns of createDebug.names) if (matchesTemplate(name, ns)) return !0;
 			return !1;
 		}
-		/**
-		* Coerce `val`.
-		*
-		* @param {Mixed} val
-		* @return {Mixed}
-		* @api private
-		*/
 		function coerce(val) {
 			return val instanceof Error ? val.stack || val.message : val;
 		}
-		/**
-		* XXX DO NOT USE. This is a temporary stub function.
-		* XXX It WILL be removed in the next major release.
-		*/
 		function destroy() {
 			console.warn("Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`.");
 		}
 		return createDebug.enable(createDebug.load()), createDebug;
 	}
 	module.exports = setup;
-})), require_browser = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* Colors.
-	*/
+})), require_browser = __commonJSMin(((exports, module) => {
 	exports.formatArgs = formatArgs, exports.save = save, exports.load = load, exports.useColors = useColors, exports.storage = localstorage(), exports.destroy = (() => {
 		let warned = !1;
 		return () => {
 			warned || (warned = !0, console.warn("Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`."));
 		};
-	})(), exports.colors = /* @__PURE__ */ "#0000CC.#0000FF.#0033CC.#0033FF.#0066CC.#0066FF.#0099CC.#0099FF.#00CC00.#00CC33.#00CC66.#00CC99.#00CCCC.#00CCFF.#3300CC.#3300FF.#3333CC.#3333FF.#3366CC.#3366FF.#3399CC.#3399FF.#33CC00.#33CC33.#33CC66.#33CC99.#33CCCC.#33CCFF.#6600CC.#6600FF.#6633CC.#6633FF.#66CC00.#66CC33.#9900CC.#9900FF.#9933CC.#9933FF.#99CC00.#99CC33.#CC0000.#CC0033.#CC0066.#CC0099.#CC00CC.#CC00FF.#CC3300.#CC3333.#CC3366.#CC3399.#CC33CC.#CC33FF.#CC6600.#CC6633.#CC9900.#CC9933.#CCCC00.#CCCC33.#FF0000.#FF0033.#FF0066.#FF0099.#FF00CC.#FF00FF.#FF3300.#FF3333.#FF3366.#FF3399.#FF33CC.#FF33FF.#FF6600.#FF6633.#FF9900.#FF9933.#FFCC00.#FFCC33".split(".");
-	/**
-	* Currently only WebKit-based Web Inspectors, Firefox >= v31,
-	* and the Firebug extension (any Firefox version) are known
-	* to support "%c" CSS customizations.
-	*
-	* TODO: add a `localStorage` variable to explicitly enable/disable colors
-	*/
+	})(), exports.colors = "#0000CC.#0000FF.#0033CC.#0033FF.#0066CC.#0066FF.#0099CC.#0099FF.#00CC00.#00CC33.#00CC66.#00CC99.#00CCCC.#00CCFF.#3300CC.#3300FF.#3333CC.#3333FF.#3366CC.#3366FF.#3399CC.#3399FF.#33CC00.#33CC33.#33CC66.#33CC99.#33CCCC.#33CCFF.#6600CC.#6600FF.#6633CC.#6633FF.#66CC00.#66CC33.#9900CC.#9900FF.#9933CC.#9933FF.#99CC00.#99CC33.#CC0000.#CC0033.#CC0066.#CC0099.#CC00CC.#CC00FF.#CC3300.#CC3333.#CC3366.#CC3399.#CC33CC.#CC33FF.#CC6600.#CC6633.#CC9900.#CC9933.#CCCC00.#CCCC33.#FF0000.#FF0033.#FF0066.#FF0099.#FF00CC.#FF00FF.#FF3300.#FF3333.#FF3366.#FF3399.#FF33CC.#FF33FF.#FF6600.#FF6633.#FF9900.#FF9933.#FFCC00.#FFCC33".split(".");
 	function useColors() {
 		if (typeof window < "u" && window.process && (window.process.type === "renderer" || window.process.__nwjs)) return !0;
 		if (typeof navigator < "u" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/(edge|trident)\/(\d+)/)) return !1;
 		let m;
 		return typeof document < "u" && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance || typeof window < "u" && window.console && (window.console.firebug || window.console.exception && window.console.table) || typeof navigator < "u" && navigator.userAgent && (m = navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/)) && parseInt(m[1], 10) >= 31 || typeof navigator < "u" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/);
 	}
-	/**
-	* Colorize log arguments if enabled.
-	*
-	* @api public
-	*/
 	function formatArgs(args) {
 		if (args[0] = (this.useColors ? "%c" : "") + this.namespace + (this.useColors ? " %c" : " ") + args[0] + (this.useColors ? "%c " : " ") + "+" + module.exports.humanize(this.diff), !this.useColors) return;
 		let c = "color: " + this.color;
@@ -4640,32 +3929,12 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			match !== "%%" && (index++, match === "%c" && (lastC = index));
 		}), args.splice(lastC, 0, c);
 	}
-	/**
-	* Invokes `console.debug()` when available.
-	* No-op when `console.debug` is not a "function".
-	* If `console.debug` is not available, falls back
-	* to `console.log`.
-	*
-	* @api public
-	*/
 	exports.log = console.debug || console.log || (() => {});
-	/**
-	* Save `namespaces`.
-	*
-	* @param {String} namespaces
-	* @api private
-	*/
 	function save(namespaces) {
 		try {
 			namespaces ? exports.storage.setItem("debug", namespaces) : exports.storage.removeItem("debug");
 		} catch {}
 	}
-	/**
-	* Load `namespaces`.
-	*
-	* @return {String} returns the previously persisted debug modes
-	* @api private
-	*/
 	function load() {
 		let r;
 		try {
@@ -4673,16 +3942,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		} catch {}
 		return !r && typeof process < "u" && "env" in process && (r = process.env.DEBUG), r;
 	}
-	/**
-	* Localstorage attempts to return the localstorage.
-	*
-	* This is necessary because safari throws
-	* when a user disables cookies/localstorage
-	* and you attempt to access it.
-	*
-	* @return {LocalStorage}
-	* @api private
-	*/
 	function localstorage() {
 		try {
 			return localStorage;
@@ -4690,9 +3949,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	module.exports = require_common()(exports);
 	let { formatters } = module.exports;
-	/**
-	* Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
-	*/
 	formatters.j = function(v) {
 		try {
 			return JSON.stringify(v);
@@ -4700,12 +3956,12 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return "[UnexpectedJSONParseError]: " + error.message;
 		}
 	};
-})), require_has_flag = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_has_flag = __commonJSMin(((exports, module) => {
 	module.exports = (flag, argv = process.argv) => {
 		let prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--", position = argv.indexOf(prefix + flag), terminatorPosition = argv.indexOf("--");
 		return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
 	};
-})), require_supports_color = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_supports_color = __commonJSMin(((exports, module) => {
 	let os$1 = require("os"), tty$1 = require("tty"), hasFlag = require_has_flag(), { env } = process, forceColor;
 	hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never") ? forceColor = 0 : (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) && (forceColor = 1), "FORCE_COLOR" in env && (forceColor = env.FORCE_COLOR === "true" ? 1 : env.FORCE_COLOR === "false" ? 0 : env.FORCE_COLOR.length === 0 ? 1 : Math.min(parseInt(env.FORCE_COLOR, 10), 3));
 	function translateLevel(level) {
@@ -4754,14 +4010,8 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		stdout: translateLevel(supportsColor(!0, tty$1.isatty(1))),
 		stderr: translateLevel(supportsColor(!0, tty$1.isatty(2)))
 	};
-})), require_node = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* Module dependencies.
-	*/
+})), require_node = __commonJSMin(((exports, module) => {
 	let tty = require("tty"), util = require("util");
-	/**
-	* Colors.
-	*/
 	exports.init = init, exports.log = log, exports.formatArgs = formatArgs, exports.save = save, exports.load = load, exports.useColors = useColors, exports.destroy = util.deprecate(() => {}, "Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`."), exports.colors = [
 		6,
 		2,
@@ -4851,26 +4101,13 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			221
 		]);
 	} catch {}
-	/**
-	* Build up the default `inspectOpts` object from the environment variables.
-	*
-	*   $ DEBUG_COLORS=no DEBUG_DEPTH=10 DEBUG_SHOW_HIDDEN=enabled node script.js
-	*/
 	exports.inspectOpts = Object.keys(process.env).filter((key) => /^debug_/i.test(key)).reduce((obj, key) => {
 		let prop = key.substring(6).toLowerCase().replace(/_([a-z])/g, (_, k) => k.toUpperCase()), val = process.env[key];
 		return val = /^(yes|on|true|enabled)$/i.test(val) ? !0 : /^(no|off|false|disabled)$/i.test(val) ? !1 : val === "null" ? null : Number(val), obj[prop] = val, obj;
 	}, {});
-	/**
-	* Is stdout a TTY? Colored output is enabled when `true`.
-	*/
 	function useColors() {
 		return "colors" in exports.inspectOpts ? !!exports.inspectOpts.colors : tty.isatty(process.stderr.fd);
 	}
-	/**
-	* Adds ANSI color escape codes if enabled.
-	*
-	* @api public
-	*/
 	function formatArgs(args) {
 		let { namespace: name, useColors } = this;
 		if (useColors) {
@@ -4879,38 +4116,17 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		} else args[0] = getDate() + name + " " + args[0];
 	}
 	function getDate() {
-		return exports.inspectOpts.hideDate ? "" : (/* @__PURE__ */ new Date()).toISOString() + " ";
+		return exports.inspectOpts.hideDate ? "" : new Date().toISOString() + " ";
 	}
-	/**
-	* Invokes `util.formatWithOptions()` with the specified arguments and writes to stderr.
-	*/
 	function log(...args) {
 		return process.stderr.write(util.formatWithOptions(exports.inspectOpts, ...args) + "\n");
 	}
-	/**
-	* Save `namespaces`.
-	*
-	* @param {String} namespaces
-	* @api private
-	*/
 	function save(namespaces) {
 		namespaces ? process.env.DEBUG = namespaces : delete process.env.DEBUG;
 	}
-	/**
-	* Load `namespaces`.
-	*
-	* @return {String} returns the previously persisted debug modes
-	* @api private
-	*/
 	function load() {
 		return process.env.DEBUG;
 	}
-	/**
-	* Init logic for `debug` instances.
-	*
-	* Create a new `inspectOpts` object in case `useColors` is set
-	* differently for a particular `debug` instance.
-	*/
 	function init(debug) {
 		debug.inspectOpts = {};
 		let keys = Object.keys(exports.inspectOpts);
@@ -4918,21 +4134,14 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	module.exports = require_common()(exports);
 	let { formatters } = module.exports;
-	/**
-	* Map %O to `util.inspect()`, allowing multiple lines if needed.
-	*/
 	formatters.o = function(v) {
 		return this.inspectOpts.colors = this.useColors, util.inspect(v, this.inspectOpts).split("\n").map((str) => str.trim()).join(" ");
 	}, formatters.O = function(v) {
 		return this.inspectOpts.colors = this.useColors, util.inspect(v, this.inspectOpts);
 	};
-})), require_src = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	/**
-	* Detect Electron renderer / nwjs process, which is node, but we should
-	* treat as a browser.
-	*/
+})), require_src = __commonJSMin(((exports, module) => {
 	module.exports = typeof process > "u" || process.type === "renderer" || process.browser === !0 || process.__nwjs ? require_browser() : require_node();
-})), require_error$4 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$4 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.DownloadHTTPError = exports.DownloadLengthMismatchError = exports.DownloadError = exports.ExpiredMetadataError = exports.EqualVersionError = exports.BadVersionError = exports.RepositoryError = exports.PersistError = exports.RuntimeError = exports.ValueError = void 0, exports.ValueError = class extends Error {}, exports.RuntimeError = class extends Error {}, exports.PersistError = class extends Error {};
 	var RepositoryError = class extends Error {};
 	exports.RepositoryError = RepositoryError;
@@ -4945,7 +4154,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			super(message), this.statusCode = statusCode;
 		}
 	};
-})), require_tmpfile = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_tmpfile = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -4964,7 +4173,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 	};
-})), require_retry = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_retry = __commonJSMin(((exports, module) => {
 	module.exports = { RetryOperation: class {
 		#attempts = 1;
 		#cachedTimeouts = null;
@@ -5006,7 +4215,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			this.#timer && clearTimeout(this.#timer), this.#timeouts = [], this.#cachedTimeouts = null;
 		}
 		retry(err) {
-			if (this.#errors.push(err), (/* @__PURE__ */ new Date()).getTime() - this.#operationStart >= this.#maxRetryTime) return this.#errors.unshift(/* @__PURE__ */ Error("RetryOperation timeout occurred")), !1;
+			if (this.#errors.push(err), new Date().getTime() - this.#operationStart >= this.#maxRetryTime) return this.#errors.unshift(Error("RetryOperation timeout occurred")), !1;
 			let timeout = this.#timeouts.shift();
 			if (timeout === void 0) {
 				if (this.#cachedTimeouts) this.#errors.pop(), timeout = this.#cachedTimeouts.at(-1);
@@ -5017,10 +4226,10 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			}, timeout), this.#unref && this.#timer.unref(), !0;
 		}
 		attempt(fn) {
-			this.#fn = fn, this.#operationStart = (/* @__PURE__ */ new Date()).getTime(), this.#fn(this.#attempts);
+			this.#fn = fn, this.#operationStart = new Date().getTime(), this.#fn(this.#attempts);
 		}
 	} };
-})), require_lib = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_lib = __commonJSMin(((exports, module) => {
 	let { RetryOperation } = require_retry(), createTimeout = (attempt, opts) => Math.min(Math.round((1 + (opts.randomize ? Math.random() : 0)) * Math.max(opts.minTimeout, 1) * opts.factor ** +attempt), opts.maxTimeout), isRetryError = (err) => err?.code === "EPROMISERETRY" && Object.hasOwn(err, "retried");
 	module.exports = { promiseRetry: async (fn, options = {}) => {
 		let timeouts = [];
@@ -5050,19 +4259,19 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			operation.attempt(async (number) => {
 				try {
 					return resolve(await fn((err) => {
-						throw Object.assign(/* @__PURE__ */ Error("Retrying"), {
+						throw Object.assign(Error("Retrying"), {
 							code: "EPROMISERETRY",
 							retried: err
 						});
 					}, number, operation));
 				} catch (err) {
 					if (!isRetryError(err)) return reject(err);
-					if (!operation.retry(err.retried || /* @__PURE__ */ Error())) return reject(err.retried);
+					if (!operation.retry(err.retried || Error())) return reject(err.retried);
 				}
 			});
 		});
 	} };
-})), require_fetcher = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_fetcher = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -5134,7 +4343,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			err && reject(err), resolve(!0);
 		});
 	});
-})), require_package$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_package$1 = __commonJSMin(((exports, module) => {
 	module.exports = {
 		name: "tuf-js",
 		version: "6.0.0",
@@ -5172,7 +4381,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		},
 		engines: { node: "^22.22.2 || ^24.15.0 || >=26.0.0" }
 	};
-})), require_config = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_config = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.defaultConfig = void 0, exports.defaultConfig = {
 		maxRootRotations: 256,
 		maxDelegations: 32,
@@ -5186,14 +4395,14 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		fetchRetry: 2,
 		userAgent: ""
 	};
-})), require_store = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_store = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.TrustedMetadataStore = void 0;
 	let models_1 = require_dist$4(), error_1 = require_error$4();
 	exports.TrustedMetadataStore = class {
 		trustedSet = {};
 		referenceTime;
 		constructor(rootData) {
-			this.referenceTime = /* @__PURE__ */ new Date(), this.loadTrustedRoot(rootData);
+			this.referenceTime = new Date(), this.loadTrustedRoot(rootData);
 		}
 		get root() {
 			if (!this.trustedSet.root) throw ReferenceError("No trusted root metadata");
@@ -5277,7 +4486,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			if (this.snapshot.signed.version !== snapshotMeta.version) throw new error_1.BadVersionError("Snapshot version doesn't match timestamp");
 		}
 	};
-})), require_url = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_url = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.join = join;
 	let url_1 = require("url");
 	function join(base, path) {
@@ -5289,7 +4498,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function removeLeadingSlash(path) {
 		return path.startsWith("/") ? path.slice(1) : path;
 	}
-})), require_updater = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_updater = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -5454,7 +4663,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			let delegationsToVisit = [{
 				roleName: models_1.MetadataKind.Targets,
 				parentRoleName: models_1.MetadataKind.Root
-			}], visitedRoleNames = /* @__PURE__ */ new Set();
+			}], visitedRoleNames = new Set();
 			for (; visitedRoleNames.size <= this.config.maxDelegations && delegationsToVisit.length > 0;) {
 				let { roleName, parentRoleName } = delegationsToVisit.pop();
 				if (visitedRoleNames.has(roleName)) continue;
@@ -5490,7 +4699,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			}
 		}
 	};
-})), require_dist$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$3 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Updater = exports.BaseFetcher = exports.TargetFile = void 0;
 	var models_1 = require_dist$4();
 	Object.defineProperty(exports, "TargetFile", {
@@ -5513,7 +4722,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return updater_1.Updater;
 		}
 	});
-})), require_package = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_package = __commonJSMin(((exports, module) => {
 	module.exports = {
 		name: "@sigstore/tuf",
 		version: "5.0.0",
@@ -5546,7 +4755,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		},
 		engines: { node: "^22.22.2 || ^24.15.0 || >=26.0.0" }
 	};
-})), require_error$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$3 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.TUFError = void 0, exports.TUFError = class extends Error {
 		code;
 		cause;
@@ -5554,7 +4763,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			super(message), this.code = code, this.cause = cause, this.name = this.constructor.name;
 		}
 	};
-})), require_target = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_target = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -5599,7 +4808,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return path;
 	}
-})), require_seeds = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+})), require_seeds = __commonJSMin(((exports, module) => {
 	module.exports = { "https://tuf-repo-cdn.sigstore.dev": {
 		"root.json": "ewogInNpZ25hdHVyZXMiOiBbCiAgewogICAia2V5aWQiOiAiZTcxYTU0ZDU0MzgzNWJhODZhZGFkOTQ2MDM3OWM3NjQxZmI4NzI2ZDE2NGVhNzY2ODAxYTFjNTIyYWJhN2VhMiIsCiAgICJzaWciOiAiMzA0NTAyMjEwMGVhMmYzNzRmNDA5ODEwZTJkYjk1MDc0OWQ5Y2ZlZDA5YTE1YjZhNWUyNWYzZDVmZmQwNzk5NDU5ZDdiZWUxNjcwMjIwMjhkM2FjZGRlNmRiZDUwMzRjZmFkMjIyZDMxYjQxMDkwZWUyMTg5NGUyYzQ2Y2I4OTc0MTk4YWIwMzc3ZGI0NCIKICB9LAogIHsKICAgImtleWlkIjogIjIyZjRjYWVjNmQ4ZTZmOTU1NWFmNjZiM2Q0YzNjYjA2YTNiYjIzZmRjN2UzOWM5MTZjNjFmNDYyZTZmNTJiMDYiLAogICAic2lnIjogIjMwNDQwMjIwN2ViYjI0ZTMyMzdlNDcwNjkxZDc4NzU5MDNhNzc1NGQwZWYyYWU3ZTdiNTAyNGE3ODg4YzlhMzhhNTJkZWVjZDAyMjA2ZWQ1YWQxYzZmNGZhYjQ2OTk1ODQzYWI2YjIzZjk0MjBjNWE0Y2Y2Y2UxY2IyY2IyYTZmYzJlODdlMmVmM2UxIgogIH0sCiAgewogICAia2V5aWQiOiAiNjE2NDM4MzgxMjViNDQwYjQwZGI2OTQyZjVjYjVhMzFjMGRjMDQzNjgzMTZlYjJhYWE1OGI5NTkwNGE1ODIyMiIsCiAgICJzaWciOiAiMzA0NjAyMjEwMDg5ZDlkZmQ4ZTEwNmNjOTU4MDg4YTRkYTNjOGNmNzI1NGFiNmY2NWE5NjQ3ZDM3YWRhNzMwZWY0NzYzYzUxNjMwMjIxMDBkODgyZWU3NDQ2MTViZTc5ODYxZTIxNGUxZWViOWUxZWRkZjZhMWUyMDNhMjAxYjRjNWQwM2Y1MjI0ZDcxZDE2IgogIH0sCiAgewogICAia2V5aWQiOiAiYTY4N2U1YmY0ZmFiODJiMGVlNThkNDZlMDVjOTUzNTE0NWEyYzlhZmI0NThmNDNkNDJiNDVjYTBmZGNlMmE3MCIsCiAgICJzaWciOiAiMzA0NTAyMjEwMDg4YmQ0Yjg4ZTgzZjU4NmNlNTY4ZDI3ZDA0MjE0YzRhYjNmZDE4OTQxNzhlZjAxNTMwM2Q1NmFmYTkzOTIwNTMwMjIwNTUzOGViYWI5Mzg3NmFiYjkwNzVhZDc3MTE0YmZmMjhhMGQ3OWE3Y2MyMjliNTM0YTBjNWNlZDU1MjZiNDhlNyIKICB9LAogIHsKICAgImtleWlkIjogIjE4M2U2NGYzNzY3MGRjMTNjYTBkMjg5OTVhMzA1M2YzNzQwOTU0ZGRjZTQ0MzIxYTQxZTQ2NTM0Y2Y0NGU2MzIiLAogICAic2lnIjogIjMwNDUwMjIxMDBmMzViMDdlOTM4ZDQ5NDljYWY4MmU2OWU4NmNjOWRiM2I2OWI2ZGJjNjc0MGMxZjM0M2QwNjg5M2Y5OTZmYmViMDIyMDAxZTg0N2Q4MTYyNTlhOTZhNDllNDI3NzlhMjM1MGRhYjk3YjcxYzhhZTdlMjZiMjM4MGM2ZmE3ZjU4MTMxYjMiCiAgfQogXSwKICJzaWduZWQiOiB7CiAgIl90eXBlIjogInJvb3QiLAogICJjb25zaXN0ZW50X3NuYXBzaG90IjogdHJ1ZSwKICAiZXhwaXJlcyI6ICIyMDI2LTExLTIwVDEzOjU4OjE4WiIsCiAgImtleXMiOiB7CiAgICIwYzg3NDMyYzNiZjA5ZmQ5OTE4OWZkYzMyZmE1ZWFlZGY0ZTRhNWZhYzdiYWI3M2ZhMDRhMmUwZmM2NGFmNmY1IjogewogICAgImtleWlkX2hhc2hfYWxnb3JpdGhtcyI6IFsKICAgICAic2hhMjU2IiwKICAgICAic2hhNTEyIgogICAgXSwKICAgICJrZXl0eXBlIjogImVjZHNhIiwKICAgICJrZXl2YWwiOiB7CiAgICAgInB1YmxpYyI6ICItLS0tLUJFR0lOIFBVQkxJQyBLRVktLS0tLVxuTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFV1JpR3I1K2orM0o1U3NIK1p0cjVuRTJIMndPN1xuQlYrbk8zczkzZ0xjYTE4cVRPekhZMW9XeUFHRHlrTVNzR1RVQlN0OUQrQW4wS2ZLc0QybWZTTTQyUT09XG4tLS0tLUVORCBQVUJMSUMgS0VZLS0tLS1cbiIKICAgIH0sCiAgICAic2NoZW1lIjogImVjZHNhLXNoYTItbmlzdHAyNTYiLAogICAgIngtdHVmLW9uLWNpLW9ubGluZS11cmkiOiAiZ2Nwa21zOnByb2plY3RzL3NpZ3N0b3JlLXJvb3Qtc2lnbmluZy9sb2NhdGlvbnMvZ2xvYmFsL2tleVJpbmdzL3Jvb3QvY3J5cHRvS2V5cy90aW1lc3RhbXAvY3J5cHRvS2V5VmVyc2lvbnMvMSIKICAgfSwKICAgIjE4M2U2NGYzNzY3MGRjMTNjYTBkMjg5OTVhMzA1M2YzNzQwOTU0ZGRjZTQ0MzIxYTQxZTQ2NTM0Y2Y0NGU2MzIiOiB7CiAgICAia2V5dHlwZSI6ICJlY2RzYSIsCiAgICAia2V5dmFsIjogewogICAgICJwdWJsaWMiOiAiLS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS1cbk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRU14cFBPSkNJWjVvdEc0MTA2ZkdKc2VFUWkzVjlcbnBrTVlRNHV5VjlUajFNN1dIWEl5TEcramtmdnVHMGdsUTFKWmJSWlpCVjNnQVI0c29qZEdISVNlb3c9PVxuLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tXG4iCiAgICB9LAogICAgInNjaGVtZSI6ICJlY2RzYS1zaGEyLW5pc3RwMjU2IiwKICAgICJ4LXR1Zi1vbi1jaS1rZXlvd25lciI6ICJAbGFuY2UiCiAgIH0sCiAgICIyMmY0Y2FlYzZkOGU2Zjk1NTVhZjY2YjNkNGMzY2IwNmEzYmIyM2ZkYzdlMzljOTE2YzYxZjQ2MmU2ZjUyYjA2IjogewogICAgImtleWlkX2hhc2hfYWxnb3JpdGhtcyI6IFsKICAgICAic2hhMjU2IiwKICAgICAic2hhNTEyIgogICAgXSwKICAgICJrZXl0eXBlIjogImVjZHNhIiwKICAgICJrZXl2YWwiOiB7CiAgICAgInB1YmxpYyI6ICItLS0tLUJFR0lOIFBVQkxJQyBLRVktLS0tLVxuTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFekJ6Vk9tSENQb2pNVkxTSTM2NFdpaVY4TlByRFxuNklnUnhWbGlza3ovdit5M0pFUjVtY1ZHY09ObGlEY1dNQzVKMmxmSG1qUE5QaGI0SDd4bThMemZTQT09XG4tLS0tLUVORCBQVUJMSUMgS0VZLS0tLS1cbiIKICAgIH0sCiAgICAic2NoZW1lIjogImVjZHNhLXNoYTItbmlzdHAyNTYiLAogICAgIngtdHVmLW9uLWNpLWtleW93bmVyIjogIkBzYW50aWFnb3RvcnJlcyIKICAgfSwKICAgIjYxNjQzODM4MTI1YjQ0MGI0MGRiNjk0MmY1Y2I1YTMxYzBkYzA0MzY4MzE2ZWIyYWFhNThiOTU5MDRhNTgyMjIiOiB7CiAgICAia2V5aWRfaGFzaF9hbGdvcml0aG1zIjogWwogICAgICJzaGEyNTYiLAogICAgICJzaGE1MTIiCiAgICBdLAogICAgImtleXR5cGUiOiAiZWNkc2EiLAogICAgImtleXZhbCI6IHsKICAgICAicHVibGljIjogIi0tLS0tQkVHSU4gUFVCTElDIEtFWS0tLS0tXG5NRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVpbmlrU3NBUW1Za05lSDVlWXEvQ25JekxhYWNPXG54bFNhYXdRRE93cUt5L3RDcXhxNXh4UFNKYzIxSzRXSWhzOUd5T2tLZnp1ZVkzR0lMemNNSlo0Y1d3PT1cbi0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLVxuIgogICAgfSwKICAgICJzY2hlbWUiOiAiZWNkc2Etc2hhMi1uaXN0cDI1NiIsCiAgICAieC10dWYtb24tY2kta2V5b3duZXIiOiAiQGJvYmNhbGxhd2F5IgogICB9LAogICAiYTY4N2U1YmY0ZmFiODJiMGVlNThkNDZlMDVjOTUzNTE0NWEyYzlhZmI0NThmNDNkNDJiNDVjYTBmZGNlMmE3MCI6IHsKICAgICJrZXlpZF9oYXNoX2FsZ29yaXRobXMiOiBbCiAgICAgInNoYTI1NiIsCiAgICAgInNoYTUxMiIKICAgIF0sCiAgICAia2V5dHlwZSI6ICJlY2RzYSIsCiAgICAia2V5dmFsIjogewogICAgICJwdWJsaWMiOiAiLS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS1cbk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRTBnaHJoOTJMdzFZcjNpZEdWNVdxQ3RNREI4Q3hcbitEOGhkQzR3MlpMTklwbFZSb1ZHTHNrWWEzZ2hlTXlPamlKOGtQaTE1YVEyLy83UCtvajdVdkpQR3c9PVxuLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tXG4iCiAgICB9LAogICAgInNjaGVtZSI6ICJlY2RzYS1zaGEyLW5pc3RwMjU2IiwKICAgICJ4LXR1Zi1vbi1jaS1rZXlvd25lciI6ICJAam9zaHVhZ2wiCiAgIH0sCiAgICJlNzFhNTRkNTQzODM1YmE4NmFkYWQ5NDYwMzc5Yzc2NDFmYjg3MjZkMTY0ZWE3NjY4MDFhMWM1MjJhYmE3ZWEyIjogewogICAgImtleWlkX2hhc2hfYWxnb3JpdGhtcyI6IFsKICAgICAic2hhMjU2IiwKICAgICAic2hhNTEyIgogICAgXSwKICAgICJrZXl0eXBlIjogImVjZHNhIiwKICAgICJrZXl2YWwiOiB7CiAgICAgInB1YmxpYyI6ICItLS0tLUJFR0lOIFBVQkxJQyBLRVktLS0tLVxuTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFRVhzejNTWlhGYjhqTVY0Mmo2cEpseWpialI4S1xuTjNCd29jZXhxNkxNSWI1cXNXS09RdkxOMTZOVWVmTGM0SHN3T291bVJzVlZhYWpTcFFTNmZvYmtSdz09XG4tLS0tLUVORCBQVUJMSUMgS0VZLS0tLS1cbiIKICAgIH0sCiAgICAic2NoZW1lIjogImVjZHNhLXNoYTItbmlzdHAyNTYiLAogICAgIngtdHVmLW9uLWNpLWtleW93bmVyIjogIkBtbm02NzgiCiAgIH0KICB9LAogICJyb2xlcyI6IHsKICAgInJvb3QiOiB7CiAgICAia2V5aWRzIjogWwogICAgICJlNzFhNTRkNTQzODM1YmE4NmFkYWQ5NDYwMzc5Yzc2NDFmYjg3MjZkMTY0ZWE3NjY4MDFhMWM1MjJhYmE3ZWEyIiwKICAgICAiMjJmNGNhZWM2ZDhlNmY5NTU1YWY2NmIzZDRjM2NiMDZhM2JiMjNmZGM3ZTM5YzkxNmM2MWY0NjJlNmY1MmIwNiIsCiAgICAgIjYxNjQzODM4MTI1YjQ0MGI0MGRiNjk0MmY1Y2I1YTMxYzBkYzA0MzY4MzE2ZWIyYWFhNThiOTU5MDRhNTgyMjIiLAogICAgICJhNjg3ZTViZjRmYWI4MmIwZWU1OGQ0NmUwNWM5NTM1MTQ1YTJjOWFmYjQ1OGY0M2Q0MmI0NWNhMGZkY2UyYTcwIiwKICAgICAiMTgzZTY0ZjM3NjcwZGMxM2NhMGQyODk5NWEzMDUzZjM3NDA5NTRkZGNlNDQzMjFhNDFlNDY1MzRjZjQ0ZTYzMiIKICAgIF0sCiAgICAidGhyZXNob2xkIjogMwogICB9LAogICAic25hcHNob3QiOiB7CiAgICAia2V5aWRzIjogWwogICAgICIwYzg3NDMyYzNiZjA5ZmQ5OTE4OWZkYzMyZmE1ZWFlZGY0ZTRhNWZhYzdiYWI3M2ZhMDRhMmUwZmM2NGFmNmY1IgogICAgXSwKICAgICJ0aHJlc2hvbGQiOiAxLAogICAgIngtdHVmLW9uLWNpLWV4cGlyeS1wZXJpb2QiOiAzNjUwLAogICAgIngtdHVmLW9uLWNpLXNpZ25pbmctcGVyaW9kIjogMzY1CiAgIH0sCiAgICJ0YXJnZXRzIjogewogICAgImtleWlkcyI6IFsKICAgICAiZTcxYTU0ZDU0MzgzNWJhODZhZGFkOTQ2MDM3OWM3NjQxZmI4NzI2ZDE2NGVhNzY2ODAxYTFjNTIyYWJhN2VhMiIsCiAgICAgIjIyZjRjYWVjNmQ4ZTZmOTU1NWFmNjZiM2Q0YzNjYjA2YTNiYjIzZmRjN2UzOWM5MTZjNjFmNDYyZTZmNTJiMDYiLAogICAgICI2MTY0MzgzODEyNWI0NDBiNDBkYjY5NDJmNWNiNWEzMWMwZGMwNDM2ODMxNmViMmFhYTU4Yjk1OTA0YTU4MjIyIiwKICAgICAiYTY4N2U1YmY0ZmFiODJiMGVlNThkNDZlMDVjOTUzNTE0NWEyYzlhZmI0NThmNDNkNDJiNDVjYTBmZGNlMmE3MCIsCiAgICAgIjE4M2U2NGYzNzY3MGRjMTNjYTBkMjg5OTVhMzA1M2YzNzQwOTU0ZGRjZTQ0MzIxYTQxZTQ2NTM0Y2Y0NGU2MzIiCiAgICBdLAogICAgInRocmVzaG9sZCI6IDMKICAgfSwKICAgInRpbWVzdGFtcCI6IHsKICAgICJrZXlpZHMiOiBbCiAgICAgIjBjODc0MzJjM2JmMDlmZDk5MTg5ZmRjMzJmYTVlYWVkZjRlNGE1ZmFjN2JhYjczZmEwNGEyZTBmYzY0YWY2ZjUiCiAgICBdLAogICAgInRocmVzaG9sZCI6IDEsCiAgICAieC10dWYtb24tY2ktZXhwaXJ5LXBlcmlvZCI6IDcsCiAgICAieC10dWYtb24tY2ktc2lnbmluZy1wZXJpb2QiOiA2CiAgIH0KICB9LAogICJzcGVjX3ZlcnNpb24iOiAiMS4wIiwKICAidmVyc2lvbiI6IDE1LAogICJ4LXR1Zi1vbi1jaS1leHBpcnktcGVyaW9kIjogMTk3LAogICJ4LXR1Zi1vbi1jaS1zaWduaW5nLXBlcmlvZCI6IDQ2CiB9Cn0=",
 		targets: {
@@ -5607,7 +4816,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			"registry.npmjs.org%2Fkeys.json": "ewogICAgImtleXMiOiBbCiAgICAgICAgewogICAgICAgICAgICAia2V5SWQiOiAiU0hBMjU2OmpsM2J3c3d1ODBQampva0NnaDBvMnc1YzJVNExoUUFFNTdnajljejFrekEiLAogICAgICAgICAgICAia2V5VXNhZ2UiOiAibnBtOnNpZ25hdHVyZXMiLAogICAgICAgICAgICAicHVibGljS2V5IjogewogICAgICAgICAgICAgICAgInJhd0J5dGVzIjogIk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRTFPbGIzek1BRkZ4WEtIaUlrUU81Y0ozWWhsNWk2VVBwK0lodXRlQkpidUhjQTVVb2dLbzBFV3RsV3dXNktTYUtvVE5FWUw3SmxDUWlWbmtoQmt0VWdnPT0iLAogICAgICAgICAgICAgICAgImtleURldGFpbHMiOiAiUEtJWF9FQ0RTQV9QMjU2X1NIQV8yNTYiLAogICAgICAgICAgICAgICAgInZhbGlkRm9yIjogewogICAgICAgICAgICAgICAgICAgICJzdGFydCI6ICIxOTk5LTAxLTAxVDAwOjAwOjAwLjAwMFoiLAogICAgICAgICAgICAgICAgICAgICJlbmQiOiAiMjAyNS0wMS0yOVQwMDowMDowMC4wMDBaIgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgfSwKICAgICAgICB7CiAgICAgICAgICAgICJrZXlJZCI6ICJTSEEyNTY6amwzYndzd3U4MFBqam9rQ2doMG8ydzVjMlU0TGhRQUU1N2dqOWN6MWt6QSIsCiAgICAgICAgICAgICJrZXlVc2FnZSI6ICJucG06YXR0ZXN0YXRpb25zIiwKICAgICAgICAgICAgInB1YmxpY0tleSI6IHsKICAgICAgICAgICAgICAgICJyYXdCeXRlcyI6ICJNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUUxT2xiM3pNQUZGeFhLSGlJa1FPNWNKM1lobDVpNlVQcCtJaHV0ZUJKYnVIY0E1VW9nS28wRVd0bFd3VzZLU2FLb1RORVlMN0psQ1FpVm5raEJrdFVnZz09IiwKICAgICAgICAgICAgICAgICJrZXlEZXRhaWxzIjogIlBLSVhfRUNEU0FfUDI1Nl9TSEFfMjU2IiwKICAgICAgICAgICAgICAgICJ2YWxpZEZvciI6IHsKICAgICAgICAgICAgICAgICAgICAic3RhcnQiOiAiMjAyMi0xMi0wMVQwMDowMDowMC4wMDBaIiwKICAgICAgICAgICAgICAgICAgICAiZW5kIjogIjIwMjUtMDEtMjlUMDA6MDA6MDAuMDAwWiIKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0sCiAgICAgICAgewogICAgICAgICAgICAia2V5SWQiOiAiU0hBMjU2OkRoUTh3UjVBUEJ2RkhMRi8rVGMrQVl2UE9kVHBjSURxT2h4c0JIUndDN1UiLAogICAgICAgICAgICAia2V5VXNhZ2UiOiAibnBtOnNpZ25hdHVyZXMiLAogICAgICAgICAgICAicHVibGljS2V5IjogewogICAgICAgICAgICAgICAgInJhd0J5dGVzIjogIk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRVk2WWE3VysrN2FVUHp2TVRyZXpINlljeDNjK0hPS1lDY05HeWJKWlNDSnEvZmQ3UWE4dXVBS3RkSWtVUXRRaUVLRVJoQW1FNWxNTUpoUDhPa0RPYTJnPT0iLAogICAgICAgICAgICAgICAgImtleURldGFpbHMiOiAiUEtJWF9FQ0RTQV9QMjU2X1NIQV8yNTYiLAogICAgICAgICAgICAgICAgInZhbGlkRm9yIjogewogICAgICAgICAgICAgICAgICAgICJzdGFydCI6ICIyMDI1LTAxLTEzVDAwOjAwOjAwLjAwMFoiCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9LAogICAgICAgIHsKICAgICAgICAgICAgImtleUlkIjogIlNIQTI1NjpEaFE4d1I1QVBCdkZITEYvK1RjK0FZdlBPZFRwY0lEcU9oeHNCSFJ3QzdVIiwKICAgICAgICAgICAgImtleVVzYWdlIjogIm5wbTphdHRlc3RhdGlvbnMiLAogICAgICAgICAgICAicHVibGljS2V5IjogewogICAgICAgICAgICAgICAgInJhd0J5dGVzIjogIk1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRVk2WWE3VysrN2FVUHp2TVRyZXpINlljeDNjK0hPS1lDY05HeWJKWlNDSnEvZmQ3UWE4dXVBS3RkSWtVUXRRaUVLRVJoQW1FNWxNTUpoUDhPa0RPYTJnPT0iLAogICAgICAgICAgICAgICAgImtleURldGFpbHMiOiAiUEtJWF9FQ0RTQV9QMjU2X1NIQV8yNTYiLAogICAgICAgICAgICAgICAgInZhbGlkRm9yIjogewogICAgICAgICAgICAgICAgICAgICJzdGFydCI6ICIyMDI1LTAxLTEzVDAwOjAwOjAwLjAwMFoiCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICBdCn0K"
 		}
 	} };
-})), require_client = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_client = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -5639,12 +4848,10 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	};
 	function initTufCache(cachePath) {
 		let targetsPath = path_1.default.join(cachePath, TARGETS_DIR_NAME);
-		/* istanbul ignore else */
 		fs_1.default.existsSync(cachePath) || fs_1.default.mkdirSync(cachePath, { recursive: !0 }), fs_1.default.existsSync(targetsPath) || fs_1.default.mkdirSync(targetsPath);
 	}
 	function seedCache({ cachePath, mirrorURL, tufRootPath, forceInit }) {
 		let cachedRootPath = path_1.default.join(cachePath, "root.json");
-		/* istanbul ignore else */
 		if (!fs_1.default.existsSync(cachedRootPath) || forceInit) {
 			if (tufRootPath) fs_1.default.copyFileSync(tufRootPath, cachedRootPath);
 			else {
@@ -5674,7 +4881,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			config
 		});
 	}
-})), require_dist$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$2 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.TUFError = exports.DEFAULT_MIRROR_URL = void 0, exports.getTrustedRoot = getTrustedRoot, exports.initTUF = initTUF;
 	let protobuf_specs_1 = require_dist$6(), appdata_1 = require_appdata(), client_1 = require_client();
 	exports.DEFAULT_MIRROR_URL = "https://tuf-repo-cdn.sigstore.dev";
@@ -5688,7 +4895,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		return client.refresh().then(() => client);
 	}
 	function createClient(options) {
-		/* istanbul ignore next */
 		return new client_1.TUFClient({
 			cachePath: options.cachePath || (0, appdata_1.appDataPath)("sigstore-js"),
 			rootPath: options.rootPath,
@@ -5706,7 +4912,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return error_1.TUFError;
 		}
 	});
-})), require_stream = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_stream = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ByteStream = void 0;
 	var StreamError = class extends Error {};
 	exports.ByteStream = class ByteStream {
@@ -5774,9 +4980,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			newView.set(this.view), this.buf = newArray, this.view = newView;
 		}
 	};
-})), require_error$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$2 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ASN1TypeError = exports.ASN1ParseError = void 0, exports.ASN1ParseError = class extends Error {}, exports.ASN1TypeError = class extends Error {};
-})), require_length = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_length = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.decodeLength = decodeLength, exports.encodeLength = encodeLength;
 	let error_1 = require_error$2();
 	function decodeLength(stream) {
@@ -5800,7 +5006,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (; val > 0n;) bytes.unshift(Number(val & 255n)), val >>= 8n;
 		return Buffer.from([128 | bytes.length, ...bytes]);
 	}
-})), require_parse = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_parse = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.parseInteger = parseInteger, exports.parseStringASCII = parseStringASCII, exports.parseTime = parseTime, exports.parseOID = parseOID, exports.parseBoolean = parseBoolean, exports.parseBitString = parseBitString;
 	let error_1 = require_error$2(), RE_TIME_SHORT_YEAR = /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\.\d{3})?Z$/, RE_TIME_LONG_YEAR = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\.\d{3})?Z$/;
 	function parseInteger(buf) {
@@ -5822,7 +5028,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			let year = Number(m[1]);
 			year += year >= 50 ? 1900 : 2e3, m[1] = year.toString();
 		}
-		return /* @__PURE__ */ new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+		return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
 	}
 	function parseOID(buf) {
 		let pos = 0, end = buf.length, n = buf[pos++], oid = `${Math.floor(n / 40)}.${n % 40}`, val = 0n;
@@ -5847,7 +5053,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return bits;
 	}
-})), require_tag = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_tag = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ASN1Tag = void 0;
 	let error_1 = require_error$2(), UNIVERSAL_TAG = {
 		BOOLEAN: 1,
@@ -5906,7 +5112,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return this.number | (this.constructed ? 32 : 0) | this.class << 6;
 		}
 	};
-})), require_obj = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_obj = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ASN1Obj = void 0;
 	let stream_1 = require_stream(), error_1 = require_error$2(), length_1 = require_length(), parse_1 = require_parse(), tag_1 = require_tag();
 	var ASN1Obj = class {
@@ -5964,14 +5170,13 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	function collectSubs(stream, len, depth) {
 		let end = stream.position + len;
-		/* istanbul ignore if */
 		if (end > stream.length) throw new error_1.ASN1ParseError("invalid length");
 		let subs = [];
 		for (; stream.position < end;) subs.push(parseStream(stream, depth + 1));
 		if (stream.position !== end) throw new error_1.ASN1ParseError("invalid length");
 		return subs;
 	}
-})), require_asn1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_asn1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.ASN1Obj = void 0;
 	var obj_1 = require_obj();
 	Object.defineProperty(exports, "ASN1Obj", {
@@ -5980,7 +5185,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return obj_1.ASN1Obj;
 		}
 	});
-})), require_crypto = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_crypto = __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { default: mod };
 	};
@@ -6006,7 +5211,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		try {
 			return crypto_1.default.verify(algorithm, data, key, signature);
 		} catch {
-			/* istanbul ignore next */
 			return !1;
 		}
 	}
@@ -6014,11 +5218,10 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		try {
 			return crypto_1.default.timingSafeEqual(a, b);
 		} catch {
-			/* istanbul ignore next */
 			return !1;
 		}
 	}
-})), require_dsse$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dsse$3 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.preAuthEncoding = preAuthEncoding;
 	function preAuthEncoding(payloadType, payload) {
 		let typeBytes = Buffer.from(payloadType, "utf-8");
@@ -6029,7 +5232,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			payload
 		]);
 	}
-})), require_encoding = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_encoding = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.base64Encode = base64Encode, exports.base64Decode = base64Decode;
 	let BASE64_ENCODING = "base64", UTF8_ENCODING = "utf-8";
 	function base64Encode(str) {
@@ -6038,7 +5241,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function base64Decode(str) {
 		return Buffer.from(str, BASE64_ENCODING).toString(UTF8_ENCODING);
 	}
-})), require_json = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_json = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.canonicalize = canonicalize;
 	function canonicalize(object) {
 		let buffer = "";
@@ -6058,7 +5261,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		return buffer;
 	}
-})), require_pem = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_pem = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.toDER = toDER, exports.fromDER = fromDER;
 	let PEM_HEADER = /-----BEGIN (.*)-----/, PEM_FOOTER = /-----END (.*)-----/;
 	function toDER(certificate) {
@@ -6075,7 +5278,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			`-----END ${type}-----`
 		].join("\n").concat("\n");
 	}
-})), require_oid = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_oid = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.SHA2_HASH_ALGOS = exports.RSA_SIGNATURE_ALGOS = exports.ECDSA_SIGNATURE_ALGOS = void 0, exports.ECDSA_SIGNATURE_ALGOS = {
 		"1.2.840.10045.4.3.1": "sha224",
 		"1.2.840.10045.4.3.2": "sha256",
@@ -6091,9 +5294,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		"2.16.840.1.101.3.4.2.2": "sha384",
 		"2.16.840.1.101.3.4.2.3": "sha512"
 	};
-})), require_error$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.RFC3161TimestampVerificationError = void 0, exports.RFC3161TimestampVerificationError = class extends Error {};
-})), require_tstinfo = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_tstinfo = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -6158,7 +5361,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return this.root.subs[2];
 		}
 	};
-})), require_timestamp$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_timestamp$1 = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -6296,7 +5499,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return this.signerInfoObj.subs[5];
 		}
 	};
-})), require_rfc3161 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_rfc3161 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.RFC3161Timestamp = void 0;
 	var timestamp_1 = require_timestamp$1();
 	Object.defineProperty(exports, "RFC3161Timestamp", {
@@ -6305,7 +5508,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return timestamp_1.RFC3161Timestamp;
 		}
 	});
-})), require_sct$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sct$1 = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -6357,20 +5560,13 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		get algorithm() {
 			switch (this.hashAlgorithm) {
-				/* istanbul ignore next */
 				case 0: return "none";
-				/* istanbul ignore next */
 				case 1: return "md5";
-				/* istanbul ignore next */
 				case 2: return "sha1";
-				/* istanbul ignore next */
 				case 3: return "sha224";
 				case 4: return "sha256";
-				/* istanbul ignore next */
 				case 5: return "sha384";
-				/* istanbul ignore next */
 				case 6: return "sha512";
-				/* istanbul ignore next */
 				default: return "unknown";
 			}
 		}
@@ -6392,7 +5588,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 	};
-})), require_ext = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_ext = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.X509SCTExtension = exports.X509SubjectKeyIDExtension = exports.X509AuthorityKeyIDExtension = exports.X509SubjectAlternativeNameExtension = exports.X509KeyUsageExtension = exports.X509BasicConstraintsExtension = exports.X509Extension = void 0;
 	let stream_1 = require_stream(), sct_1 = require_sct$1();
 	var X509Extension = class {
@@ -6484,7 +5680,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return sctList;
 		}
 	};
-})), require_cert = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_cert = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -6562,10 +5758,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		get subjectAltName() {
 			let ext = this.extSubjectAltName;
-			return ext?.uri || /* istanbul ignore next */ ext?.rfc822Name;
+			return ext?.uri || ext?.rfc822Name;
 		}
 		get extensions() {
-			/* istanbul ignore next */
 			return this.extensionsObj?.subs[0]?.subs || [];
 		}
 		get extKeyUsage() {
@@ -6586,7 +5781,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		get extSubjectKeyID() {
 			let ext = this.findExtension("2.5.29.14");
-			return ext ? new ext_1.X509SubjectKeyIDExtension(ext) : /* istanbul ignore next */ void 0;
+			return ext ? new ext_1.X509SubjectKeyIDExtension(ext) : void 0;
 		}
 		get extSCT() {
 			let ext = this.findExtension(exports.EXTENSION_OID_SCT);
@@ -6594,7 +5789,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 		get isCA() {
 			let ca = this.extBasicConstraints?.isCA || !1;
-			/* istanbul ignore next */
 			return this.extKeyUsage ? ca && this.extKeyUsage.keyCertSign : ca;
 		}
 		extension(oid) {
@@ -6649,7 +5843,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return this.tbsCertificateObj.subs.find((sub) => sub.tag.isContextSpecific(3));
 		}
 	};
-})), require_x509 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_x509 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.X509SCTExtension = exports.X509Certificate = exports.EXTENSION_OID_SCT = void 0;
 	var cert_1 = require_cert();
 	Object.defineProperty(exports, "EXTENSION_OID_SCT", {
@@ -6670,7 +5864,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return ext_1.X509SCTExtension;
 		}
 	});
-})), require_dist$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist$1 = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -6743,7 +5937,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return x509_1.X509SCTExtension;
 		}
 	});
-})), require_dsse$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dsse$2 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.DSSESignatureContent = void 0;
 	let core_1 = require_dist$1();
 	exports.DSSESignatureContent = class {
@@ -6770,7 +5964,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return core_1.dsse.preAuthEncoding(this.env.payloadType, this.env.payload);
 		}
 	};
-})), require_message = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_message = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.MessageSignatureContent = void 0;
 	let core_1 = require_dist$1(), protobuf_specs_1 = require_dist$6(), HASH_ALGORITHM_MAP = {
 		[protobuf_specs_1.HashAlgorithm.HASH_ALGORITHM_UNSPECIFIED]: "sha256",
@@ -6786,8 +5980,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		artifact;
 		hashAlgorithm;
 		constructor(messageSignature, artifact) {
-			this.signature = messageSignature.signature, this.messageDigest = messageSignature.messageDigest.digest, this.artifact = artifact, this.hashAlgorithm = HASH_ALGORITHM_MAP[messageSignature.messageDigest.algorithm] ?? 
-			/* istanbul ignore next */ "sha256";
+			this.signature = messageSignature.signature, this.messageDigest = messageSignature.messageDigest.digest, this.artifact = artifact, this.hashAlgorithm = HASH_ALGORITHM_MAP[messageSignature.messageDigest.algorithm] ?? "sha256";
 		}
 		compareSignature(signature) {
 			return core_1.crypto.bufferEqual(signature, this.signature);
@@ -6802,7 +5995,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return core_1.crypto.verify(this.artifact, key, this.signature, this.hashAlgorithm);
 		}
 	};
-})), require_bundle = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_bundle = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.toSignedEntity = toSignedEntity, exports.signatureContent = signatureContent;
 	let core_1 = require_dist$1(), dsse_1 = require_dsse$2(), message_1 = require_message();
 	function toSignedEntity(bundle, artifact) {
@@ -6844,7 +6037,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			};
 		}
 	}
-})), require_error = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_error = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.PolicyError = exports.VerificationError = void 0;
 	var BaseError = class extends Error {
 		code;
@@ -6854,7 +6047,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 	};
 	exports.VerificationError = class extends BaseError {}, exports.PolicyError = class extends BaseError {};
-})), require_filter = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_filter = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.filterCertAuthorities = filterCertAuthorities, exports.filterTLogAuthorities = filterTLogAuthorities;
 	function filterCertAuthorities(certAuthorities, timestamp) {
 		return certAuthorities.filter((ca) => ca.validFor.start <= timestamp && ca.validFor.end >= timestamp);
@@ -6862,9 +6055,9 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function filterTLogAuthorities(tlogAuthorities, criteria) {
 		return tlogAuthorities.filter((tlog) => criteria.logID && !tlog.logID.equals(criteria.logID) ? !1 : tlog.validFor.start <= criteria.targetDate && criteria.targetDate <= tlog.validFor.end);
 	}
-})), require_trust = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_trust = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.filterTLogAuthorities = exports.filterCertAuthorities = void 0, exports.toTrustMaterial = toTrustMaterial;
-	let core_1 = require_dist$1(), protobuf_specs_1 = require_dist$6(), error_1 = require_error(), BEGINNING_OF_TIME = /* @__PURE__ */ new Date(0), END_OF_TIME = /* @__PURE__ */ new Date(864e13);
+	let core_1 = require_dist$1(), protobuf_specs_1 = require_dist$6(), error_1 = require_error(), BEGINNING_OF_TIME = new Date(0), END_OF_TIME = new Date(864e13);
 	var filter_1 = require_filter();
 	Object.defineProperty(exports, "filterCertAuthorities", {
 		enumerable: !0,
@@ -6889,7 +6082,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	function createTLogAuthority(tlogInstance) {
 		let keyDetails = tlogInstance.publicKey.keyDetails, keyType = keyDetails === protobuf_specs_1.PublicKeyDetails.PKCS1_RSA_PKCS1V5 || keyDetails === protobuf_specs_1.PublicKeyDetails.PKIX_RSA_PKCS1V5 || keyDetails === protobuf_specs_1.PublicKeyDetails.PKIX_RSA_PKCS1V15_2048_SHA256 || keyDetails === protobuf_specs_1.PublicKeyDetails.PKIX_RSA_PKCS1V15_3072_SHA256 || keyDetails === protobuf_specs_1.PublicKeyDetails.PKIX_RSA_PKCS1V15_4096_SHA256 ? "pkcs1" : "spki";
-		/* istanbul ignore next */
 		return {
 			baseURL: tlogInstance.baseUrl,
 			logID: tlogInstance.checkpointKeyId ? tlogInstance.checkpointKeyId.keyId : tlogInstance.logId.keyId,
@@ -6901,7 +6093,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		};
 	}
 	function createCertAuthority(ca) {
-		/* istanbul ignore next */
 		return {
 			certChain: ca.certChain.certificates.map((cert) => core_1.X509Certificate.parse(Buffer.from(cert.rawBytes))),
 			validFor: {
@@ -6923,7 +6114,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			};
 		};
 	}
-})), require_certificate = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_certificate = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.CertificateChainVerifier = void 0, exports.verifyCertificateChain = verifyCertificateChain;
 	let error_1 = require_error(), trust_1 = require_trust();
 	function verifyCertificateChain(timestamp, leaf, certificateAuthorities) {
@@ -6996,13 +6187,11 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				try {
 					return certificate.verify(issuer);
 				} catch {
-					/* istanbul ignore next - should never error */
 					return !1;
 				}
 			}), issuers);
 		}
 		checkPath(path) {
-			/* istanbul ignore if */
 			if (path.length < 1) throw new error_1.VerificationError({
 				code: "CERTIFICATE_ERROR",
 				message: "certificate chain must contain at least one certificate"
@@ -7011,9 +6200,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				code: "CERTIFICATE_ERROR",
 				message: "intermediate certificate is not a CA"
 			});
-			for (let i = path.length - 2; i >= 0; i--)
- /* istanbul ignore if */
-			if (!path[i].issuer.equals(path[i + 1].subject)) throw new error_1.VerificationError({
+			for (let i = path.length - 2; i >= 0; i--) if (!path[i].issuer.equals(path[i + 1].subject)) throw new error_1.VerificationError({
 				code: "CERTIFICATE_ERROR",
 				message: "incorrect certificate name chaining"
 			});
@@ -7034,7 +6221,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (let i = 0; i < certs.length; i++) for (let j = i + 1; j < certs.length; j++) certs[i].equals(certs[j]) && (certs.splice(j, 1), j--);
 		return certs;
 	}
-})), require_sct = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_sct = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifySCTs = verifySCTs;
 	let core_1 = require_dist$1(), error_1 = require_error(), trust_1 = require_trust();
 	function verifySCTs(cert, issuer, ctlogs) {
@@ -7046,7 +6233,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				break;
 			}
 		}
-		/* istanbul ignore if -- too difficult to fabricate test case for this */
 		if (!extSCT || extSCT.signedCertificateTimestamps.length === 0) return [];
 		let preCert = new core_1.ByteStream(), issuerId = core_1.crypto.digest("sha256", issuer.publicKey);
 		preCert.appendView(issuerId);
@@ -7062,7 +6248,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return sct.logID;
 		});
 	}
-})), require_key = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_key = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyPublicKey = verifyPublicKey, exports.verifyCertificate = verifyCertificate;
 	let core_1 = require_dist$1(), error_1 = require_error(), certificate_1 = require_certificate(), sct_1 = require_sct();
 	function verifyPublicKey(hint, timestamps, trustMaterial) {
@@ -7085,7 +6271,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	}
 	function getSigner(cert) {
 		let issuer, issuerExtension = cert.extension("1.3.6.1.4.1.57264.1.8");
-		/* istanbul ignore next */
 		issuer = issuerExtension ? issuerExtension.valueObj.subs?.[0]?.value.toString("ascii") : cert.extension("1.3.6.1.4.1.57264.1.1")?.value.toString("ascii");
 		let oids = cert.extensions.map((ext) => ({
 			oid: { id: ext.subs[0].toOID().split(".").map(Number) },
@@ -7100,7 +6285,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			identity
 		};
 	}
-})), require_policy = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_policy = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifySubjectAlternativeName = verifySubjectAlternativeName, exports.verifyExtensions = verifyExtensions, exports.verifyOIDs = verifyOIDs;
 	let error_1 = require_error();
 	function verifySubjectAlternativeName(policyIdentity, signerIdentity) {
@@ -7128,7 +6313,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function oidEquals(a, b) {
 		return a === void 0 || b === void 0 ? !1 : a.length === b.length && a.every((v, i) => v === b[i]);
 	}
-})), require_tsa = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_tsa = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyRFC3161Timestamp = verifyRFC3161Timestamp;
 	let core_1 = require_dist$1(), error_1 = require_error(), certificate_1 = require_certificate(), trust_1 = require_trust();
 	function verifyRFC3161Timestamp(timestamp, data, timestampAuthorities) {
@@ -7166,7 +6351,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function filterCAsBySerialAndIssuer(timestampAuthorities, criteria) {
 		return timestampAuthorities.filter((ca) => ca.certChain.length > 0 && core_1.crypto.bufferEqual(ca.certChain[0].serialNumber, criteria.serialNumber) && core_1.crypto.bufferEqual(ca.certChain[0].issuer, criteria.issuer));
 	}
-})), require_timestamp = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_timestamp = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.getTSATimestamp = getTSATimestamp, exports.getTLogTimestamp = getTLogTimestamp;
 	let tsa_1 = require_tsa();
 	function getTSATimestamp(timestamp, data, timestampAuthorities) {
@@ -7180,10 +6365,10 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		if (entry.inclusionPromise) return {
 			type: "transparency-log",
 			logID: entry.logId.keyId,
-			timestamp: /* @__PURE__ */ new Date(Number(entry.integratedTime) * 1e3)
+			timestamp: new Date(Number(entry.integratedTime) * 1e3)
 		};
 	}
-})), require_verifier$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_verifier$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Signature = exports.Verifier = exports.PublicKey = void 0;
 	let sigstore_common_1 = require_sigstore_common();
 	exports.PublicKey = {
@@ -7232,7 +6417,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_dsse$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dsse$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.DSSELogEntryV002 = exports.DSSERequestV002 = void 0;
 	let envelope_1 = require_envelope(), sigstore_common_1 = require_sigstore_common(), verifier_1 = require_verifier$1();
 	exports.DSSERequestV002 = {
@@ -7261,7 +6446,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_hashedrekord$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_hashedrekord$1 = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.HashedRekordLogEntryV002 = exports.HashedRekordRequestV002 = void 0;
 	let sigstore_common_1 = require_sigstore_common(), verifier_1 = require_verifier$1();
 	exports.HashedRekordRequestV002 = {
@@ -7296,7 +6481,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_entry = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_entry = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.CreateEntryRequest = exports.Spec = exports.Entry = void 0;
 	let dsse_1 = require_dsse$1(), hashedrekord_1 = require_hashedrekord$1();
 	exports.Entry = {
@@ -7343,7 +6528,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isSet(value) {
 		return value != null;
 	}
-})), require_v2 = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_v2 = __commonJSMin(((exports) => {
 	var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
 		k2 === void 0 && (k2 = k);
 		var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -7359,7 +6544,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (var p in m) p !== "default" && !Object.prototype.hasOwnProperty.call(exports$1, p) && __createBinding(exports$1, m, p);
 	};
 	Object.defineProperty(exports, "__esModule", { value: !0 }), __exportStar(require_dsse$1(), exports), __exportStar(require_entry(), exports), __exportStar(require_hashedrekord$1(), exports), __exportStar(require_verifier$1(), exports);
-})), require_dsse = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dsse = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.DSSE_API_VERSION_V1 = void 0, exports.verifyDSSETLogBody = verifyDSSETLogBody, exports.verifyDSSETLogBodyV2 = verifyDSSETLogBodyV2;
 	let error_1 = require_error();
 	exports.DSSE_API_VERSION_V1 = "0.0.1";
@@ -7418,7 +6603,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			message: "DSSE payload hash mismatch"
 		});
 	}
-})), require_hashedrekord = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_hashedrekord = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.HASHEDREKORD_API_VERSION_V1 = void 0, exports.verifyHashedRekordTLogBody = verifyHashedRekordTLogBody, exports.verifyHashedRekordTLogBodyV2 = verifyHashedRekordTLogBodyV2;
 	let error_1 = require_error();
 	exports.HASHEDREKORD_API_VERSION_V1 = "0.0.1";
@@ -7469,7 +6654,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			message: "digest mismatch"
 		});
 	}
-})), require_intoto = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_intoto = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyIntotoTLogBody = verifyIntotoTLogBody;
 	let error_1 = require_error();
 	function verifyIntotoTLogBody(tlogEntry, content) {
@@ -7500,7 +6685,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function base64Decode(str) {
 		return Buffer.from(str, "base64").toString("utf-8");
 	}
-})), require_checkpoint = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_checkpoint = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.LogCheckpoint = void 0, exports.verifyCheckpoint = verifyCheckpoint;
 	let core_1 = require_dist$1(), error_1 = require_error(), SIGNATURE_REGEX = /\u2014 (\S+) (\S+)\n/g;
 	function verifyCheckpoint(entry, tlogs) {
@@ -7575,7 +6760,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		}
 	};
 	exports.LogCheckpoint = LogCheckpoint;
-})), require_merkle = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_merkle = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyMerkleInclusion = verifyMerkleInclusion;
 	let core_1 = require_dist$1(), error_1 = require_error(), RFC6962_LEAF_HASH_PREFIX = Buffer.from([0]), RFC6962_NODE_HASH_PREFIX = Buffer.from([1]);
 	function verifyMerkleInclusion(entry, checkpoint) {
@@ -7632,13 +6817,13 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function hashLeaf(leaf) {
 		return core_1.crypto.digest("sha256", RFC6962_LEAF_HASH_PREFIX, leaf);
 	}
-})), require_set = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_set = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyTLogSET = verifyTLogSET;
 	let core_1 = require_dist$1(), error_1 = require_error(), trust_1 = require_trust();
 	function verifyTLogSET(entry, tlogs) {
 		if (!(0, trust_1.filterTLogAuthorities)(tlogs, {
 			logID: entry.logId.keyId,
-			targetDate: /* @__PURE__ */ new Date(Number(entry.integratedTime) * 1e3)
+			targetDate: new Date(Number(entry.integratedTime) * 1e3)
 		}).some((tlog) => {
 			let payload = toVerificationPayload(entry), data = Buffer.from(core_1.json.canonicalize(payload), "utf8"), signature = entry.inclusionPromise.signedEntryTimestamp;
 			return core_1.crypto.verify(data, tlog.publicKey, signature);
@@ -7656,7 +6841,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			logID: logId.keyId.toString("hex")
 		};
 	}
-})), require_tlog = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_tlog = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.verifyTLogBody = verifyTLogBody, exports.verifyTLogInclusion = verifyTLogInclusion;
 	let v2_1 = require_v2(), error_1 = require_error(), dsse_1 = require_dsse(), hashedrekord_1 = require_hashedrekord(), intoto_1 = require_intoto(), checkpoint_1 = require_checkpoint(), merkle_1 = require_merkle(), set_1 = require_set();
 	function verifyTLogBody(entry, sigContent) {
@@ -7687,7 +6872,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 					let entryRekorV2 = v2_1.Entry.fromJSON(body);
 					return (0, hashedrekord_1.verifyHashedRekordTLogBodyV2)(entryRekorV2, sigContent);
 				}
-			/* istanbul ignore next */
 			default: throw new error_1.VerificationError({
 				code: "TLOG_BODY_ERROR",
 				message: `unsupported kind: ${kind}`
@@ -7711,7 +6895,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	function isTLogEntryWithInclusionProof(entry) {
 		return entry.inclusionProof !== void 0;
 	}
-})), require_verifier = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_verifier = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Verifier = void 0;
 	let util_1 = require("util"), error_1 = require_error(), key_1 = require_key(), policy_1 = require_policy(), timestamp_1 = require_timestamp(), tlog_1 = require_tlog();
 	exports.Verifier = class {
@@ -7756,7 +6940,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 				case "public-key": return (0, key_1.verifyPublicKey)(key.hint, timestamps, this.trustMaterial);
 				case "certificate": {
 					let result = (0, key_1.verifyCertificate)(key.certificate, timestamps, this.trustMaterial);
-					/* istanbul ignore next - no fixture */
 					if (containsDupes(result.scts)) throw new error_1.VerificationError({
 						code: "CERTIFICATE_ERROR",
 						message: "duplicate SCT"
@@ -7792,7 +6975,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			});
 		}
 		verifyPolicy(policy, identity) {
-			/* istanbul ignore if */
 			policy.subjectAlternativeName && (0, policy_1.verifySubjectAlternativeName)(policy.subjectAlternativeName, identity.subjectAlternativeName), policy.extensions && (0, policy_1.verifyExtensions)(policy.extensions, identity.extensions), policy.oids && (0, policy_1.verifyOIDs)(policy.oids, identity.oids);
 		}
 	};
@@ -7800,9 +6982,8 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) if ((0, util_1.isDeepStrictEqual)(arr[i], arr[j])) return !0;
 		return !1;
 	}
-})), require_dist = /* @__PURE__ */ __commonJSMin(((exports) => {
+})), require_dist = __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: !0 }), exports.Verifier = exports.toTrustMaterial = exports.VerificationError = exports.PolicyError = exports.toSignedEntity = void 0;
-	/* istanbul ignore file */
 	var bundle_1 = require_bundle();
 	Object.defineProperty(exports, "toSignedEntity", {
 		enumerable: !0,
@@ -7838,26 +7019,6 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 	});
 })), import_dist = require_dist$5(), import_dist$1 = require_dist$2(), import_dist$2 = require_dist();
 const derUtf8 = (s) => String.fromCharCode(12, s.length) + s;
-/**
-* Extract and assert the signed manifest digest from a cosign DSSE bundle.
-*
-* Two payload formats are supported depending on the cosign version:
-*
-* 1. in-toto Statement v1 (payloadType "application/vnd.in-toto+json")
-*    Used by cosign --new-bundle-format (v2.4+).
-*    Digest is stored in subject[].digest.sha256.
-*
-* 2. simple-signing (legacy cosign)
-*    Digest is stored in critical.image.docker-manifest-digest.
-*
-* This check closes the gap between Referrers-API attribution (registry
-* metadata, not cryptographic) and the actual signed content — an attacker
-* with package-write access could re-attach a valid bundle to a different
-* image; this assertion prevents accepting such a re-attached bundle.
-*
-* Exported for unit testing; callers should use sigstore.ts's verifyBundle()
-* instead.
-*/
 function assertSignedDigest(bundleJson, expectedDigest) {
 	let dsse = bundleJson?.dsseEnvelope, payload = dsse?.payload;
 	if (!payload) throw new VerifyImageError("Bundle is not a DSSE envelope or is missing a signed payload", "VERIFY_FAILED");
@@ -7876,23 +7037,6 @@ function assertSignedDigest(bundleJson, expectedDigest) {
 }
 //#endregion
 //#region src/core/lib/provenance/sigstore.ts
-/**
-* Cryptographically verify a Sigstore Bundle (DSSE format) against a policy,
-* then assert that the bundle's signed manifest digest matches the fetched digest.
-*
-* The bundle's DSSE envelope contains its own signed payload; no external
-* payload is needed for this format.
-*
-* Policy fields in options:
-*   certificateIssuer      – expected Fulcio OIDC issuer URL
-*   certificateIdentityURI – SAN URI regexp pattern string
-*   certificateOIDs        – { [oid]: derUtf8EncodedValue } map
-*   tlogThreshold          – minimum transparency log entries (default 1)
-*   ctLogThreshold         – minimum CT log entries (default 1)
-*
-* expectedDigest — "sha256:<hex>" fetched from the registry;
-* must match the digest inside the signed payload.
-*/
 async function verifyBundle(bundleJson, options, expectedDigest) {
 	let trustedRoot = await (0, import_dist$1.getTrustedRoot)(), verifier = new import_dist$2.Verifier((0, import_dist$2.toTrustMaterial)(trustedRoot), {
 		ctlogThreshold: options.ctLogThreshold,
@@ -7913,13 +7057,6 @@ async function verifyBundle(bundleJson, options, expectedDigest) {
 function engineTagSuffix(proxyEngine) {
 	return proxyEngine === "universal" || proxyEngine === "" ? "" : `-${proxyEngine}`;
 }
-/**
-* Convert an action ref into the Docker image tag to resolve (e.g. `2.1.0`,
-* `2.1.0-inspect`, `sha-<sha>-inspect`).
-*
-* The suffix is not part of the Sigstore identity; engine-label.ts is what
-* binds the resolved image to the requested engine.
-*/
 function imageTagFromRef(actionRef, proxyEngine = "universal") {
 	if (!actionRef) return "";
 	let base;
@@ -7927,20 +7064,7 @@ function imageTagFromRef(actionRef, proxyEngine = "universal") {
 }
 //#endregion
 //#region src/core/lib/provenance/engine-label.ts
-/** Holds the published Docker tag, engine suffix included. */
 const IMAGE_VERSION_LABEL = "org.opencontainers.image.version", RELEASE_VERSION = /^\d+\.\d+\.\d+(-rc\d+)?$/;
-/**
-* Fail unless the verified image was published for the requested engine.
-*
-* Every engine of a release verifies under the same signing identity, which
-* covers the git tag and never the Docker tag, so the tag alone would decide
-* which engine runs.
-*
-* The label has to be this engine's suffix on a bare release version. Reading
-* the engine off the label instead would fail open for any suffix the action
-* does not recognize, such as an engine it has since stopped offering but whose
-* images are still published and still signed.
-*/
 function checkImageEngine({ labels, proxyEngine, imageTag }) {
 	let label = labels[IMAGE_VERSION_LABEL];
 	if (!label) throw new VerifyImageError(`Image ${imageTag} carries no ${IMAGE_VERSION_LABEL} label, so the proxy engine it was published for cannot be confirmed.`, "VERIFY_FAILED");
@@ -7950,17 +7074,6 @@ function checkImageEngine({ labels, proxyEngine, imageTag }) {
 //#endregion
 //#region src/core/lib/provenance/verify-policy.ts
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/**
-* Build verify options encoding the expected certificate identity.
-*
-* The SAN URI pattern uses `(\.|$)` boundary anchors for version tags so that
-* e.g. @v2.1 matches v2.1.0 and v2.1.3 but NOT v2.10.0.
-*
-* For SHA pins, OID 1.13 (Source Repository Digest) pins the exact commit
-* while the SAN accepts any release tag.
-*
-* Returns null for unverifiable refs (branch names, local paths).
-*/
 function buildVerifyOptions({ actionRef, actionRepo }) {
 	let sanPrefix = `^${escapeRegex(`https://github.com/${actionRepo}/.github/workflows/docker-publish.yml@refs/tags/`)}`, base = {
 		certificateIssuer: "https://token.actions.githubusercontent.com",
@@ -7978,28 +7091,7 @@ function buildVerifyOptions({ actionRef, actionRepo }) {
 }
 //#endregion
 //#region src/core/lib/provenance/verify-image.ts
-/**
-* verify-image.ts — Image provenance verification helpers
-*
-* Verifies the Docker image's Sigstore provenance bundle.
-*
-* Fail-closed policy:
-*   - Any failure for a verifiable ref (version tag / 40-char SHA) → throws
-*     VerifyImageError; the caller (main) is responsible for printing ::error::.
-*   - Unverifiable ref (branch / local ./setup) → returns null.
-*/
 const REGISTRY = "ghcr.io";
-/**
-* Verify image provenance and return the verified manifest digest.
-*
-* Returns null for unverifiable refs (branch / local ./setup).
-* On failure, throws VerifyImageError — the caller is responsible for printing
-* the error message.
-*
-* Untested by design: every step it calls is tested directly. The order they
-* run in is not, so the reason for it is kept inline below.
-*/
-/* v8 ignore start */
 async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "universal" }) {
 	let repoPath = actionRepo.toLowerCase(), verifyOptions = buildVerifyOptions({
 		actionRef,
@@ -8013,28 +7105,13 @@ async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "univers
 		imageTag: tag
 	}), digest;
 }
-/* v8 ignore stop */
-/** Maps a VerifyImageError (or any other thrown value) to the caller-facing ProvenanceError. */
 function toProvenanceError(e) {
 	return e instanceof VerifyImageError ? new ProvenanceError(e.message, e.code) : new ProvenanceError(errorMessage(e), "VERIFY_FAILED");
 }
-/**
-* verifyImageDigest returns null for an unverifiable ref (branch name,
-* local ./setup) rather than throwing — this turns that into the
-* caller-facing error.
-*/
 function requireDigest(digest, actionRef) {
 	if (digest === null) throw new ProvenanceError(`Cannot verify image provenance for ref: ${JSON.stringify(actionRef)}. Pin the action to a version tag (e.g. @v2.1.0) or a commit SHA.`, "UNVERIFIABLE_REF");
 	return digest;
 }
-/**
-* Like verifyImageDigest, but throws ProvenanceError (see errors.ts) instead
-* of the low-level VerifyImageError, so a caller gets one already-typed
-* error to catch rather than having to translate the result itself.
-*
-* Untested by design: toProvenanceError and requireDigest are tested directly.
-*/
-/* v8 ignore start */
 async function verifyImageDigestOrThrow({ actionRef, actionRepo, proxyEngine }) {
 	let digest;
 	try {
@@ -8048,20 +7125,11 @@ async function verifyImageDigestOrThrow({ actionRef, actionRepo, proxyEngine }) 
 	}
 	return requireDigest(digest, actionRef);
 }
-/* v8 ignore stop */
 //#endregion
 //#region src/core/lib/provenance/image-ref.ts
 function resolveBuildcageImageRef({ imageDigest, actionRepository }) {
 	return `${`ghcr.io/${actionRepository}`.toLowerCase()}@${imageDigest}`;
 }
-/**
-* Turns a caught `docker` invocation error into an actionable message,
-* pointing at the runner requirement instead of surfacing execFileSync's
-* opaque "Command failed: docker ...args..." text. Deliberately doesn't
-* echo `e.message` when stderr was inherited (already visible live in the
-* Actions log) — only captured stderr (e.g. from a piped call) is included,
-* since otherwise nothing points the reader back to it.
-*/
 function describeDockerFailure(e, { operation = "docker", env = process.env, exists = node_fs.existsSync } = {}) {
 	let err = e && typeof e == "object" ? e : {}, slimNote = isLikelySlimRunner(env, exists) ? " Detected a container-based GitHub-hosted runner image (e.g. \"ubuntu-slim\") — these ship a Docker client with no daemon and are not supported for this action." : "", whatHappened;
 	if (err.code === "ENOENT") whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
@@ -8071,42 +7139,17 @@ function describeDockerFailure(e, { operation = "docker", env = process.env, exi
 	}
 	return `${whatHappened}${slimNote} Buildcage requires a working Docker installation (client and daemon) on the runner, on Docker Engine 25.0 or later with Compose v2.20.2 or later. Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a full Docker install) instead. See README.md and docs/security.md for details.`;
 }
-/**
-* Best-effort detection of GitHub's container-based hosted runner images
-* (currently: ubuntu-slim) — these run jobs inside a container rather than
-* a dedicated VM, so unlike VM-based ubuntu-latest/22.04/24.04/26.04 they
-* ship a Docker client with no daemon.
-*
-* Not an official/documented API: ImageOS is hardcoded to "Linux" (vs.
-* "ubuntu24" etc. on VM images) and /run/.containerenv is baked into the
-* image at build time by GitHub's own Dockerfile
-* (github.com/actions/runner-images/blob/main/images/ubuntu-slim/Dockerfile).
-* Both signals could change without notice — failing to detect just falls
-* back to the generic message in describeDockerFailure, so this is safe to
-* get wrong.
-*/
 function isLikelySlimRunner(_env = process.env, _exists = node_fs.existsSync) {
 	return _env.ImageOS === "Linux" && _exists("/run/.containerenv");
 }
 //#endregion
 //#region src/core/lib/actions/log.ts
-/** Logs a labeled ACL rule list, one rule per line, for a `::group::` block. */
 function logRules(label, rules) {
 	console.log(`${label} rules:${rules.length === 0 ? " (none)" : ""}`);
 	for (let r of rules) console.log(`  ${r}`);
 }
 //#endregion
 //#region src/core/lib/docker/compose-project-name.ts
-/**
-* An explicit, deterministic Compose project name, so concurrent
-* `up`/`down`/`ps` from different steps in the same job never collide on
-* Compose's shared, directory-derived default.
-*
-* Hashed rather than used verbatim: Compose project names are constrained
-* to `^[a-z0-9][a-z0-9_-]*$`, but the input can be a wider-charset
-* user-supplied `builder_name` — a hex digest is always in-charset
-* regardless, so this never needs to validate its input.
-*/
 function deriveProjectName(containerName) {
 	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
 }
@@ -8128,8 +7171,6 @@ function buildComposeUpArgs({ composeFile, projectName, pullPolicy }) {
 		"--quiet-pull"
 	];
 }
-/** Build the `docker compose ... logs` argv. Goes through Compose rather than
-*  `docker logs` so it still reads a container that has exited. */
 function buildComposeLogsArgs({ composeFile, projectName, tail }) {
 	return [
 		"compose",
@@ -8143,7 +7184,6 @@ function buildComposeLogsArgs({ composeFile, projectName, tail }) {
 		String(tail)
 	];
 }
-/** Build the `docker compose ... down` argv — see buildComposeUpArgs above. */
 function buildComposeDownArgs({ composeFile, projectName }) {
 	return [
 		"compose",
@@ -8164,8 +7204,6 @@ function buildDockerInspectStateArgs(containerName) {
 		containerName
 	];
 }
-/** Null for anything that isn't a state object: a missing container prints
-*  nothing to stdout. */
 function parseContainerState(inspectOutput) {
 	let raw;
 	try {
@@ -8192,11 +7230,6 @@ function describeContainerStartFailure(state, { role, containerName }) {
 //#endregion
 //#region src/main.ts
 const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href)), composeFile = (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml");
-/**
-* Verifies image provenance and resolves the digest-pinned image ref.
-* Throws ProvenanceError("UNVERIFIABLE_REF") if verification can't be
-* performed (branch ref / local ./) — printed by the top-level catch.
-*/
 async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
 	let digest = await verifyImageDigestOrThrow({
 		actionRef,
@@ -8275,8 +7308,6 @@ async function main() {
 		});
 	}
 }
-/** Asks the container itself why `compose up` failed. With no container to
-*  ask, the failure predates it and is Docker's own. */
 function builderStartError(e, { composeFile, projectName, builderName, composeEnv }) {
 	let state = readBuilderState(builderName, composeEnv);
 	return state ? (printBuilderLog({
@@ -8303,13 +7334,10 @@ function readBuilderState(builderName, composeEnv) {
 		return reportInspectFailure(e), null;
 	}
 }
-/** Anything other than the expected missing container is worth seeing, even
-*  though the compose failure is what gets reported. */
 function reportInspectFailure(e) {
 	let stderr = (e && typeof e == "object" ? e : {}).stderr ?? "";
 	stderr.trim() && !/no such object/i.test(stderr) && console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
 }
-/** Best effort: the message that follows still stands without the log. */
 function printBuilderLog({ composeFile, projectName, composeEnv }) {
 	console.log("::group::buildcage: Builder container log");
 	try {
@@ -8326,11 +7354,6 @@ function printBuilderLog({ composeFile, projectName, composeEnv }) {
 	}
 	console.log("::endgroup::");
 }
-/**
-* Resolve and validate the proxy_engine input.
-* Each accepted value maps to a separately published, separately tagged
-* Docker image (see provenance/image-tag.ts's imageTagFromRef).
-*/
 const ENGINES = [
 	"universal",
 	"explicit",
