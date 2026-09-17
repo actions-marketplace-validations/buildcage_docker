@@ -10668,7 +10668,6 @@ async function* streamDockerLines(spawnDocker, args, operation) {
 	} finally {
 		rl.close(), !exhausted && child.exitCode === null && child.signalCode === null && child.kill();
 	}
-	if (!exhausted) return;
 	let { code, signal } = await closed;
 	if (spawnError) throw spawnError;
 	if (code !== 0) throw Object.assign(Error(`${operation} exited with code ${code}${signal ? ` (signal ${signal})` : ""}: ${stderr.trim()}`), {

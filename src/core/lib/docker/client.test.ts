@@ -196,6 +196,21 @@ describe("createDocker readFileLines", () => {
     await iterator.return?.(undefined); // what `for await...of` does on an early break
     expect(children[0].killed).toBeTruthy();
   });
+
+  // A child killed from outside closes stdout, so the consumer reaches EOF and
+  // then finds no exit code at all, only the signal that ended it.
+  it("names the signal, and carries no status, when the child was killed", async () => {
+    const { spawnDocker, children } = fakeSpawn();
+    const drained = drain(createDocker(undefined, spawnDocker).readFileLines("abc123", "/x"));
+    await Promise.resolve();
+    children[0].stderr.write("terminated\n");
+    children[0].kill();
+    await expect(drained).rejects.toSatisfy(
+      (e) =>
+        (e as { status?: number }).status === undefined &&
+        (e as Error).message.includes("(signal SIGTERM)"),
+    );
+  });
 });
 
 reportResults();
