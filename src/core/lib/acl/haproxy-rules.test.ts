@@ -150,4 +150,12 @@ describe("tls rule compilation", () => {
   });
 });
 
+describe("port validation", () => {
+  it('refuses a port that is neither digits nor "*"', () => {
+    expect(() => compileRuleSet({ httpsRules: ["example.com:https"] })).toThrow(
+      /Invalid port in rule/,
+    );
+  });
+});
+
 reportResults();

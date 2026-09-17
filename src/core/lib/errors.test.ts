@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { ActionError } from "./errors.ts";
+import { ActionError, errorMessage } from "./errors.ts";
 
 describe("ActionError", () => {
   it("sets name, message, and code, and is an instanceof Error", () => {
@@ -18,5 +18,17 @@ describe("ActionError", () => {
     expect(err.message).toBe("msg2");
     expect(err.code).toBe("CODE2");
     expect(err instanceof ActionError).toBeTruthy();
+  });
+});
+
+describe("errorMessage", () => {
+  it("takes the message of a real Error", () => {
+    expect(errorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  // catch does not guarantee an Error, and a thrown string is the common case.
+  it("stringifies anything else", () => {
+    expect(errorMessage("boom")).toBe("boom");
+    expect(errorMessage(undefined)).toBe("undefined");
   });
 });

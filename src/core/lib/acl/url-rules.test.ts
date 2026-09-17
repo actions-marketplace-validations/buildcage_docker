@@ -251,4 +251,10 @@ describe("methods", () => {
   });
 });
 
+describe("url validation", () => {
+  it("refuses a URL with no host", () => {
+    expect(() => buildUrlRules("GET https://:443/path")).toThrow(/missing host/);
+  });
+});
+
 reportResults();

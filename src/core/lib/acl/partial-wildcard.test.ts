@@ -2,6 +2,7 @@ import { describe, it, expect, reportResults } from "../test/test-shim.ts";
 import {
   domainToRegexPartial,
   pathToRegexPartial,
+  splitRawRegexHost,
   wildcardToRegexPartial,
 } from "./partial-wildcard.ts";
 
@@ -132,6 +133,14 @@ describe("paths", () => {
 
   it("returns an empty fragment for an empty path", () => {
     expect(pathToRegexPartial("")).toBe("");
+  });
+});
+
+describe("splitRawRegexHost host-half compilation", () => {
+  // The whole expression compiles, but the split at the port separator cuts a
+  // group open, so the host half alone does not.
+  it("refuses a rule whose host half does not compile on its own", () => {
+    expect(() => splitRawRegexHost("~(a\\.com:443)")).toThrow(/does not compile on its own/);
   });
 });
 
