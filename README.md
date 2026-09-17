@@ -445,13 +445,19 @@ tell a fetch from a publish on the same host. See [Engines](#engines).
 
 GitHub is building an egress firewall directly into Actions runners
 ([technical preview](https://github.com/github-early-access/actions-native-egress-firewall) as of
-August 2026): opt a job into a firewall-enabled runner image and every step's traffic is observed at
-the runner boundary. Today that is audit only, with enforcement not yet available, and it applies to
-the whole job at once.
+September 2026): opt a job into a firewall-enabled runner image and its traffic is inspected outside
+the runner VM, in `log` or `enforce` mode, from a single `.github/egress-firewall.yaml` in the
+repository. Because it sits outside the VM, a workflow that gains root inside the runner cannot
+switch it off. Firewall-enabled images are GitHub-hosted and Linux only.
 
-Buildcage sits at a different layer and works alongside it: allowlists are scoped per `docker build`
-rather than per job, rules can name a method and a URL rather than only a host, and enforcement (not
-just audit) is available now.
+One policy for the whole run is one allowlist for every step in it: the destinations
+`actions/checkout`, the caches and the setup actions need stay open to the build as well. Buildcage
+writes a separate allowlist for the build you don't trust, so a `docker build` gets the hosts that
+build needs and nothing else, and a rule there can name a method and a URL rather than only a host.
+The two compose: a perimeter the job can't switch off, and a tighter policy inside it.
+
+Buildcage also runs on any Linux runner with Docker, self-hosted included, rather than on a
+firewall-enabled runner image.
 
 ## Documentation
 
