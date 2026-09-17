@@ -50,14 +50,11 @@ export function renderReportMarkdown(
     // be that much narrower than one built from hosts alone.
     markdown +=
       report.engine === "inspect"
-        ? buildInspectRestrictExample(
-            report.timeline,
-            actionRepo,
-            actionRef,
+        ? buildInspectRestrictExample(report.timeline, actionRepo, actionRef, {
             actionVersion,
-            report.parameters.allowedIpRules,
-            report.parameters.allowedTlsRules,
-          )
+            allowedIpRules: report.parameters.allowedIpRules,
+            allowedTlsRules: report.parameters.allowedTlsRules,
+          })
         : buildRestrictExample(report.passed, actionRepo, actionRef, actionVersion);
   }
   if (report.blocked.length > 0) {

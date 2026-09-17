@@ -7,8 +7,8 @@ export function engineTagSuffix(proxyEngine: string): string {
 }
 
 /**
- * Convert an action ref into the Docker image tag to resolve (e.g. `2.1.0`,
- * `2.1.0-inspect`, `sha-<sha>-inspect`).
+ * Convert an action ref into the Docker image tag to resolve (e.g. `<version>`,
+ * `<version>-inspect`, `sha-<sha>-inspect`).
  *
  * The suffix is not part of the Sigstore identity; engine-label.ts is what
  * binds the resolved image to the requested engine.
