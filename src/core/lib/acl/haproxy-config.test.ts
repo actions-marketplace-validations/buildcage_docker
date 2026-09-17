@@ -948,4 +948,17 @@ describe("escaping rule text for the config parser", () => {
   });
 });
 
+describe("a tls rule scoped to any port", () => {
+  // The port ACL is what keeps an allowed SNI on a different port from setting
+  // the flag; a rule covering every port has none to gate on.
+  it("gates the tlsrule flag on the SNI alone", () => {
+    const config = gen({
+      tlsRules: ["db.example.com:*"],
+      resolverAddress: ["1.1.1.1"],
+      proxyAddress: "10.0.0.2",
+    });
+    expect(config).toMatch(/set-var\(txn\.tlsrule\) int\(1\) if tls0_sni\n/);
+  });
+});
+
 reportResults();
