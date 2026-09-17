@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { scanBuildkitdLog } from "./buildkitd.ts";
 
 // Real line captured from a live moby/buildkit v0.31.1 explicit-mode container.
@@ -153,5 +153,3 @@ describe("lines missing one of the two fields", () => {
     expect(result.denied.length).toBe(0);
   });
 });
-
-reportResults();

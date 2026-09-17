@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { annotateKnownBlocked, aggregateAllowedHosts } from "./aggregate.ts";
 
 describe("annotateKnownBlocked", () => {
@@ -153,5 +153,3 @@ describe("aggregateAllowedHosts — identifiers the parser cannot read", () => {
     ]);
   });
 });
-
-reportResults();

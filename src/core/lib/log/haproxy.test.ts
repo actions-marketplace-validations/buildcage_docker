@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { scanHaproxyLog } from "./haproxy.ts";
 
 // ---------------------------------------------------------------------------
@@ -187,5 +187,3 @@ describe("a host logged without a port", () => {
     expect(result.blocked[0].port).toBe("0");
   });
 });
-
-reportResults();

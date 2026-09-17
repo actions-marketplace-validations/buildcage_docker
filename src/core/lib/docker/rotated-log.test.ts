@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { parseLogSegments, readRotatedLog } from "./rotated-log.ts";
 import type { Docker } from "./client.ts";
 
@@ -118,5 +118,3 @@ describe("readRotatedLog", () => {
     expect(seenArgs).toStrictEqual(["ls", "-1", "/var/log/haproxy"]);
   });
 });
-
-reportResults();

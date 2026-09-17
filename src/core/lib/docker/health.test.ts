@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import {
   buildDockerInspectStateArgs,
   parseContainerState,
@@ -131,5 +131,3 @@ describe("a health log entry with nothing in it", () => {
     expect(parseContainerState(output)?.lastHealthOutput).toBe(null);
   });
 });
-
-reportResults();

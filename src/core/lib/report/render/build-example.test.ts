@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { buildRestrictExample } from "./build-example.ts";
 
 const REPO = "buildcage/docker";
@@ -196,5 +196,3 @@ describe("buildRestrictExample — rows that map to no action input", () => {
     expect(buildRestrictExample([audited("DNS")], REPO, "v3")).toBe("");
   });
 });
-
-reportResults();

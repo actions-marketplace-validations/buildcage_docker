@@ -19,5 +19,5 @@
     "docker/explicit/scripts/**/*.ts",
     "docker/inspect/scripts/**/*.ts"
   ],
-  "exclude": ["**/*.property.test.ts", "**/*.node.ts"]
+  "exclude": ["**/*.property.test.ts", "**/*.golden.test.ts", "**/*.node.ts"]
 }

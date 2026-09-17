@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import {
   buildUrlRuleLines,
   pathPatternsFor,
@@ -343,5 +343,3 @@ describe("buildUrlRuleLines — comparisons in both directions", () => {
     ]);
   });
 });
-
-reportResults();

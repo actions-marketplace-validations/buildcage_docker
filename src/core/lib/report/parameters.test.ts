@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { buildReportParameters } from "./parameters.ts";
 
 describe("buildReportParameters", () => {
@@ -35,5 +35,3 @@ describe("buildReportParameters", () => {
     expect(params.knownBlockedRules).toStrictEqual([]);
   });
 });
-
-reportResults();

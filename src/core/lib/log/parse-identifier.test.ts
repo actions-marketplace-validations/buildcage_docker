@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { parseIdentifier } from "./parse-identifier.ts";
 
 describe("parseIdentifier", () => {
@@ -27,5 +27,3 @@ describe("parseIdentifier", () => {
     expect(parseIdentifier("docker-image://docker.io/library/alpine:latest")).toBe(null);
   });
 });
-
-reportResults();

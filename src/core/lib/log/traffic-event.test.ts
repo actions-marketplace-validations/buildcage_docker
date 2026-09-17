@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { connectedHosts, isRedundantDns, type TrafficEvent } from "./traffic-event.ts";
 
 function event(
@@ -93,5 +93,3 @@ describe("connectedHosts", () => {
     expect([...connected.blocked].join(",")).toBe("refused.example.com");
   });
 });
-
-reportResults();

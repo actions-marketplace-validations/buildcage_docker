@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import {
   buildDockerCpArgs,
   buildComposeUpArgs,
@@ -87,5 +87,3 @@ describe("buildComposeDownArgs", () => {
     ]);
   });
 });
-
-reportResults();
