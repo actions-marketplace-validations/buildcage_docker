@@ -320,4 +320,28 @@ describe("buildUrlRuleLines — ordering", () => {
   });
 });
 
+describe("buildUrlRuleLines — comparisons in both directions", () => {
+  // Two unknown methods only ever get compared one way round, so a third is
+  // what exercises the other arm.
+  it("sorts three unknown methods among themselves", () => {
+    const [line] = buildUrlRuleLines([
+      req("ZZZ", "https://a.example.com/x"),
+      req("MKCOL", "https://a.example.com/x"),
+      req("PROPFIND", "https://a.example.com/x"),
+    ]);
+    expect(line.split(" ")[0]).toBe("MKCOL|PROPFIND|ZZZ");
+  });
+
+  it("orders two patterns on one origin by pattern", () => {
+    const lines = buildUrlRuleLines([
+      req("GET", "https://a.example.com/zzz"),
+      req("POST", "https://a.example.com/aaa"),
+    ]);
+    expect(lines.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/aaa",
+      "https://a.example.com/zzz",
+    ]);
+  });
+});
+
 reportResults();
