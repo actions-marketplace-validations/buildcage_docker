@@ -270,11 +270,18 @@ The fields are listed in [Reference](./docs/reference.md#traffic-artifact).
 
 ## How it works
 
-The builder container runs its own resolver and proxy, and every `RUN` step's traffic is routed
-through them at the network level, so a tool that ignores the proxy environment variables is covered
-as well. BuildKit itself is stock. Buildx needs `driver: remote` because the builder is a second
-BuildKit, but multi-stage builds, caching and the image that comes out are unaffected, and nothing
-Buildcage does reaches the LLB or a cache key.
+<img src="assets/diagram-overview.png" alt="How Buildcage restricts what a build can reach" width="1000">
+
+BuildKit itself is unpatched. Buildcage starts it with a network configuration that puts every `RUN`
+step on its own network, and wraps its runtime so the build CA is mounted into a step for as long as
+that step runs. Name lookups and traffic from there reach the resolver and the proxy in the builder
+container, at the network level, so a tool that ignores the proxy environment variables is covered as
+well. The figure is the `inspect` engine; `universal` follows the same path without terminating TLS,
+and so needs no CA.
+
+Buildx needs `driver: remote` because the builder is a second BuildKit, but multi-stage builds,
+caching and the image that comes out are unaffected, and nothing Buildcage does reaches the LLB or a
+cache key.
 
 [Security Details](./docs/security.md) has the architecture of each engine, with a diagram of what
 runs where and what it decides. [Development Guide](./docs/development.md) has the implementation.
