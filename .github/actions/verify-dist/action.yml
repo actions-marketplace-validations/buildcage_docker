@@ -1,5 +1,5 @@
 name: Verify dist
-description: Rebuild the committed dist bundles and confirm they match the source
+description: Rebuild the committed dist bundles and license file, and confirm they match the source
 # Callers must run actions/checkout and ./.github/actions/setup-vp first.
 
 runs:
@@ -9,7 +9,7 @@ runs:
       shell: bash
       run: vp run build
 
-    - name: Check dist is up to date
+    - name: Check dist and THIRD_PARTY_LICENSES_NPM are up to date
       shell: bash
       run: git diff --exit-code
 

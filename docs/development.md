@@ -333,6 +333,8 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   └── dist/                 # Bundled output (rolldown → CommonJS)
 ├── docs/                     # development.md, security.md, explicit-engine.md, plus the
 │                             # reference.md/rules.md/inspect-engine.md link stubs
+├── licenses/                 # gen-license-file.mjs, which regenerates THIRD_PARTY_LICENSES_NPM
+│                             # during `vp run build`, and what .glf.jsonc substitutes in
 ├── compose.yaml              # Docker Compose config for local dev (dockerfile path selected by
 │                             # PROXY_ENGINE; also defines the local-dev `proxy` service)
 └── Makefile                  # Operational commands
