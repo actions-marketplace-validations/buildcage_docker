@@ -1,16 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as core from "@actions/core";
 
 import { SetupError } from "./lib/errors.ts";
 import { ActionError, errorMessage } from "#core/lib/errors.ts";
-import {
-  buildACLRules,
-  parseKnownBlockedRulesOrThrow,
-  parseRulesOrThrow,
-} from "#core/lib/acl/rules.ts";
-import { buildUrlRules } from "#core/lib/acl/url-rules.ts";
+import { readBuilderName, readEngineInputs, readRuleInputs } from "./lib/inputs.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
 import { buildComposeEnv } from "./lib/compose-env.ts";
 import {
@@ -25,8 +19,11 @@ import { deriveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { buildComposeUpArgs, buildComposeDownArgs } from "#core/lib/docker/args.ts";
 import { builderStartError } from "./lib/builder-diagnostics.ts";
 
-export { buildACLRules };
-
+// Untested by design, down to the end of the file: what is left here is the
+// entry point's own wiring -- the compose file path, the local-image gate, the
+// docker invocations main() sequences, and the self-invocation guard a test
+// can never be inside. Every unit main() calls is tested directly, in lib/.
+/* v8 ignore start */
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const composeFile = join(__dirname, "../docker/compose.action.yaml");
 
@@ -42,11 +39,7 @@ const LOCAL_IMAGE_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === 
  * Verifies image provenance and resolves the digest-pinned image ref.
  * Throws ProvenanceError("UNVERIFIABLE_REF") if verification can't be
  * performed (branch ref / local ./) — printed by the top-level catch.
- *
- * Untested by design: verifyImageDigestOrThrow and resolveBuildcageImageRef
- * are tested directly.
  */
-/* v8 ignore start */
 async function resolveVerifiedImage({
   actionRef,
   actionRepo,
@@ -61,17 +54,13 @@ async function resolveVerifiedImage({
     pullPolicy: "always",
   };
 }
-/* v8 ignore stop */
 
-// Untested by design: every step main() calls is tested directly, and what it
-// adds is the docker invocations themselves.
-/* v8 ignore start */
 async function main(): Promise<void> {
   const env = process.env;
   const actionRef = env.GITHUB_ACTION_REF ?? "";
   const actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "";
 
-  const proxyEngine = resolveProxyEngine(core.getInput("proxy_engine"));
+  const { proxyEngine } = readEngineInputs();
   console.log(`Proxy engine: ${proxyEngine}`);
 
   const localOverride = LOCAL_IMAGE_OVERRIDE_ENABLED
@@ -89,36 +78,22 @@ async function main(): Promise<void> {
     localOverride ?? (await resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }));
   console.log(`buildcage: image: ${imageRef}`);
 
-  const proxyMode = core.getInput("proxy_mode") || "restrict";
-
-  const rules = buildACLRules({
-    httpsRulesInput: core.getInput("allowed_https_rules"),
-    httpRulesInput: core.getInput("allowed_http_rules"),
-    ipRulesInput: core.getInput("allowed_ip_rules"),
-  });
-  const knownBlockedRules = parseKnownBlockedRulesOrThrow(core.getInput("known_blocked_rules"));
-  // Only inspect can enforce on a method or a path, so these are compiled here
-  // purely to fail on a typo at setup rather than inside the container.
-  const urlRulesInput = core.getInput("allowed_url_rules");
-  const tlsRules = parseRulesOrThrow(core.getInput("allowed_tls_rules"));
-  const urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+  const { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } =
+    readRuleInputs();
   checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, (message) =>
     console.log(`::warning::${message}`),
   );
 
   console.log("::group::buildcage: Configured ACL Rules");
-  logRules("HTTPS", rules.httpsRules);
-  logRules("HTTP", rules.httpRules);
-  logRules("IP", rules.ipRules);
+  logRules("HTTPS", httpsRules);
+  logRules("HTTP", httpRules);
+  logRules("IP", ipRules);
   logRules("URL", urlRules);
   logRules("TLS", tlsRules);
   logRules("Known blocked", knownBlockedRules);
   console.log("::endgroup::");
 
-  // "buildcage" here is a fallback for running outside the Actions runtime
-  // (action.yml's own `default: 'buildcage'` covers the normal case) — keep
-  // both, and report/src/main.ts's copy, in sync.
-  const builderName = core.getInput("builder_name") || "buildcage";
+  const builderName = readBuilderName();
   // So report can independently derive the same project name from its own
   // builder_name input and find this container via `docker ps --filter`.
   const projectName = deriveProjectName(builderName);
@@ -129,9 +104,9 @@ async function main(): Promise<void> {
       proxyMode,
       proxyEngine,
       imageRef,
-      httpsRules: rules.httpsRules,
-      httpRules: rules.httpRules,
-      ipRules: rules.ipRules,
+      httpsRules,
+      httpRules,
+      ipRules,
       urlRules,
       tlsRules,
       knownBlockedRules,
@@ -160,47 +135,7 @@ async function main(): Promise<void> {
     throw builderStartError(e, { composeFile, projectName, builderName, composeEnv });
   }
 }
-/* v8 ignore stop */
 
-/**
- * Resolve and validate the proxy_engine input.
- * Each accepted value maps to a separately published, separately tagged
- * Docker image (see provenance/image-tag.ts's imageTagFromRef).
- */
-const ENGINES = ["universal", "explicit", "inspect"] as const;
-export type ProxyEngine = (typeof ENGINES)[number];
-
-// `transparent` was this engine's name before `inspect` existed, when it
-// only had to contrast with `explicit` (interception style: network-level
-// vs BuildKit's own proxy-network). Both `transparent` and `inspect`
-// intercept at the network level, so that name stopped distinguishing
-// anything once `inspect` shipped -- `universal` names what actually sets
-// this engine apart instead (no CA trust needed, works with any tool).
-// Kept working permanently as an alias, normalized here so nothing
-// downstream ever has to know it existed.
-const ENGINE_ALIASES: Record<string, ProxyEngine> = { transparent: "universal" };
-
-export function resolveProxyEngine(input: string | undefined): ProxyEngine {
-  const trimmed = input?.trim() || "universal";
-  const alias = ENGINE_ALIASES[trimmed];
-  if (alias) {
-    console.log(
-      `::notice::proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.`,
-    );
-  }
-  const engine = alias ?? trimmed;
-  if (!(ENGINES as readonly string[]).includes(engine)) {
-    throw new SetupError(
-      `Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`,
-      "INVALID_PROXY_ENGINE",
-    );
-  }
-  return engine as ProxyEngine;
-}
-
-// Untested by design: this is the guard that keeps main() from running when
-// this module is imported, so a test can never be inside it.
-/* v8 ignore start */
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     if (err instanceof ActionError) {

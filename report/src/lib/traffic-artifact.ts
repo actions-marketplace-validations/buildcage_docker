@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import * as core from "@actions/core";
 
 import { errorMessage } from "#core/lib/errors.ts";
+import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
 
 export function wantsTrafficArtifact(): boolean {
   try {
@@ -16,7 +17,9 @@ export function wantsTrafficArtifact(): boolean {
 
 /** Fixed so a workflow can name it, suffixed per builder against collisions. */
 export function artifactName(builderName: string): string {
-  return builderName === "buildcage" ? "buildcage-traffic" : `buildcage-traffic-${builderName}`;
+  return builderName === DEFAULT_BUILDER_NAME
+    ? "buildcage-traffic"
+    : `buildcage-traffic-${builderName}`;
 }
 
 export type UploadArtifact = (

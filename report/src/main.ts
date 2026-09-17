@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as core from "@actions/core";
 
 import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
@@ -13,6 +12,7 @@ import { ActionError, errorMessage } from "#core/lib/errors.ts";
 import { copyFromContainerImage } from "./lib/copy-from-image.ts";
 import { ReportError } from "./lib/errors.ts";
 import { findReportSourceContainer } from "./lib/find-report-source.ts";
+import { readBuilderName } from "./lib/inputs.ts";
 import { uploadTrafficArtifact, wantsTrafficArtifact } from "./lib/traffic-artifact.ts";
 
 // Untested by design, down to the end of the file: every step main() calls is
@@ -23,7 +23,7 @@ import { uploadTrafficArtifact, wantsTrafficArtifact } from "./lib/traffic-artif
 const PROJECT_NAME_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === "1";
 
 async function main(): Promise<void> {
-  const builderName = core.getInput("builder_name") || "buildcage";
+  const builderName = readBuilderName();
   const projectName = resolveProjectName(
     builderName,
     PROJECT_NAME_OVERRIDE_ENABLED ? process.env.COMPOSE_PROJECT_NAME : undefined,

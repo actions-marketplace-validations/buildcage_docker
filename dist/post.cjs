@@ -10,7 +10,7 @@ var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDes
 	enumerable: !0
 }) : target, mod));
 //#endregion
-let node_child_process = require("node:child_process"), node_path = require("node:path"), node_url = require("node:url"), os = require("os");
+let node_child_process = require("node:child_process"), node_path = require("node:path"), node_url = require("node:url"), node_crypto = require("node:crypto"), os = require("os");
 os = __toESM(os, 1);
 let fs = require("fs");
 fs = __toESM(fs, 1);
@@ -18,8 +18,27 @@ let path = require("path");
 path = __toESM(path, 1);
 let events = require("events");
 events = __toESM(events, 1);
-let node_crypto = require("node:crypto"), child_process = require("child_process");
+let child_process = require("child_process");
 child_process = __toESM(child_process, 1), require("timers");
+//#region src/core/lib/docker/args.ts
+function buildComposeDownArgs({ composeFile, projectName }) {
+	return [
+		"compose",
+		"-f",
+		composeFile,
+		"-p",
+		projectName,
+		"down"
+	];
+}
+//#endregion
+//#region src/core/lib/docker/compose-project-name.ts
+function deriveProjectName(containerName) {
+	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
+}
+function resolveProjectName(builderName, composeProjectNameOverride) {
+	return composeProjectNameOverride || deriveProjectName(builderName);
+}
 //#endregion
 //#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
 var __awaiter$6 = function(thisArg, _arguments, P, generator) {
@@ -167,29 +186,14 @@ function getInput(name, options) {
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
 //#endregion
-//#region src/core/lib/docker/args.ts
-function buildComposeDownArgs({ composeFile, projectName }) {
-	return [
-		"compose",
-		"-f",
-		composeFile,
-		"-p",
-		projectName,
-		"down"
-	];
-}
-//#endregion
-//#region src/core/lib/docker/compose-project-name.ts
-function deriveProjectName(containerName) {
-	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
-}
-function resolveProjectName(builderName, composeProjectNameOverride) {
-	return composeProjectNameOverride || deriveProjectName(builderName);
+//#region src/lib/inputs.ts
+function readBuilderName(getInput$1 = getInput) {
+	return getInput$1("builder_name") || "buildcage";
 }
 //#endregion
 //#region src/lib/post-cleanup.ts
 function planPostCleanup(composeFile, projectNameOverride, env) {
-	let builderName = getInput("builder_name") || "buildcage";
+	let builderName = readBuilderName();
 	return {
 		args: buildComposeDownArgs({
 			composeFile,
