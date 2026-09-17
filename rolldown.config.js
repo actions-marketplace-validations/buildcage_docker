@@ -51,10 +51,11 @@ export default defineConfig(
       file,
       format: "cjs",
       codeSplitting,
+      comments: false,
       minify: {
         compress: true,
         mangle: false,
-        codegen: { removeWhitespace: false, legalComments: "none" },
+        codegen: { removeWhitespace: false },
       },
     },
   })),

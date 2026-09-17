@@ -40,10 +40,11 @@ const baseOutput = {
   // report-action's plain .js is still ESM: node auto-detects import/export syntax (Node 22.7+).
   format: "esm",
   codeSplitting: false,
+  comments: false,
   minify: {
     compress: true,
     mangle: false,
-    codegen: { removeWhitespace: false, legalComments: "none" },
+    codegen: { removeWhitespace: false },
   },
 };
 
