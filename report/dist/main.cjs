@@ -56078,6 +56078,35 @@ If the error persists, please check whether Actions and API requests are operati
 	init_client(), init_interfaces(), init_errors(), init_client(), client = new DefaultArtifactClient();
 }));
 //#endregion
+//#region report/src/lib/traffic-artifact.ts
+init_core();
+function wantsTrafficArtifact() {
+	try {
+		return getBooleanInput("upload_traffic_artifact");
+	} catch {
+		return !1;
+	}
+}
+function artifactName(builderName) {
+	return builderName === "buildcage" ? "buildcage-traffic" : `buildcage-traffic-${builderName}`;
+}
+const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => {
+	let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
+	return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
+};
+async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
+	if (!fileExists(file)) {
+		console.log("::warning::upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
+		return;
+	}
+	let days = Number(getInput("traffic_artifact_retention_days") || ""), name = artifactName(builderName);
+	try {
+		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays: Number.isFinite(days) && days > 0 ? days : void 0 }), console.log(`Uploaded the traffic JSON as ${name}`);
+	} catch (e) {
+		console.log(`::warning::Could not upload the traffic artifact: ${errorMessage(e)}`);
+	}
+}
+//#endregion
 //#region report/src/main.ts
 init_core();
 async function main() {
@@ -56109,41 +56138,17 @@ async function main() {
 		} catch (e) {
 			let status = e.status;
 			if (typeof status == "number") {
-				trafficFile && await uploadTrafficArtifact(trafficFile), process.exitCode = status;
+				trafficFile && await uploadTrafficArtifact(trafficFile, builderName), process.exitCode = status;
 				return;
 			}
 			throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
 		}
-		trafficFile && await uploadTrafficArtifact(trafficFile);
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName);
 	} finally {
 		(0, node_fs.rmSync)(scratchDir, {
 			recursive: !0,
 			force: !0
 		});
-	}
-}
-function wantsTrafficArtifact() {
-	try {
-		return getBooleanInput("upload_traffic_artifact");
-	} catch {
-		return !1;
-	}
-}
-function artifactName() {
-	let builder = getInput("builder_name") || "buildcage";
-	return builder === "buildcage" ? "buildcage-traffic" : `buildcage-traffic-${builder}`;
-}
-async function uploadTrafficArtifact(file) {
-	if (!(0, node_fs.existsSync)(file)) {
-		console.log("::warning::upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
-		return;
-	}
-	let days = Number(getInput("traffic_artifact_retention_days") || "");
-	try {
-		let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
-		await new DefaultArtifactClient().uploadArtifact(artifactName(), [file], (0, node_path.dirname)(file), { retentionDays: Number.isFinite(days) && days > 0 ? days : void 0 }), console.log(`Uploaded the traffic JSON as ${artifactName()}`);
-	} catch (e) {
-		console.log(`::warning::Could not upload the traffic artifact: ${errorMessage(e)}`);
 	}
 }
 process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch((err) => {
