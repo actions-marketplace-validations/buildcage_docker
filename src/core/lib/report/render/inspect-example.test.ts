@@ -275,4 +275,49 @@ describe("buildInspectRestrictExample", () => {
   });
 });
 
+describe("pathPatternsFor — nothing to compare", () => {
+  it("returns no pattern for an empty path list", () => {
+    expect(pathPatternsFor([])).toStrictEqual([]);
+  });
+});
+
+describe("buildUrlRuleLines — ordering", () => {
+  // METHOD_ORDER puts the common verbs first; anything else sorts after them,
+  // alphabetically among themselves.
+  it("sorts unknown methods after the known ones", () => {
+    const [line] = buildUrlRuleLines([
+      req("PROPFIND", "https://a.example.com/x"),
+      req("GET", "https://a.example.com/x"),
+      req("MKCOL", "https://a.example.com/x"),
+    ]);
+    expect(line.split(" ")[0]).toBe("GET|MKCOL|PROPFIND");
+  });
+
+  it("sorts two unknown methods against each other", () => {
+    const [line] = buildUrlRuleLines([
+      req("PROPFIND", "https://a.example.com/x"),
+      req("MKCOL", "https://a.example.com/x"),
+    ]);
+    expect(line.split(" ")[0]).toBe("MKCOL|PROPFIND");
+  });
+
+  it("orders lines by origin", () => {
+    const lines = buildUrlRuleLines([
+      req("GET", "https://c.example.com/x"),
+      req("GET", "https://a.example.com/x"),
+      req("GET", "https://b.example.com/x"),
+    ]);
+    expect(lines.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/x",
+      "https://b.example.com/x",
+      "https://c.example.com/x",
+    ]);
+  });
+
+  it("reads a request with no path at all as the root", () => {
+    const [line] = buildUrlRuleLines([req("GET", "https://a.example.com")]);
+    expect(line).toBe("GET https://a.example.com/");
+  });
+});
+
 reportResults();

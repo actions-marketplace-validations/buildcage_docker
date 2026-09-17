@@ -136,4 +136,22 @@ describe("aggregateAllowedHosts", () => {
   });
 });
 
+describe("aggregateAllowedHosts — identifiers the parser cannot read", () => {
+  it("skips a source entry that is not a URL it recognises", () => {
+    const builds = [
+      [
+        {
+          entries: [
+            { method: "GET", url: "docker-image://alpine:3" },
+            { method: "GET", url: "https://a.example.com/x" },
+          ],
+        },
+      ],
+    ];
+    expect(aggregateAllowedHosts(builds, "ALLOWED").map((e) => e.host)).toStrictEqual([
+      "a.example.com",
+    ]);
+  });
+});
+
 reportResults();

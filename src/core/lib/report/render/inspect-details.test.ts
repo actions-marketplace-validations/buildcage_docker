@@ -262,4 +262,34 @@ describe("renderInspectDetails elapsed time", () => {
   });
 });
 
+describe("renderInspectDetails — URL and outcome edges", () => {
+  const at = (overrides: Partial<TrafficEvent>): TrafficEvent =>
+    ({
+      time: t,
+      action: "allow",
+      protocol: "https",
+      host: "a.example.com",
+      port: 443,
+      method: "GET",
+      url: "https://a.example.com/pkg",
+      status: 200,
+      bytes: 1,
+      ...overrides,
+    }) as TrafficEvent;
+
+  it("redacts the query of a URL that also carries a fragment", () => {
+    const rendered = renderInspectDetails(
+      [at({ url: "https://a.example.com/x?token=secret#frag" })],
+      t,
+    );
+    expect(rendered).not.toMatch(/secret/);
+    expect(rendered).toMatch(/#frag/);
+  });
+
+  it('falls back to a bare "blocked" when a refusal names no reason', () => {
+    const rendered = renderInspectDetails([at({ action: "block", reason: undefined })], t);
+    expect(rendered).toMatch(/blocked/);
+  });
+});
+
 reportResults();

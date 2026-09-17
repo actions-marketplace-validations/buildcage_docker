@@ -78,4 +78,13 @@ describe("truncateForStepSummary", () => {
   });
 });
 
+describe("markdown the truncator cannot work with", () => {
+  const DETAILS_OPEN = "<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n";
+
+  it("returns it unchanged when the details block is never closed", () => {
+    const markdown = `${HEADER}${DETAILS_OPEN}${"y".repeat(2_000_000)}`;
+    expect(truncateForStepSummary(markdown, false)).toBe(markdown);
+  });
+});
+
 reportResults();

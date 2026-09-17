@@ -53,8 +53,8 @@ function parseRequest(request: TrafficEvent): ParsedRequest | null {
 
 /** The segments every path shares, from the left. */
 function commonPrefixSegments(paths: string[]): string[] {
+  // Two or more: pathPatternsFor has already answered the shorter cases.
   const split = paths.map((p) => p.split("/").filter((s) => s !== ""));
-  if (split.length === 0) return [];
   let prefix = split[0];
   for (const segments of split.slice(1)) {
     let i = 0;
@@ -93,7 +93,7 @@ function sortMethods(methods: Iterable<string>): string[] {
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
-    return a < b ? -1 : a > b ? 1 : 0;
+    return a < b ? -1 : 1;
   });
 }
 

@@ -179,4 +179,22 @@ describe("buildRestrictExample", () => {
   });
 });
 
+describe("buildRestrictExample — rows that map to no action input", () => {
+  const audited = (ruleType: string) => ({
+    host: "a.example.com",
+    port: "443",
+    ruleType,
+    count: 1,
+  });
+
+  it("skips a rule type the setup action has no input for", () => {
+    const yaml = buildRestrictExample([audited("DNS"), audited("HTTPS")], REPO, "v3");
+    expect(yaml.match(/a\.example\.com/g)?.length).toBe(1);
+  });
+
+  it("renders nothing when no row maps to an input", () => {
+    expect(buildRestrictExample([audited("DNS")], REPO, "v3")).toBe("");
+  });
+});
+
 reportResults();
