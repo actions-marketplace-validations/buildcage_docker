@@ -298,9 +298,10 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │       │                     # node:test-alike shim used by *.test.ts across the whole tree
 │       │                     # (Node and QuickJS alike). Everything else is Node-only, used by the
 │       │                     # setup and report actions' Node runtime and report-action.node.ts,
-│       │                     # never by the QuickJS scripts: log/, report/, docker/, provenance/
-│       │                     # (Sigstore, OCI registry lookups, image ref resolution, local-image
-│       │                     # test-hook override), actions/
+│       │                     # never by the QuickJS scripts: log/, report/ (including the
+│       │                     # report-action.node.ts skeleton every engine's own script runs),
+│       │                     # docker/, provenance/ (Sigstore, OCI registry lookups, image ref
+│       │                     # resolution, local-image test-hook override), actions/
 │       └── scripts/           # QuickJS entry point (convert-rule.ts), run inside the built images
 │                             # (rolldown-bundled into /opt/buildcage/scripts/ at image build time;
 │                             # see rolldown.scripts.config.js). test/ is a qjs test runner, types/
@@ -310,7 +311,6 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 ├── docker/                   # proxy_engine build contexts
 │   ├── compose.action.yaml   # Runtime compose file the action itself uses (verified, digest-pinned
 │   │                         # image ref), distinct from the top-level compose.yaml below
-│   ├── lib/                  # write-step-summary.ts, shared by both engines' report-action.node.ts
 │   ├── seccomp/              # builder.json, the builder container's seccomp profile (moby's own
 │   │                         # default plus what runc needs), and gen-profile.mjs that vendors it.
 │   │                         # Read by the Docker client on the runner, not copied into any image
