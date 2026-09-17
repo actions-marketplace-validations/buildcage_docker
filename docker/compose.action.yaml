@@ -44,7 +44,8 @@ services:
     healthcheck:
       test: ["CMD", "buildctl", "debug", "workers"]
       interval: 5s
-      start_interval: 2s
+      # Every start pays this before the first probe, and buildkitd answers in ~1.2s.
+      start_interval: 250ms
       timeout: 10s
       retries: 3
       start_period: 120s
