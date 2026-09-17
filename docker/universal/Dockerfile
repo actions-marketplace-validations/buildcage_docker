@@ -78,6 +78,9 @@ ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 # Bounds the start transition itself, which otherwise waits forever on a service
 # that never reports ready.
 ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=90000
+# Shutdown sleeps this long unconditionally between its SIGTERM and SIGKILL, so
+# the default 3000 costs every teardown 3s. The services stop in under 1s.
+ENV S6_KILL_GRACETIME=500
 
 # envsubst
 COPY --from=deps /usr/bin/envsubst /usr/bin/envsubst
