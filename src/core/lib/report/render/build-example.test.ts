@@ -188,12 +188,12 @@ describe("buildRestrictExample — rows that map to no action input", () => {
   });
 
   it("skips a rule type the setup action has no input for", () => {
-    const yaml = buildRestrictExample([audited("DNS"), audited("HTTPS")] as never, REPO, "v3");
+    const yaml = buildRestrictExample([audited("DNS"), audited("HTTPS")], REPO, "v3");
     expect(yaml.match(/a\.example\.com/g)?.length).toBe(1);
   });
 
   it("renders nothing when no row maps to an input", () => {
-    expect(buildRestrictExample([audited("DNS")] as never, REPO, "v3")).toBe("");
+    expect(buildRestrictExample([audited("DNS")], REPO, "v3")).toBe("");
   });
 });
 
