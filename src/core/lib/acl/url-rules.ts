@@ -309,10 +309,9 @@ export function convertUrlRule(rule: string): UrlRule {
     );
   }
   const methodSpec = trimmed.slice(0, separator.index);
+  // Non-empty: the separator was found inside an already-trimmed string, so
+  // something follows it.
   const url = trimmed.slice(separator.index + separator[0].length).trim();
-  if (url === "") {
-    throw new Error(`Invalid rule "${trimmed}": missing URL`);
-  }
   if (/\s/.test(url)) {
     throw new Error(`Invalid rule "${trimmed}": URL must not contain whitespace`);
   }

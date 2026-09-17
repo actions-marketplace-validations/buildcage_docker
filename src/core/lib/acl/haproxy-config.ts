@@ -150,11 +150,11 @@ function hostMatcher(hostRegex: string): Matcher {
  *
  * `^lit$` accepts one path and `^lit.*$` accepts a prefix, as does `^lit` with
  * no end anchor, which is what a rule permitting any path compiles to (`^/`).
+ *
+ * The leading `^` is stripped unchecked: every rule shape compiles to one.
  */
 function pathMatcher(pathRegex: string): Matcher {
   const asRegex = { op: "-m reg", pattern: pathRegex };
-  if (!pathRegex.startsWith("^")) return asRegex;
-
   let body = pathRegex.slice(1);
   let op = "-m beg";
   if (body.endsWith("$")) {

@@ -426,7 +426,6 @@ function convertUrlRule(rule) {
 	let trimmed = rule.trim(), separator = /\s+/.exec(trimmed);
 	if (!separator) throw Error(`Invalid rule "${trimmed}": expected a method and a URL, e.g. "GET https://example.com/x"`);
 	let methodSpec = trimmed.slice(0, separator.index), url = trimmed.slice(separator.index + separator[0].length).trim();
-	if (url === "") throw Error(`Invalid rule "${trimmed}": missing URL`);
 	if (/\s/.test(url)) throw Error(`Invalid rule "${trimmed}": URL must not contain whitespace`);
 	let methods = parseMethods(methodSpec, trimmed), { scheme, regex, authorityRegex, pathRegex, hostRegex, isRegex } = compileUrl(url, trimmed);
 	return {
