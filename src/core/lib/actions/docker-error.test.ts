@@ -75,3 +75,13 @@ describe("isLikelySlimRunner", () => {
     expect(isLikelySlimRunner({}, () => true)).toBe(false);
   });
 });
+
+describe("a thrown value that is not an object", () => {
+  it("still produces the guidance, with nothing quoted from it", () => {
+    const message = describeDockerFailure("docker: command not found", {
+      env: {},
+      exists: () => false,
+    });
+    expect(message).not.toContain("command not found");
+  });
+});

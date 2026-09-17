@@ -73,3 +73,21 @@ describe("selectAllRefs", () => {
     expect(selectAllRefs("")).toStrictEqual([]);
   });
 });
+
+describe("lines and fields the history dump can be missing", () => {
+  it("skips a line that is not JSON at all", () => {
+    const log = ['{"record":{"Ref":"a","CreatedAt":{"seconds":2}}}', "not json"].join("\n");
+    expect(selectAllRefs(log)).toStrictEqual(["a"]);
+  });
+
+  // A record written on a second boundary carries no nanos field at all, and
+  // has to sort before one from later in the same second.
+  it("orders two records that share a second by their nanos, absent meaning zero", () => {
+    const log = [
+      '{"record":{"Ref":"mid","CreatedAt":{"seconds":1,"nanos":500}}}',
+      '{"record":{"Ref":"first","CreatedAt":{"seconds":1}}}',
+      '{"record":{"Ref":"last","CreatedAt":{"seconds":1,"nanos":900}}}',
+    ].join("\n");
+    expect(selectAllRefs(log)).toStrictEqual(["first", "mid", "last"]);
+  });
+});

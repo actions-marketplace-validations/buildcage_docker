@@ -361,4 +361,14 @@ describe("scanInspectDnsLog", () => {
   });
 });
 
+describe("lines and stamps the inspect logs can carry", () => {
+  it("skips a blank line in the proxy log", async () => {
+    expect((await scanInspectLog(["", "   "])).events.length).toBe(0);
+  });
+
+  it("skips a blank line in the resolver log", async () => {
+    expect((await scanInspectDnsLog(["", "   "])).events.length).toBe(0);
+  });
+});
+
 reportResults();

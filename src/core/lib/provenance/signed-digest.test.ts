@@ -177,3 +177,13 @@ describe("assertSignedDigest — in-toto Statement v1 (cosign --new-bundle-forma
     }
   });
 });
+
+describe("an in-toto payload with no subject at all", () => {
+  it("refuses it rather than treating the empty list as a match", () => {
+    const payload = Buffer.from(JSON.stringify({}), "utf8").toString("base64");
+    const bundle = {
+      dsseEnvelope: { payloadType: "application/vnd.in-toto+json", payload },
+    };
+    expect(() => assertSignedDigest(bundle, DIGEST)).toThrow(/does not match/);
+  });
+});
