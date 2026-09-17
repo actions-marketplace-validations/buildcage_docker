@@ -673,3 +673,320 @@ describe("fetchImageConfigLabels", () => {
     }
   });
 });
+
+// ── fail-closed paths ─────────────────────────────────────────────────────
+//
+// Every branch below refuses rather than returns, and coverage showed that
+// none of them had ever run. They are what stands between a registry that
+// answers oddly and an unverified image being pulled anyway, so each case
+// pins the code that comes back, not just that something threw.
+
+/** Drives a call and returns the VerifyImageError code, failing if it resolves. */
+async function codeOfRejection(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run();
+  } catch (err) {
+    expect(err).toBeInstanceOf(VerifyImageError);
+    return (err as VerifyImageError).code;
+  }
+  assert.fail("should have thrown");
+}
+
+const REJECTING_FETCH = async () => {
+  throw new TypeError("fetch failed");
+};
+
+describe("fetchManifestDigest — unhandled status", () => {
+  it("throws TRANSIENT for a non-ok status that is not 404, 401/403 or 5xx", async () => {
+    const mockFetch = async () => ({ ok: false, status: 418, headers: { get: () => null } });
+    expect(
+      await codeOfRejection(() =>
+        fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch),
+      ),
+    ).toBe("TRANSIENT");
+  });
+});
+
+describe("fetchRegistryToken — network failure under Basic auth", () => {
+  it("wraps a non-VerifyImageError as TRANSIENT", async () => {
+    expect(
+      await codeOfRejection(() =>
+        fetchRegistryToken("ghcr.io", "owner/repo", "dXNlcjpwYXNz", REJECTING_FETCH),
+      ),
+    ).toBe("TRANSIENT");
+  });
+});
+
+describe("fetchImageConfigLabels — refusals", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const call = (mockFetch: any) =>
+    fetchImageConfigLabels("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+
+  it("throws NOT_FOUND when the manifest names no config blob", async () => {
+    const mockFetch = makeFetchReturning([{ ok: true, status: 200, json: async () => ({}) }]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("throws TRANSIENT for a non-ok status the registry JSON reader does not name", async () => {
+    const mockFetch = makeFetchReturning([{ ok: false, status: 418, json: async () => ({}) }]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("wraps a network failure as TRANSIENT rather than letting it escape untyped", async () => {
+    expect(await codeOfRejection(() => call(REJECTING_FETCH))).toBe("TRANSIENT");
+  });
+});
+
+describe("fetchBundle — fallback tag refusals", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const referrersMiss = { ok: false, status: 404, json: async () => ({}) };
+  const call = (mockFetch: any) =>
+    fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+
+  it("throws TRANSIENT on 5xx", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersMiss,
+      { ok: false, status: 503, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws TRANSIENT on 401/403, an auth problem rather than a missing bundle", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersMiss,
+      { ok: false, status: 403, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws NOT_FOUND for any other non-ok status", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersMiss,
+      { ok: false, status: 418, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("wraps a network failure on the fallback tag as TRANSIENT", async () => {
+    let i = 0;
+    const mockFetch = async () => {
+      if (i++ === 0) return referrersMiss;
+      throw new TypeError("fetch failed");
+    };
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws NOT_FOUND when the legacy direct-layers manifest carries no bundle layer", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersMiss,
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({ layers: [{ mediaType: "application/octet-stream" }] }),
+      },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("throws NOT_FOUND when the legacy manifest omits layers entirely", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersMiss,
+      { ok: true, status: 200, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("falls through to the tag when the referrers API answers without a manifests list", async () => {
+    const mockFetch = makeFetchReturning([
+      { ok: true, status: 200, json: async () => ({}) },
+      { ok: false, status: 404, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+});
+
+describe("fetchBundle — descriptors the referrers tag index offers but cannot satisfy", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const subDig = "sha256:" + "b".repeat(64);
+  const referrersMiss = { ok: false, status: 404, json: async () => ({}) };
+  const IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json";
+  const EMPTY_CONFIG = "application/vnd.oci.empty.v1+json";
+
+  /** Referrers miss, then a tag index holding exactly these descriptors. */
+  function indexOf(manifests: unknown[], ...rest: any[]) {
+    return makeFetchReturning([
+      referrersMiss,
+      { ok: true, status: 200, json: async () => ({ manifests }) },
+      ...rest,
+    ]);
+  }
+
+  const call = (mockFetch: any) =>
+    fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+
+  it("skips a descriptor that is not an image manifest at all", async () => {
+    const mockFetch = indexOf([
+      { mediaType: "application/vnd.oci.image.index.v1+json", digest: subDig },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("skips a descriptor whose sub-manifest cannot be fetched", async () => {
+    const mockFetch = indexOf(
+      [{ mediaType: IMAGE_MANIFEST, artifactType: EMPTY_CONFIG, digest: subDig }],
+      { ok: false, status: 404, json: async () => ({}) },
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("skips a descriptor whose sub-manifest turns out to be some other artifact", async () => {
+    const mockFetch = indexOf(
+      [{ mediaType: IMAGE_MANIFEST, artifactType: EMPTY_CONFIG, digest: subDig }],
+      { ok: true, status: 200, json: async () => ({ artifactType: "application/other" }) },
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("skips a bundle sub-manifest that carries no bundle layer", async () => {
+    const mockFetch = indexOf(
+      [{ mediaType: IMAGE_MANIFEST, artifactType: EMPTY_CONFIG, digest: subDig }],
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({ artifactType: BUNDLE_TYPE, layers: [{ mediaType: "text/plain" }] }),
+      },
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("skips a bundle sub-manifest that omits layers entirely", async () => {
+    const mockFetch = indexOf(
+      [{ mediaType: IMAGE_MANIFEST, artifactType: EMPTY_CONFIG, digest: subDig }],
+      { ok: true, status: 200, json: async () => ({ artifactType: BUNDLE_TYPE }) },
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+});
+
+describe("fetchBundle — bundle manifest refusals", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const manifestDig = "sha256:" + "b".repeat(64);
+  const referrersHit = {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      manifests: [
+        {
+          artifactType: BUNDLE_TYPE,
+          mediaType: "application/vnd.oci.image.manifest.v1+json",
+          digest: manifestDig,
+        },
+      ],
+    }),
+  };
+  const call = (mockFetch: any) =>
+    fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+
+  it("throws TRANSIENT on 5xx", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersHit,
+      { ok: false, status: 502, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws TRANSIENT on 401/403", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersHit,
+      { ok: false, status: 401, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws TRANSIENT for any other non-ok status", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersHit,
+      { ok: false, status: 418, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws NOT_FOUND when the bundle manifest holds no bundle layer", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersHit,
+      { ok: true, status: 200, json: async () => ({ layers: [{ mediaType: "text/plain" }] }) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("throws NOT_FOUND when the bundle manifest omits layers entirely", async () => {
+    const mockFetch = makeFetchReturning([
+      referrersHit,
+      { ok: true, status: 200, json: async () => ({}) },
+    ]);
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("wraps a network failure as TRANSIENT", async () => {
+    let i = 0;
+    const mockFetch = async () => {
+      if (i++ === 0) return referrersHit;
+      throw new TypeError("fetch failed");
+    };
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+});
+
+describe("fetchBundle — bundle blob refusals", () => {
+  const digest = "sha256:" + "a".repeat(64);
+  const manifestDig = "sha256:" + "b".repeat(64);
+  const blobDig = "sha256:" + "c".repeat(64);
+  const call = (mockFetch: any) =>
+    fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
+
+  /** Referrers hit, bundle manifest hit, then the blob response under test. */
+  function upToBlob(blob: any) {
+    return [
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          manifests: [
+            {
+              artifactType: BUNDLE_TYPE,
+              mediaType: "application/vnd.oci.image.manifest.v1+json",
+              digest: manifestDig,
+            },
+          ],
+        }),
+      },
+      {
+        ok: true,
+        status: 200,
+        json: async () => ({ layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }] }),
+      },
+      blob,
+    ];
+  }
+
+  it("throws TRANSIENT on 5xx", async () => {
+    const mockFetch = makeFetchReturning(
+      upToBlob({ ok: false, status: 500, json: async () => ({}) }),
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("TRANSIENT");
+  });
+
+  it("throws NOT_FOUND for any other non-ok status", async () => {
+    const mockFetch = makeFetchReturning(
+      upToBlob({ ok: false, status: 404, json: async () => ({}) }),
+    );
+    expect(await codeOfRejection(() => call(mockFetch))).toBe("NOT_FOUND");
+  });
+
+  it("wraps a network failure as TRANSIENT", async () => {
+    const responses = upToBlob(() => {
+      throw new TypeError("fetch failed");
+    });
+    expect(await codeOfRejection(() => call(makeFetchReturning(responses)))).toBe("TRANSIENT");
+  });
+});

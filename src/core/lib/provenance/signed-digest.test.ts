@@ -2,8 +2,8 @@
  * Unit tests for core/lib/provenance/signed-digest.ts
  *
  * assertSignedDigest() is pure synchronous logic and is fully unit-tested here.
- * sigstore.ts's verifyBundle() requires a live TUF network call; that path
- * is covered by end-to-end / integration tests instead.
+ * sigstore.ts's verifyBundle(), which calls it, is covered in sigstore.test.ts
+ * against a mocked trust root and verifier.
  *
  * Run with: vp test run core/lib/provenance/signed-digest.test.ts
  */
