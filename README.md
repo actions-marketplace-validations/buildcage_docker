@@ -33,10 +33,10 @@ workflow `run:` step rather than a Docker build, use
 - [Report action](#report-action)
 - [How it works](#how-it-works)
 - [CA trust and compatibility](#ca-trust-and-compatibility)
+- [Scope](#scope)
 - [Limitations](#limitations)
 - [FAQ](#faq)
 - [GitHub's native egress firewall](#githubs-native-egress-firewall)
-- [Scope](#scope)
 - [Documentation](#documentation)
 
 ## Requirements
@@ -270,23 +270,14 @@ The fields are listed in [Reference](./docs/reference.md#traffic-artifact).
 
 ## How it works
 
-Buildcage runs a custom resolver and a proxy inside the builder container, and routes the build's
-traffic through them:
+The builder container runs its own resolver and proxy, and every `RUN` step's traffic is routed
+through them at the network level, so a tool that ignores the proxy environment variables is covered
+as well. BuildKit itself is stock. Buildx needs `driver: remote` because the builder is a second
+BuildKit, but multi-stage builds, caching and the image that comes out are unaffected, and nothing
+Buildcage does reaches the LLB or a cache key.
 
-- The resolver answers every name with the proxy's own address and never forwards a query, so a
-  connection lands on the proxy rather than wherever the build asked to go.
-- The proxy makes the decision. Under `inspect` it terminates TLS, so a rule can match the method and
-  the URL; under `universal` it reads the SNI and matches the host and port. Only once a request has
-  passed the rules does the proxy resolve the name for real and connect there.
-- BuildKit itself is left alone. A CNI plugin gives each `RUN` step its own network, and a wrapper
-  around runc mounts the CA the step has to trust (`inspect` only) as the step starts.
-
-Running a second BuildKit is why Buildx needs the `driver: remote` setting, but that BuildKit is
-stock: multi-stage builds, caching and the resulting image are unaffected, and nothing the wrapper
-does reaches the LLB or a cache key.
-
-For the architecture and threat model of each engine, see [Security Details](./docs/security.md).
-For implementation internals, see the [Development Guide](./docs/development.md).
+[Security Details](./docs/security.md) has the architecture of each engine, with a diagram of what
+runs where and what it decides. [Development Guide](./docs/development.md) has the implementation.
 
 ## CA trust and compatibility
 
@@ -301,6 +292,24 @@ image layers.
 The full table, with what each variable points at when the step has a system CA store and when it
 has none, is in [Reference](./docs/reference.md#ca-trust-variables). What this cannot cover is in
 [Limitations](#limitations), below.
+
+## Scope
+
+Buildcage controls _where_ your build can connect, not _what code_ it runs. A malicious package
+delivered through an allowed domain still runs. Treat it as one layer in a defense-in-depth
+strategy, a last line of defense so that if something slips through your other measures, at least it
+can't call home.
+
+An allowlist also cannot stop anything leaving through a service you had to allow anyway. That is a
+structural limit. What it does stop is traffic to a destination that is not on the list, and
+infrastructure an attacker set up is normally not on it, because the build has no reason to reach
+it. That is also the hardest kind of leak to find afterwards.
+
+An allowlist generated from an audit run already blocks every destination the audit did not record.
+Whether to go further depends on what the build has access to:
+[Hardening](./docs/security.md#hardening) is what to look at when it holds credentials, personal
+data, or source you do not publish. For the full threat model, see
+[Security Details](./docs/security.md).
 
 ## Limitations
 
@@ -433,24 +442,6 @@ the whole job at once.
 Buildcage sits at a different layer and works alongside it: allowlists are scoped per `docker build`
 rather than per job, rules can name a method and a URL rather than only a host, and enforcement (not
 just audit) is available now.
-
-## Scope
-
-Buildcage controls _where_ your build can connect, not _what code_ it runs. A malicious package
-delivered through an allowed domain still runs. Treat it as one layer in a defense-in-depth
-strategy, a last line of defense so that if something slips through your other measures, at least it
-can't call home.
-
-An allowlist also cannot stop anything leaving through a service you had to allow anyway. That is a
-structural limit. What it does stop is traffic to a destination that is not on the list, and
-infrastructure an attacker set up is normally not on it, because the build has no reason to reach
-it. That is also the hardest kind of leak to find afterwards.
-
-An allowlist generated from an audit run already blocks every destination the audit did not record.
-Whether to go further depends on what the build has access to:
-[Hardening](./docs/security.md#hardening) is what to look at when it holds credentials, personal
-data, or source you do not publish. For the full threat model, see
-[Security Details](./docs/security.md).
 
 ## Documentation
 
