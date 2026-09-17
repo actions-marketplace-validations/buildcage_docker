@@ -3,6 +3,7 @@
  * separately in core/lib/log/aggregate.js and is not re-exported here.
  */
 import { createIncrementalAggregator, type AggregatedEntry } from "./aggregate.ts";
+import { splitHostPort } from "./authority.ts";
 
 export interface HaproxyLogScanResult {
   /** ALLOWED entries in restrict mode, AUDIT entries in audit mode — never
@@ -64,17 +65,8 @@ export async function scanHaproxyLog(
     }
     logHeadIntact ??= false;
     const [, decision, ruleType, hostPort, reason] = m;
-    const colonIdx = hostPort.lastIndexOf(":");
-    let host: string;
-    let port: string;
-    if (colonIdx > 0) {
-      host = hostPort.substring(0, colonIdx);
-      port = hostPort.substring(colonIdx + 1);
-    } else {
-      host = hostPort;
-      port = "0";
-    }
-    const entry = { host, port, ruleType, reason: reason || "-" };
+    const { host, port } = splitHostPort(hostPort);
+    const entry = { host, port: port ?? "0", ruleType, reason: reason || "-" };
 
     if (decision === passedDecision) {
       passed.add(entry);

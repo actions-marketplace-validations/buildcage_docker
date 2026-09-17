@@ -39,6 +39,7 @@
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
+import { splitHostPort } from "./authority.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
@@ -127,9 +128,7 @@ const URL_AUTHORITY = /^https?:\/\/([^/?#]+)/;
 function hostOf(url: string): string {
   const match = URL_AUTHORITY.exec(url);
   if (!match) return url;
-  const authority = match[1];
-  const colon = authority.lastIndexOf(":");
-  return colon > 0 ? authority.slice(0, colon) : authority;
+  return splitHostPort(match[1]).host;
 }
 
 /** Parse one proxy-log line, or null if it is not one of ours. */

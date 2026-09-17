@@ -1,10 +1,10 @@
+import { DEFAULT_PORT, splitHostPort } from "./authority.ts";
+
 export interface ParsedIdentifier {
   scheme: string;
   host: string;
   port: string;
 }
-
-const DEFAULT_PORT: Record<string, string> = { https: "443", http: "80" };
 
 /**
  * Parse a proxy-network source identifier ("https://host[:port]/path...")
@@ -18,13 +18,6 @@ export function parseIdentifier(identifier: string): ParsedIdentifier | null {
   const m = identifier.match(/^(https?):\/\/([^/]+)/);
   if (!m) return null;
   const [, scheme, hostPort] = m;
-  const colonIdx = hostPort.lastIndexOf(":");
-  if (colonIdx > 0) {
-    return {
-      scheme,
-      host: hostPort.substring(0, colonIdx),
-      port: hostPort.substring(colonIdx + 1),
-    };
-  }
-  return { scheme, host: hostPort, port: DEFAULT_PORT[scheme] };
+  const { host, port } = splitHostPort(hostPort);
+  return { scheme, host, port: port ?? DEFAULT_PORT[scheme] };
 }

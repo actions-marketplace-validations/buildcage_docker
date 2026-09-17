@@ -18,10 +18,9 @@
 
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
+import { DEFAULT_PORT, splitHostPort } from "#core/lib/log/authority.ts";
 
 /** Ports a URL rule may leave unwritten, because the scheme implies them. */
-const DEFAULT_PORT: Record<string, string> = { https: "443", http: "80" };
-
 /** Conventional ordering, so a rule reads the way a person would write it. */
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
@@ -42,12 +41,9 @@ function parseRequest(request: TrafficEvent): ParsedRequest | null {
   const [, scheme, authority, rawPath] = match;
 
   // Drop a port the scheme already implies, so the common case reads plainly.
-  const colon = authority.lastIndexOf(":");
-  const port = colon > 0 ? authority.slice(colon + 1) : "";
+  const { host, port } = splitHostPort(authority);
   const origin =
-    port && port === DEFAULT_PORT[scheme]
-      ? `${scheme}://${authority.slice(0, colon)}`
-      : `${scheme}://${authority}`;
+    port && port === DEFAULT_PORT[scheme] ? `${scheme}://${host}` : `${scheme}://${authority}`;
 
   return { origin, method: request.method, path: rawPath || "/" };
 }
