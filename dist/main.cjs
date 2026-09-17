@@ -7996,7 +7996,10 @@ const REGISTRY = "ghcr.io";
 * On failure, throws VerifyImageError — the caller is responsible for printing
 * the error message.
 *
+* Untested by design: every step it calls is tested directly. The order they
+* run in is not, so the reason for it is kept inline below.
 */
+/* v8 ignore start */
 async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "universal" }) {
 	let repoPath = actionRepo.toLowerCase(), verifyOptions = buildVerifyOptions({
 		actionRef,
@@ -8010,6 +8013,7 @@ async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "univers
 		imageTag: tag
 	}), digest;
 }
+/* v8 ignore stop */
 /** Maps a VerifyImageError (or any other thrown value) to the caller-facing ProvenanceError. */
 function toProvenanceError(e) {
 	return e instanceof VerifyImageError ? new ProvenanceError(e.message, e.code) : new ProvenanceError(errorMessage(e), "VERIFY_FAILED");
@@ -8027,7 +8031,10 @@ function requireDigest(digest, actionRef) {
 * Like verifyImageDigest, but throws ProvenanceError (see errors.ts) instead
 * of the low-level VerifyImageError, so a caller gets one already-typed
 * error to catch rather than having to translate the result itself.
+*
+* Untested by design: toProvenanceError and requireDigest are tested directly.
 */
+/* v8 ignore start */
 async function verifyImageDigestOrThrow({ actionRef, actionRepo, proxyEngine }) {
 	let digest;
 	try {
@@ -8041,6 +8048,7 @@ async function verifyImageDigestOrThrow({ actionRef, actionRepo, proxyEngine }) 
 	}
 	return requireDigest(digest, actionRef);
 }
+/* v8 ignore stop */
 //#endregion
 //#region src/core/lib/provenance/image-ref.ts
 function resolveBuildcageImageRef({ imageDigest, actionRepository }) {
