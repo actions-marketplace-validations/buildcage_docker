@@ -73,6 +73,14 @@ jobs:
 
       - name: Test buildcage-runc (inspect engine)
         working-directory: docker/inspect/buildcage-runc
+        run: go test -cover ./...
+
+      # No -cover here: vet rejects the cover tool's rewrite of the two
+      # //go:build-constrained files in this package ("possible malformed
+      # +build comment"), and -vet=off would cost more than the number is
+      # worth for a deprecated engine.
+      - name: Test buildkit-proxy (explicit engine)
+        working-directory: docker/explicit/buildkit-proxy
         run: go test ./...
 
       - name: Typecheck
