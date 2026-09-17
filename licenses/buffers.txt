@@ -1,0 +1,9 @@
+buffers@0.1.1 publishes no license text: it ships no LICENSE file, declares no
+license field in its package.json, and states no terms in its README. The
+repository its package.json points at, https://github.com/substack/node-buffers,
+no longer exists.
+
+It reaches this bundle as a transitive dependency of @actions/artifact, through
+unzip-stream and binary.
+
+This notice records that state; it is not a grant of terms by the author.

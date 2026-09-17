@@ -29,9 +29,9 @@ jobs:
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          # dist/** and action.yml are listed as what unit_test verifies, not
-          # as inputs to it: this job holds the only check that the committed
-          # bundles match the source.
+          # dist/**, THIRD_PARTY_LICENSES_NPM and action.yml are listed as what
+          # unit_test verifies, not as inputs to it: this job holds the only
+          # check that the committed bundles match the source.
           filters: |
             unit_test:
               - 'package.json'
@@ -42,14 +42,17 @@ jobs:
               - 'tsconfig.json'
               - 'tsconfig.qjs.json'
               - 'vite.config.ts'
+              - '.glf.jsonc'
               - '.dockerignore'
               - '.github/actions/**'
               - '.github/workflows/test-unit.yml'
               - 'src/**'
               - 'docker/**'
               - 'report/**'
+              - 'licenses/**'
               - 'Makefile'
               - 'dist/**'
+              - 'THIRD_PARTY_LICENSES_NPM'
               - 'action.yml'
 
   unit_test:

@@ -6,7 +6,7 @@
     "#core/*": "./src/core/*"
   },
   "scripts": {
-    "build": "rolldown -c",
+    "build": "rolldown -c && node licenses/gen-license-file.mjs",
     "build:qjs": "BUILD_TARGET=qjs rolldown -c rolldown.scripts.config.js",
     "build:qjs-test": "BUILD_TARGET=qjs-test rolldown -c rolldown.scripts.config.js",
     "build:scripts": "rolldown -c rolldown.scripts.config.js",
@@ -29,6 +29,7 @@
     "@types/node": "^24.13.3",
     "@vitest/coverage-v8": "4.1.11",
     "fast-check": "^4.9.0",
+    "generate-license-file": "^4.2.5",
     "rolldown": "^1.2.0",
     "typescript": "^7.0.2",
     "vite-plus": "^0.3.0"

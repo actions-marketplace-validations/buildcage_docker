@@ -8,6 +8,7 @@ This document covers local development, testing, and the project structure of Bu
 - [Testing](#testing)
 - [Local Development](#local-development)
 - [Formatting & Linting](#formatting--linting)
+- [Third-Party Licenses](#third-party-licenses)
 - [Viewing Logs](#viewing-logs)
 - [Makefile Commands](#makefile-commands)
 - [Directory Structure](#directory-structure)
@@ -199,6 +200,27 @@ Running `vp install` (in place of `pnpm install`) automatically sets up a pre-co
 `prepare` script, that formats and lints your staged files (`vite.config.ts`'s `staged` config)
 before each commit, auto-fixing and re-staging what it can.
 
+## Third-Party Licenses
+
+Two files, covering two different distributables.
+
+`THIRD_PARTY_LICENSES` is written by hand and lists what the Docker images ship: HAProxy, dnsmasq,
+BuildKit and the rest, plus `@actions/core`, the one npm package that reaches an image (through
+`/opt/buildcage/scripts/report-action.js`). Each engine also carries its own copy of the file under
+`docker/<engine>/files/`, listing only what that engine ships.
+
+`THIRD_PARTY_LICENSES_NPM` is generated and holds the full license text of every npm package in the
+production dependency closure, which is what the committed `dist/*.cjs` and `report/dist/main.cjs`
+bundles are built from. `vp run build` regenerates it through `licenses/gen-license-file.mjs`, so a
+dependency change lands in the same commit as the rebuilt bundles, and the CI step that rebuilds and
+diffs `dist` covers this file too. Configuration is in `.glf.jsonc`.
+
+A package that publishes no license text is reported on stderr and then silently left out of the
+output, so the wrapper fails the build on any such warning. To resolve one, put the text under
+`licenses/` and point at it from `.glf.jsonc`'s `replace`, keyed by the exact `name@version`. The
+version pin is deliberate: a later release of the same package stops matching, so it has to be
+looked at again rather than inheriting the previous verdict.
+
 ## Viewing Logs
 
 ```bash
@@ -333,6 +355,9 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   └── dist/                 # Bundled output (rolldown → CommonJS)
 ├── docs/                     # development.md, security.md, explicit-engine.md, plus the
 │                             # reference.md/rules.md/inspect-engine.md link stubs
+├── licenses/                 # gen-license-file.mjs, which regenerates THIRD_PARTY_LICENSES_NPM as
+│                             # the last step of `vp run build`, plus the license texts kept by hand
+│                             # for packages that publish none (.glf.jsonc's `replace`)
 ├── compose.yaml              # Docker Compose config for local dev (dockerfile path selected by
 │                             # PROXY_ENGINE; also defines the local-dev `proxy` service)
 └── Makefile                  # Operational commands

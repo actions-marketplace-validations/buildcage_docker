@@ -22,6 +22,13 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
+@actions/core (bundled into /opt/buildcage/scripts/report-action.js)
+  Website : https://github.com/actions/toolkit/tree/main/packages/core
+  License : MIT License
+  Source  : https://github.com/actions/toolkit
+
+------------------------------------------------------------------------------
+
 buildkit-proxy Go module dependencies
 
   github.com/moby/buildkit (api/services/control, sourcepolicy/pb packages)
