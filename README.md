@@ -319,8 +319,11 @@ data, or source you do not publish. For the full threat model, see
   frontend image a `# syntax=` directive names are fetched by buildkitd itself rather than by a
   `RUN` step, and no rule applies to them.
   See [What buildkitd fetches itself](./docs/security.md#what-buildkitd-fetches-itself).
-- `allowed_tls_rules` and `allowed_ip_rules` are not inspected by design. Once an `ip:port`
-  pair is allowed, any TCP-based protocol can use that path, so prefer a domain rule wherever the
+- `allowed_tls_rules` is not decrypted. The SNI and the port are checked, and the proxy resolves
+  that name itself, so the connection reaches the host the rule named, but nothing inside the TLS
+  session is seen.
+- `allowed_ip_rules` is not inspected at all, and doesn't require TLS either: once an `ip:port` pair
+  is allowed, any TCP-based protocol can use that path. Prefer a domain rule wherever the
   destination has a stable name.
 - `universal` never sees the method or the path. They travel inside TLS, so neither is enforced and
   neither reaches the report or the traffic artifact. A request fronted behind an allowed SNI is
