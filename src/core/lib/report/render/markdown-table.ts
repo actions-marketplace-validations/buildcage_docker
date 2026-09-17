@@ -7,7 +7,7 @@ export interface ColumnFormat {
 }
 
 const ALIGN_MARKERS: Record<Align, string> = { left: "---", right: "---:", center: ":---:" };
-const alignMarker = (align?: Align): string => ALIGN_MARKERS[align ?? "left"] ?? ALIGN_MARKERS.left;
+const alignMarker = (align?: Align): string => ALIGN_MARKERS[align ?? "left"];
 
 /**
  * A cell's text is attacker-chosen (a host comes from an SNI or a Host header),

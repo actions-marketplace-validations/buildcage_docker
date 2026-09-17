@@ -293,6 +293,14 @@ describe("buildUrlRuleLines — ordering", () => {
     expect(line.split(" ")[0]).toBe("GET|MKCOL|PROPFIND");
   });
 
+  it("sorts two unknown methods against each other", () => {
+    const [line] = buildUrlRuleLines([
+      req("PROPFIND", "https://a.example.com/x"),
+      req("MKCOL", "https://a.example.com/x"),
+    ]);
+    expect(line.split(" ")[0]).toBe("MKCOL|PROPFIND");
+  });
+
   it("orders lines by origin", () => {
     const lines = buildUrlRuleLines([
       req("GET", "https://c.example.com/x"),
