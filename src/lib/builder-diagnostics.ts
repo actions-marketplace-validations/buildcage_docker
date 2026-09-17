@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { describeDockerFailure, type DockerErrorLike } from "#core/lib/actions/docker-error.ts";
 import { buildComposeLogsArgs } from "#core/lib/docker/args.ts";
+import { withLogGroup } from "#core/lib/actions/log.ts";
 import {
   buildDockerInspectStateArgs,
   parseContainerState,
@@ -95,11 +96,11 @@ function printBuilderLog(
   { composeFile, projectName, composeEnv }: Omit<BuilderStartErrorOptions, "builderName">,
   { printDocker = printDockerViaExec }: BuilderDiagnosticsDeps,
 ): void {
-  console.log("::group::buildcage: Builder container log");
-  try {
-    printDocker(buildComposeLogsArgs({ composeFile, projectName, tail: LOG_TAIL }), composeEnv);
-  } catch {
-    console.log("The builder container's log could not be read.");
-  }
-  console.log("::endgroup::");
+  withLogGroup("buildcage: Builder container log", () => {
+    try {
+      printDocker(buildComposeLogsArgs({ composeFile, projectName, tail: LOG_TAIL }), composeEnv);
+    } catch {
+      console.log("The builder container's log could not be read.");
+    }
+  });
 }

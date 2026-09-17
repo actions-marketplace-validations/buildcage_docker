@@ -1,3 +1,4 @@
+import { annotate } from "#core/lib/actions/annotation.ts";
 import { SetupError } from "./errors.ts";
 
 /**
@@ -26,8 +27,8 @@ export function resolveProxyEngine(input: string | undefined): ProxyEngine {
   const trimmed = input?.trim() || "universal";
   const alias = ENGINE_ALIASES[trimmed];
   if (alias) {
-    console.log(
-      `::notice::proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.`,
+    annotate.notice(
+      "proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.",
     );
   }
   const engine = alias ?? trimmed;

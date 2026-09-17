@@ -25,3 +25,14 @@ export function createAnnotation(enabled: boolean): Annotation {
     },
   };
 }
+
+/**
+ * The always-on emitter, for the messages that are printed whether or not
+ * this is a real action run: a deprecated input's migration notice, a
+ * library-layer warning, a fatal error on the way out. Anything a caller can
+ * choose to suppress takes an Annotation as an argument instead.
+ *
+ * Exists so the `::notice::`/`::warning::`/`::error::` spelling lives in this
+ * file alone, rather than being written out at each call site.
+ */
+export const annotate: Annotation = createAnnotation(true);

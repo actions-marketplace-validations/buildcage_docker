@@ -3,7 +3,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SetupError } from "./lib/errors.ts";
-import { ActionError, errorMessage } from "#core/lib/errors.ts";
+import { annotate } from "#core/lib/actions/annotation.ts";
+import { exitOnFatalError } from "#core/lib/actions/fatal.ts";
 import { readBuilderName, readEngineInputs, readRuleInputs } from "./lib/inputs.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
 import { buildComposeEnv } from "./lib/compose-env.ts";
@@ -14,7 +15,7 @@ import {
 } from "#core/lib/provenance/verify-image.ts";
 import { resolveBuildcageImageRef } from "#core/lib/provenance/image-ref.ts";
 import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
-import { logRules } from "#core/lib/actions/log.ts";
+import { logRules, withLogGroup } from "#core/lib/actions/log.ts";
 import { deriveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { buildComposeUpArgs, buildComposeDownArgs } from "#core/lib/docker/args.ts";
 import { builderStartError } from "./lib/builder-diagnostics.ts";
@@ -81,17 +82,17 @@ async function main(): Promise<void> {
   const { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } =
     readRuleInputs();
   checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, (message) =>
-    console.log(`::warning::${message}`),
+    annotate.warning(message),
   );
 
-  console.log("::group::buildcage: Configured ACL Rules");
-  logRules("HTTPS", httpsRules);
-  logRules("HTTP", httpRules);
-  logRules("IP", ipRules);
-  logRules("URL", urlRules);
-  logRules("TLS", tlsRules);
-  logRules("Known blocked", knownBlockedRules);
-  console.log("::endgroup::");
+  withLogGroup("buildcage: Configured ACL Rules", () => {
+    logRules("HTTPS", httpsRules);
+    logRules("HTTP", httpRules);
+    logRules("IP", ipRules);
+    logRules("URL", urlRules);
+    logRules("TLS", tlsRules);
+    logRules("Known blocked", knownBlockedRules);
+  });
 
   const builderName = readBuilderName();
   // So report can independently derive the same project name from its own
@@ -137,13 +138,6 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch((err) => {
-    if (err instanceof ActionError) {
-      console.log(`::error::${err.message}`);
-    } else {
-      console.log(`::error::Unexpected error in setup: ${errorMessage(err)}`);
-    }
-    process.exit(1);
-  });
+  main().catch(exitOnFatalError("setup"));
 }
 /* v8 ignore stop */
