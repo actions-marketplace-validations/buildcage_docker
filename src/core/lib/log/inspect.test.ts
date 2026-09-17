@@ -381,4 +381,16 @@ describe("a request line whose URL names no authority", () => {
   });
 });
 
+describe("a resolver line whose stamp is not a date", () => {
+  // s6-log writes the stamp, and the line shape only requires two fields
+  // before the marker. An unreadable one is timed at 0 rather than NaN, which
+  // would render as an empty cell.
+  it("times the event at 0", async () => {
+    const { events } = await scanInspectDnsLog([
+      "xx yy  buildcage dns allowed name=a.example.com.",
+    ]);
+    for (const event of events) expect(event.time).toBe(0);
+  });
+});
+
 reportResults();

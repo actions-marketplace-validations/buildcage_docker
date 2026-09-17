@@ -158,4 +158,25 @@ describe("foldExpectedBlockedRows — two groups one rule produced", () => {
   });
 });
 
+describe("foldExpectedBlockedRows — a tie broken the other way", () => {
+  // The tie-break has to hold whichever order the rows arrived in, so this is
+  // the mirror of the case above.
+  it("keeps rules in order when they already are", () => {
+    const row = (expectedBy: string): HostTableRow => ({
+      host: "a.example.com",
+      port: "-",
+      ruleType: "DNS",
+      reason: "dns-not-allowed",
+      count: 1,
+      expected: true,
+      expectedBy,
+    });
+    const folded = foldExpectedBlockedRows([row("a.example.com:*"), row("z.example.com:*")]);
+    expect(folded.map((r) => r.display)).toStrictEqual([
+      "a.example.com:* (1 host)",
+      "z.example.com:* (1 host)",
+    ]);
+  });
+});
+
 reportResults();
