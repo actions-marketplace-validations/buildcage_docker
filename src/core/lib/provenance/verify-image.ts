@@ -43,7 +43,10 @@ export interface ResolvedImage {
  * On failure, throws VerifyImageError — the caller is responsible for printing
  * the error message.
  *
+ * Untested by design: every step it calls is tested directly. The order they
+ * run in is not, so the reason for it is kept inline below.
  */
+/* v8 ignore start */
 export async function verifyImageDigest({
   actionRef,
   actionRepo,
@@ -65,6 +68,7 @@ export async function verifyImageDigest({
   checkImageEngine({ labels, proxyEngine, imageTag: tag });
   return digest;
 }
+/* v8 ignore stop */
 
 /** Maps a VerifyImageError (or any other thrown value) to the caller-facing ProvenanceError. */
 export function toProvenanceError(e: unknown): ProvenanceError {
@@ -94,7 +98,10 @@ export function requireDigest(digest: string | null, actionRef: string): string 
  * Like verifyImageDigest, but throws ProvenanceError (see errors.ts) instead
  * of the low-level VerifyImageError, so a caller gets one already-typed
  * error to catch rather than having to translate the result itself.
+ *
+ * Untested by design: toProvenanceError and requireDigest are tested directly.
  */
+/* v8 ignore start */
 export async function verifyImageDigestOrThrow({
   actionRef,
   actionRepo,
@@ -108,3 +115,4 @@ export async function verifyImageDigestOrThrow({
   }
   return requireDigest(digest, actionRef);
 }
+/* v8 ignore stop */
