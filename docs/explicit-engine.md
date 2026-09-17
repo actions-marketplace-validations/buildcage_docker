@@ -8,7 +8,7 @@
 
 `proxy_engine` selects how Buildcage intercepts and enforces traffic. It is independent of
 `proxy_mode`: either engine works with either mode, and both use the same
-[rule syntax](../README.md#rule-syntax).
+[rule syntax](./reference.md#rule-syntax).
 
 - **`universal`** (default; `transparent` is accepted as an alias): traffic is intercepted at the
   network level, with no proxy configuration or CA trust needed inside the build

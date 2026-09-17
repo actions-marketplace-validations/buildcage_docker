@@ -410,8 +410,8 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
 - **`buildcage-runc`** (`docker/inspect/buildcage-runc/`) wraps BuildKit's own `buildkit-runc`,
   selected via `[worker.oci] binary` in `buildkitd.toml`. For the subcommands that carry an OCI
   bundle, it sets the CA-trust environment variables (see
-  [CA trust and compatibility](../README.md#ca-trust-and-compatibility)) directly, and for the CA
-  itself, mirrors the step's CA store directory into a scratch copy, appends the CA there, and
+  [CA trust variables](./reference.md#ca-trust-variables)) directly, and for the CA itself, mirrors
+  the step's CA store directory into a scratch copy, appends the CA there, and
   bind-mounts the copy over the step's view of the real directory for the step's duration. Once the
   real `runc` exits, that mirror is compared against its state right after the CA was added: if
   nothing else changed, the real directory was never opened for writing, so BuildKit's layer diff for
@@ -446,7 +446,7 @@ behavior (what's enforced, what's visible in the report), see
   set (otherwise the container's own resolv.conf, e.g. Docker's embedded DNS, is left untouched);
   runs a QuickJS script that compiles `allowed_https_rules` / `allowed_http_rules` /
   `allowed_ip_rules` (the same syntax as `universal`; see
-  [Rule syntax](../README.md#rule-syntax)) into a BuildKit
+  [Rule syntax](./reference.md#rule-syntax)) into a BuildKit
   [source policy](https://github.com/moby/buildkit/blob/master/docs/proxy.md); starts `buildkitd`
   with `proxyNetwork = true` bound to an internal Unix socket; and starts its own gRPC listener on
   the socket path Buildx actually connects to.
@@ -487,8 +487,8 @@ If you encounter issues, try reproducing the problem locally to get detailed log
 3. **TLS/certificate errors under `proxy_engine: inspect`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal`, the tool likely pins a certificate or
    ships its own trust store rather than reading the CA-trust environment variables Buildcage sets.
-   See [CA trust and compatibility](../README.md#ca-trust-and-compatibility). The JVM is the common
-   case; fall back to `universal` for it.
+   See [Limitations](../README.md#limitations). The JVM is the common case; fall back to
+   `universal` for it.
 
 4. **TLS/certificate errors under `proxy_engine: explicit`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal` (or without Buildcage at all), the tool
