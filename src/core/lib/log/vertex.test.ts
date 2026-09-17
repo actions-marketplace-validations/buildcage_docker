@@ -276,3 +276,15 @@ describe("parseVertexAllowedLog", () => {
     expect(result[0].entries[0].url).toBe("https://one.example.com/");
   });
 });
+
+describe("status lines carrying only one of the two arrays", () => {
+  it("reads a line with vertexes but no logs", () => {
+    const log = '{"vertexes":[{"digest":"sha256:a","name":"[stage 1/2] RUN x"}]}';
+    expect(() => parseVertexAllowedLog(log)).not.toThrow();
+  });
+
+  it("reads a line with logs but no vertexes", () => {
+    const log = '{"logs":[{"vertex":"sha256:a","data":"aGk="}]}';
+    expect(() => parseVertexAllowedLog(log)).not.toThrow();
+  });
+});

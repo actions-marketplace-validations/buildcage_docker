@@ -142,4 +142,16 @@ describe("scanBuildkitdLog — hasNonDenialContent", () => {
 // aggregate()/createIncrementalAggregator() itself is tested in core/lib/log/aggregate.test.ts.
 // parseIdentifier() itself is tested in core/lib/log/parse-identifier.test.ts.
 
+describe("lines missing one of the two fields", () => {
+  // time= is read from the start of the line, so a denial logged without one
+  // has no timestamp to put on the timeline.
+  it("skips a denial line that names no timestamp", async () => {
+    const line =
+      'level=debug msg="Evaluated source policy" error="denied by policy" ' +
+      'ref="https://a.example.com/x"';
+    const result = await scanBuildkitdLog([line]);
+    expect(result.denied.length).toBe(0);
+  });
+});
+
 reportResults();

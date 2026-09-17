@@ -179,4 +179,13 @@ describe("scanHaproxyLog", () => {
   });
 });
 
+describe("a host logged without a port", () => {
+  it("reads the whole field as the host and reports port 0", async () => {
+    const log = '[2024-01-01T00:00:00] buildcage [BLOCKED] (DNS) "a.example.com" dns-not-allowed';
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.blocked[0].host).toBe("a.example.com");
+    expect(result.blocked[0].port).toBe("0");
+  });
+});
+
 reportResults();

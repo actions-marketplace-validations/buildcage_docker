@@ -102,4 +102,34 @@ describe("describeContainerStartFailure", () => {
   });
 });
 
+describe("fields docker inspect can leave out", () => {
+  it("reads a state with no exit code, health or log as nulls", () => {
+    expect(parseContainerState(JSON.stringify({ Status: "running" }))).toStrictEqual({
+      status: "running",
+      exitCode: null,
+      health: null,
+      lastHealthOutput: null,
+    });
+  });
+
+  it("reports a stopped container with no exit code without naming one", () => {
+    const message = describeContainerStartFailure(
+      { status: "exited", exitCode: null, health: null, lastHealthOutput: null },
+      { role: "proxy", containerName: "buildcage" },
+    );
+    expect(message).toMatch(/stopped instead of starting up/);
+  });
+});
+
+describe("a health log entry with nothing in it", () => {
+  it("reads whitespace-only output as no output at all", () => {
+    const output = JSON.stringify({
+      Status: "running",
+      ExitCode: 0,
+      Health: { Status: "starting", Log: [{ Output: "   \n" }] },
+    });
+    expect(parseContainerState(output)?.lastHealthOutput).toBe(null);
+  });
+});
+
 reportResults();
