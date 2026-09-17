@@ -10,6 +10,7 @@ and links here for the details.
 - [Operation modes](#operation-modes)
 - [Rule syntax](#rule-syntax)
 - [Report action inputs](#report-action-inputs)
+- [Blocked service names](#blocked-service-names)
 - [Traffic artifact](#traffic-artifact)
 - [CA trust variables](#ca-trust-variables)
 
@@ -313,6 +314,25 @@ and no port (folded like any other row when a `known_blocked_rules` rule matches
 `inspect` that is the only trace of a name the build reached for and did not use, which is how a
 rule wider than the build needs shows up. A name that was connected to has no such row: the request
 is already there.
+
+## Blocked service names
+
+A row whose reason is `dns-service-not-allowed` is a service-discovery name,
+`_mongodb._tcp.cluster0.x.mongodb.net` and the like. **Neither way of clearing it makes the record
+resolve.** Buildcage's resolver serves no discovery record at all (see
+[Service discovery](../README.md#service-discovery)), so the answer stays empty whatever you write;
+what changes is only whether the row fails the step.
+
+1. **Allow the host the name belongs to** (`cluster0.x.mongodb.net`). The lookup is then reported as
+   `discovery` instead and leaves the table, and the build may connect to that host. This is the
+   useful one whenever the build was trying to reach the service.
+2. **List the service name in `known_blocked_rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
+   The row is marked Expected, folded under that rule, and stops failing the step. Nothing else
+   changes, and the host stays unreachable.
+
+Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
+it reads as permission to reach something that nothing can connect to, and the record still does not
+resolve.
 
 ## Traffic artifact
 

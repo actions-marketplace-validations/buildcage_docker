@@ -261,25 +261,6 @@ In `restrict` mode the step fails when a blocked connection is found, and with i
 setup action's `known_blocked_rules`. In `audit` mode nothing fails the step. The action's inputs
 are in [Reference](./docs/reference.md#report-action-inputs).
 
-### Blocked service names
-
-A row whose reason is `dns-service-not-allowed` is a service-discovery name,
-`_mongodb._tcp.cluster0.x.mongodb.net` and the like. **Neither way of clearing it makes the record
-resolve.** Buildcage's resolver serves no discovery record at all (see
-[Service discovery](#service-discovery)), so the answer stays empty whatever you write; what changes
-is only whether the row fails the step.
-
-1. **Allow the host the name belongs to** (`cluster0.x.mongodb.net`). The lookup is then reported as
-   `discovery` instead and leaves the table, and the build may connect to that host. This is the
-   useful one whenever the build was trying to reach the service.
-2. **List the service name in `known_blocked_rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
-   The row is marked Expected, folded under that rule, and stops failing the step. Nothing else
-   changes, and the host stays unreachable.
-
-Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
-it reads as permission to reach something that nothing can connect to, and the record still does not
-resolve.
-
 ### Traffic artifact
 
 `upload_traffic_artifact: true` uploads the whole timeline as a `traffic.json`, one row per request
@@ -359,7 +340,8 @@ have the same shape.
 
 Under `inspect`, a lookup for a `_service._proto.<host>` name is reported as `discovery` when the
 rules allow that host, and is not counted as blocked. A service name under any other host is
-reported as blocked; see [Blocked service names](#blocked-service-names).
+reported as blocked; see
+[Blocked service names](./docs/reference.md#blocked-service-names).
 
 ### Under the `inspect` engine
 
