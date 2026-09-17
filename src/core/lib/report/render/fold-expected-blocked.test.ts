@@ -95,4 +95,67 @@ describe("foldExpectedBlockedRows", () => {
   });
 });
 
+describe("foldExpectedBlockedRows — grouping key and tie-break", () => {
+  const anyRow = (overrides: Partial<HostTableRow> = {}): HostTableRow => ({
+    host: "a.example.com",
+    port: "-",
+    ruleType: "DNS",
+    reason: "dns-not-allowed",
+    count: 1,
+    expected: true,
+    expectedBy: "*.example.com:*",
+    ...overrides,
+  });
+
+  it("groups rows that carry no reason at all", () => {
+    const folded = foldExpectedBlockedRows([
+      anyRow({ host: "a.example.com", reason: undefined }),
+      anyRow({ host: "b.example.com", reason: undefined }),
+    ]);
+    expect(folded.length).toBe(1);
+    expect(folded[0].count).toBe(2);
+  });
+
+  // Equal counts fall through to the rule text, so the order does not depend on
+  // which row the proxy happened to log first.
+  it("breaks a tie on count by rule text", () => {
+    const folded = foldExpectedBlockedRows([
+      anyRow({ host: "z.example.com", expectedBy: "z.example.com:*" }),
+      anyRow({ host: "a.example.com", expectedBy: "a.example.com:*" }),
+    ]);
+    expect(folded.map((r) => r.display)).toStrictEqual([
+      "a.example.com:* (1 host)",
+      "z.example.com:* (1 host)",
+    ]);
+  });
+});
+
+describe("foldExpectedBlockedRows — two groups one rule produced", () => {
+  // One rule can cover a refused name and a refused connection at once, which
+  // is why ruleType is part of the grouping key: same rule, same count, two rows.
+  it("keeps both groups when only ruleType differs", () => {
+    const folded = foldExpectedBlockedRows([
+      {
+        host: "a.example.com",
+        port: "-",
+        ruleType: "DNS",
+        reason: "dns-not-allowed",
+        count: 1,
+        expected: true,
+        expectedBy: "*.example.com:*",
+      },
+      {
+        host: "a.example.com",
+        port: "443",
+        ruleType: "HTTPS",
+        reason: "sni-not-allowed",
+        count: 1,
+        expected: true,
+        expectedBy: "*.example.com:*",
+      },
+    ]);
+    expect(folded.length).toBe(2);
+  });
+});
+
 reportResults();
