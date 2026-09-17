@@ -1,6 +1,12 @@
 import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
 import { renderReportMarkdown } from "./render-report-markdown.ts";
-import type { GenReportParameters, UniversalReportData, ExplicitReportData } from "../types.ts";
+import type {
+  GenReportParameters,
+  UniversalReportData,
+  ExplicitReportData,
+  InspectReportData,
+} from "../types.ts";
+import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 
 function params(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
   return {
@@ -229,6 +235,48 @@ describe("renderReportMarkdown — explicit", () => {
     );
     assertNotMatch(md, /a\.sury\.org/);
     expect(md).toMatch(/\| bad\.com:80 \|/);
+  });
+});
+
+describe("renderReportMarkdown — inspect", () => {
+  const request: TrafficEvent = {
+    time: 1787471975,
+    action: "allow",
+    protocol: "https",
+    host: "good.com",
+    port: 443,
+    method: "GET",
+    url: "https://good.com/pkg",
+    status: 200,
+    bytes: 12,
+  } as TrafficEvent;
+
+  const base: InspectReportData = {
+    engine: "inspect",
+    parameters: params(),
+    passed: [],
+    blocked: [],
+    blockedCount: 0,
+    logLooksPlausible: true,
+    timeline: [request],
+    startedAt: 1787471970,
+  };
+
+  it("renders the per-request details the other engines have no data for", () => {
+    const md = renderReportMarkdown(base, "buildcage/docker", "v2");
+    expect(md).toMatch(/good\.com/);
+    expect(md).toMatch(/GET/);
+  });
+
+  // inspect saw the method and the path, so its audit example can be narrower
+  // than one built from hosts alone.
+  it("builds the audit example from the requests rather than from the hosts", () => {
+    const md = renderReportMarkdown(
+      { ...base, parameters: params({ mode: "audit" }) },
+      "buildcage/docker",
+      "v2",
+    );
+    expect(md).toMatch(/allowed_url_rules|GET https:\/\/good\.com/);
   });
 });
 

@@ -126,3 +126,20 @@ describe("builderStartError", () => {
     );
   });
 });
+
+describe("builderStartError — an inspect failure that is not an Error", () => {
+  it("blames Docker without trying to quote a stderr it has none of", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const deps: BuilderDiagnosticsDeps = {
+      captureDocker() {
+        throw "docker: command not found";
+      },
+      printDocker() {},
+    };
+
+    const error = builderStartError(COMPOSE_UP_FAILED, OPTIONS, deps);
+
+    expect(error.code).toBe("DOCKER_UNAVAILABLE");
+    expect(log.mock.calls.length).toBe(0);
+  });
+});
