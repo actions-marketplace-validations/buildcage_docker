@@ -69,11 +69,12 @@ test_unit_setup: ## Run setup action unit tests
 test_unit_report: ## Run report unit tests
 	@vp test run report/src
 
-# One vitest run, because each run overwrites the coverage report: split by
-# package the way the targets above are, only the last one's numbers survive.
+# Unfiltered, so this always covers whatever test.include matches. One run,
+# because each overwrites the coverage report: split the way the targets above
+# are, only the last one's numbers would survive.
 .PHONY: test_unit_coverage
 test_unit_coverage: ## Run every Node unit test once, with coverage
-	@vp test run src/core src/lib src/main report/src --coverage
+	@vp test run --coverage
 
 # qjs can't execute .ts directly, so compile fresh (vp run build:qjs-test)
 # and bind-mount the output in. qjs itself is identical across images, so one

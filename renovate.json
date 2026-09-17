@@ -37,6 +37,11 @@
       "matchPackageNames": ["/^buildcage\\/docker/"],
       "minimumReleaseAge": "0 days",
       "schedule": ["at any time"]
+    },
+    {
+      "description": "vite-plus asserts that @vitest/coverage-v8 matches the vitest version it bundles, so bumping either one alone breaks the unit test job.",
+      "matchPackageNames": ["vite-plus", "@vitest/coverage-v8"],
+      "groupName": "vite-plus toolchain"
     }
   ]
 }
