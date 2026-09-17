@@ -35,9 +35,8 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "report/src/**/*.test.ts"],
     restoreMocks: true,
-    // No thresholds: this only makes the numbers visible. @vitest/coverage-v8
-    // is pinned to the exact vitest version vite-plus bundles, which vite-plus
-    // asserts at startup; bump both together.
+    // @vitest/coverage-v8 is pinned to the exact vitest version vite-plus
+    // bundles, which vite-plus asserts at startup; bump both together.
     coverage: {
       provider: "v8",
       // Without an explicit include, v8 reports only files some test imported,
@@ -57,6 +56,10 @@ export default defineConfig({
         ["text", {}],
         ["text-summary", { file: "summary.txt" }],
       ],
+      // 100% is not the goal in itself: it is what makes new untested code
+      // fail the run instead of sinking into a number nobody reads. What is
+      // deliberately untested carries a v8 ignore comment naming the reason.
+      thresholds: { 100: true },
     },
   },
 });
