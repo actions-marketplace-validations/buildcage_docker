@@ -1,7 +1,6 @@
-import * as core from "@actions/core";
-
 import { buildComposeDownArgs } from "#core/lib/docker/args.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
+import { readBuilderName } from "./inputs.ts";
 
 export interface PostCleanupPlan {
   args: string[];
@@ -21,7 +20,7 @@ export function planPostCleanup(
   projectNameOverride: string | undefined,
   env: NodeJS.ProcessEnv,
 ): PostCleanupPlan {
-  const builderName = core.getInput("builder_name") || "buildcage";
+  const builderName = readBuilderName();
   const projectName = resolveProjectName(builderName, projectNameOverride);
   return {
     args: buildComposeDownArgs({ composeFile, projectName }),

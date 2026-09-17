@@ -1,4 +1,3 @@
-Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 //#region \0rolldown/runtime.js
 var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDesc = Object.getOwnPropertyDescriptor, __getOwnPropNames = Object.getOwnPropertyNames, __getProtoOf = Object.getPrototypeOf, __hasOwnProp = Object.prototype.hasOwnProperty, __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports), __copyProps = (to, from, except, desc) => {
 	if (from && typeof from == "object" || typeof from == "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) key = keys[i], !__hasOwnProp.call(to, key) && key !== except && __defProp(to, key, {
@@ -26,9 +25,19 @@ child_process = __toESM(child_process, 1), require("timers");
 let node_os = require("node:os");
 node_os = __toESM(node_os, 1);
 let node_fs = require("node:fs");
+//#region src/core/lib/errors.ts
+var ActionError = class extends Error {
+	code;
+	constructor(message, code) {
+		super(message), this.name = new.target.name, this.code = code;
+	}
+};
+function errorMessage(e) {
+	return e instanceof Error ? e.message : String(e);
+}
 //#endregion
-//#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
-var __awaiter$6 = function(thisArg, _arguments, P, generator) {
+//#region src/lib/errors.ts
+var SetupError = class extends ActionError {}, __awaiter$6 = function(thisArg, _arguments, P, generator) {
 	function adopt(value) {
 		return value instanceof P ? value : new P(function(resolve) {
 			resolve(value);
@@ -172,20 +181,6 @@ function getInput(name, options) {
 	if (options && options.required && !val) throw Error(`Input required and not supplied: ${name}`);
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
-//#endregion
-//#region src/core/lib/errors.ts
-var ActionError = class extends Error {
-	code;
-	constructor(message, code) {
-		super(message), this.name = new.target.name, this.code = code;
-	}
-};
-function errorMessage(e) {
-	return e instanceof Error ? e.message : String(e);
-}
-//#endregion
-//#region src/lib/errors.ts
-var SetupError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/acl/partial-wildcard.ts
 const REGEX_META = /[.+^$()[\]{}|\\]/g, DOMAIN = {
@@ -444,6 +439,44 @@ function splitUrlRuleLines(rulesInput) {
 }
 function buildUrlRules(rulesInput) {
 	return splitUrlRuleLines(rulesInput).map(convertUrlRule);
+}
+//#endregion
+//#region src/lib/engine.ts
+const ENGINES = [
+	"universal",
+	"explicit",
+	"inspect"
+], ENGINE_ALIASES = { transparent: "universal" };
+function resolveProxyEngine(input) {
+	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
+	alias && console.log("::notice::proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
+	let engine = alias ?? trimmed;
+	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
+	return engine;
+}
+//#endregion
+//#region src/lib/inputs.ts
+function readBuilderName(getInput$1 = getInput) {
+	return getInput$1("builder_name") || "buildcage";
+}
+function readEngineInputs(getInput$2 = getInput) {
+	return { proxyEngine: resolveProxyEngine(getInput$2("proxy_engine")) };
+}
+function readRuleInputs(getInput$3 = getInput) {
+	let proxyMode = getInput$3("proxy_mode") || "restrict", rules = buildACLRules({
+		httpsRulesInput: getInput$3("allowed_https_rules"),
+		httpRulesInput: getInput$3("allowed_http_rules"),
+		ipRulesInput: getInput$3("allowed_ip_rules")
+	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput$3("known_blocked_rules")), urlRulesInput = getInput$3("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput$3("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+	return {
+		proxyMode,
+		httpsRules: rules.httpsRules,
+		httpRules: rules.httpRules,
+		ipRules: rules.ipRules,
+		urlRules,
+		tlsRules,
+		knownBlockedRules
+	};
 }
 //#endregion
 //#region src/lib/engine-rule-support.ts
@@ -7314,7 +7347,7 @@ async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
 	};
 }
 async function main() {
-	let env = process.env, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", proxyEngine = resolveProxyEngine(getInput("proxy_engine"));
+	let env = process.env, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs();
 	console.log(`Proxy engine: ${proxyEngine}`);
 	let { imageRef, pullPolicy } = await resolveVerifiedImage({
 		actionRef,
@@ -7322,25 +7355,21 @@ async function main() {
 		proxyEngine
 	});
 	console.log(`buildcage: image: ${imageRef}`);
-	let proxyMode = getInput("proxy_mode") || "restrict", rules = buildACLRules({
-		httpsRulesInput: getInput("allowed_https_rules"),
-		httpRulesInput: getInput("allowed_http_rules"),
-		ipRulesInput: getInput("allowed_ip_rules")
-	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput("known_blocked_rules")), urlRulesInput = getInput("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+	let { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } = readRuleInputs();
 	checkUrlAndTlsRuleSupport({
 		proxyEngine,
 		proxyMode,
 		urlRules,
 		tlsRules
-	}, (message) => console.log(`::warning::${message}`)), console.log("::group::buildcage: Configured ACL Rules"), logRules("HTTPS", rules.httpsRules), logRules("HTTP", rules.httpRules), logRules("IP", rules.ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules), console.log("::endgroup::");
-	let builderName = getInput("builder_name") || "buildcage", projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
+	}, (message) => console.log(`::warning::${message}`)), console.log("::group::buildcage: Configured ACL Rules"), logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules), console.log("::endgroup::");
+	let builderName = readBuilderName(), projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
 		builderName,
 		proxyMode,
 		proxyEngine,
 		imageRef,
-		httpsRules: rules.httpsRules,
-		httpRules: rules.httpRules,
-		ipRules: rules.ipRules,
+		httpsRules,
+		httpRules,
+		ipRules,
 		urlRules,
 		tlsRules,
 		knownBlockedRules
@@ -7374,18 +7403,7 @@ async function main() {
 		});
 	}
 }
-const ENGINES = [
-	"universal",
-	"explicit",
-	"inspect"
-], ENGINE_ALIASES = { transparent: "universal" };
-function resolveProxyEngine(input) {
-	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
-	alias && console.log("::notice::proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
-	let engine = alias ?? trimmed;
-	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
-	return engine;
-}
 process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch((err) => {
 	err instanceof ActionError ? console.log(`::error::${err.message}`) : console.log(`::error::Unexpected error in setup: ${errorMessage(err)}`), process.exit(1);
-}), exports.buildACLRules = buildACLRules, exports.resolveProxyEngine = resolveProxyEngine;
+});
+//#endregion

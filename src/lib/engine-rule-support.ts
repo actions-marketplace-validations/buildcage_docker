@@ -1,5 +1,5 @@
 import { SetupError } from "./errors.ts";
-import type { ProxyEngine } from "../main.ts";
+import type { ProxyEngine } from "./engine.ts";
 
 /**
  * Only `inspect` terminates TLS, so it's the only engine that can see an HTTP

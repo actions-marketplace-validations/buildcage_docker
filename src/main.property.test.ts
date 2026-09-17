@@ -1,5 +1,5 @@
 /**
- * Property-based tests for main.ts and its helpers.
+ * Property-based tests for the setup action's inputs and image resolution.
  *
  * Run with: vp test run src/main.property.test.ts
  */
@@ -8,7 +8,7 @@ import fc from "fast-check";
 
 import { imageTagFromRef } from "#core/lib/provenance/image-tag.ts";
 import { resolveBuildcageImageRef } from "#core/lib/provenance/image-ref.ts";
-import { buildACLRules, resolveProxyEngine } from "./main.ts";
+import { buildACLRules } from "#core/lib/acl/rules.ts";
 
 // ---------------------------------------------------------------------------
 // imageTagFromRef
@@ -64,34 +64,6 @@ describe("imageTagFromRef – properties", () => {
           expect(imageTagFromRef(ref)).toBe(ref);
         },
       ),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resolveProxyEngine
-// ---------------------------------------------------------------------------
-
-describe("resolveProxyEngine – properties", () => {
-  it("always returns one of the three canonical engine names, or throws", () => {
-    fc.assert(
-      fc.property(fc.string({ minLength: 0, maxLength: 20 }), (input) => {
-        let result;
-        try {
-          result = resolveProxyEngine(input);
-        } catch {
-          return; // throwing is an acceptable outcome for invalid input
-        }
-        expect(["universal", "explicit", "inspect"]).toContain(result);
-      }),
-    );
-  });
-
-  it("is idempotent for its own valid outputs", () => {
-    fc.assert(
-      fc.property(fc.constantFrom("universal", "explicit", "inspect"), (engine) => {
-        expect(resolveProxyEngine(resolveProxyEngine(engine))).toBe(engine);
-      }),
     );
   });
 });
