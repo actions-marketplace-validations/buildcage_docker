@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Buildcage overview</title>
+    <!--
+      Source for ../diagram-overview.png. Render it at 2x with headless Chrome,
+      from the repository root:
+
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
+          --force-device-scale-factor=2 --window-size=1000,412 --hide-scrollbars \
+          --screenshot=assets/diagram-overview.png assets/diagrams/overview.html
+
+      Palette and fonts are the landing page's, so the figure reads as the same
+      product. The rendering is dark at every setting and carries its own
+      background, which keeps it legible under both GitHub themes.
+
+      The figure is the `inspect` engine: only that one enforces on the method
+      and the URL, and only that one mounts a certificate.
+
+      The two connectors are drawn at coordinates that depend on the boxes they
+      join, so re-render and look at the result after changing any height, gap
+      or padding around them. Where each number comes from is written above the
+      rule that carries it.
+    -->
+    <style>
+      @font-face {
+        font-family: "Outfit";
+        font-style: normal;
+        font-weight: 400 500;
+        src: url("./fonts/outfit.woff2") format("woff2");
+      }
+
+      @font-face {
+        font-family: "Rubik";
+        font-style: normal;
+        font-weight: 300 500;
+        src: url("./fonts/rubik.woff2") format("woff2");
+      }
+
+      :root {
+        --bg: #223133;
+        --card: #1d2a2b;
+        --rule: #2c3b3c;
+        --fg: #e6eeec;
+        --muted: #9aabab;
+        --cyan: #53b1bd;
+        --mint: #88ebb9;
+        --coral: #e8917f;
+        --head: "Outfit", ui-sans-serif, system-ui, sans-serif;
+        --body: "Rubik", ui-sans-serif, system-ui, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        width: 1000px;
+        height: 412px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--body);
+        font-weight: 300;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .frame {
+        width: 100%;
+        height: 100%;
+        padding: 20px 24px;
+      }
+
+      /* Row one carries the flow, row two what the build leaves behind. The
+         verdict column spans both so the line into the report can run the
+         whole height. */
+      .stage {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 158px 34px minmax(0, 1fr) 34px 296px;
+        row-gap: 14px;
+        align-items: center;
+      }
+
+      /* Shared text styles */
+
+      .eyebrow,
+      .bk-label,
+      .hook-label,
+      .verdict .label {
+        font-family: var(--head);
+        font-weight: 500;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--cyan);
+      }
+
+      .mono {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--fg);
+      }
+
+      .note {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        padding: 14px 16px;
+      }
+
+      /* Your workflow */
+
+      .workflow > * + * {
+        margin-top: 8px;
+      }
+
+      /* Builder container */
+
+      .builder {
+        border: 1px solid var(--rule);
+        border-radius: 12px;
+        padding: 14px;
+        background: rgba(29, 42, 43, 0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .inner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 40px 164px;
+        align-items: start;
+      }
+
+      /* BuildKit is a third party here, so its label is grey rather than the
+         cyan the parts Buildcage supplies carry. */
+      .buildkit {
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .bk-label {
+        color: var(--muted);
+      }
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .step {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 9px;
+        padding: 0 12px;
+      }
+
+      .step .mono {
+        font-size: 12.5px;
+      }
+
+      /* 61px puts the middle of the box on the middle step's centre line, 102px
+         below the top of .buildkit, which is where .bus arrives. */
+      .proxy {
+        margin-top: 61px;
+        background: var(--card);
+        border: 1px solid var(--cyan);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+
+      .proxy .title {
+        font-family: var(--head);
+        font-weight: 500;
+        font-size: 15px;
+      }
+
+      .proxy .note {
+        margin-top: 4px;
+      }
+
+      .hooks {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .hook-card {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 9px;
+        padding: 8px 12px;
+      }
+
+      .hook-label {
+        font-size: 10.5px;
+      }
+
+      .hook-card .note {
+        margin-top: 3px;
+        font-size: 11px;
+      }
+
+      /* Verdicts and the report */
+
+      /* 35px lowers the two cards until the midpoint of the line joining them
+         is the proxy's own centre line, which is where .fork arrives. */
+      .verdicts {
+        grid-column: 5;
+        grid-row: 1 / 3;
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding-top: 35px;
+      }
+
+      .verdict {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+
+      .verdict .mono {
+        margin-top: 7px;
+        font-size: 11px;
+        line-height: 1.75;
+      }
+
+      .verdict .note {
+        margin-top: 5px;
+        font-size: 11.5px;
+      }
+
+      .allowed {
+        border-left: 3px solid var(--mint);
+      }
+
+      .allowed .label {
+        color: var(--mint);
+      }
+
+      .blocked {
+        border-left: 3px solid var(--coral);
+      }
+
+      .blocked .label {
+        color: var(--coral);
+      }
+
+      .report {
+        border-left: 3px solid var(--cyan);
+      }
+
+      .report .ok {
+        color: var(--mint);
+      }
+
+      .report .no {
+        color: var(--coral);
+      }
+
+      /* What the build leaves behind */
+
+      .outcome {
+        grid-column: 1 / 4;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding: 12px 14px;
+      }
+
+      /* Connectors */
+
+      .arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--cyan);
+      }
+
+      /* The fork is wider than its column so that it can start at the proxy's
+         edge, and it hangs from the top of the row because its coordinates are
+         measured from there. */
+      .arrow.fork {
+        align-self: start;
+        align-items: flex-start;
+        justify-content: flex-end;
+        overflow: visible;
+      }
+
+      .arrow svg {
+        flex: none;
+      }
+
+      .bus {
+        color: var(--cyan);
+      }
+
+      /* The line to the report takes whatever height the column has left. */
+      .down {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: var(--cyan);
+      }
+
+      .down-line {
+        flex: 1;
+        width: 1.5px;
+        background: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="stage">
+        <div class="card workflow">
+          <div class="eyebrow">Your workflow</div>
+          <div class="mono">docker build .</div>
+          <div class="note">Dockerfile unchanged</div>
+        </div>
+
+        <div class="arrow">
+          <svg width="34" height="12" viewBox="0 0 34 12" fill="none" aria-hidden="true">
+            <path d="M0 6H25" stroke="currentColor" stroke-width="1.5" />
+            <path d="M24 1.5L30.5 6L24 10.5Z" fill="currentColor" />
+          </svg>
+        </div>
+
+        <div class="builder">
+          <div class="eyebrow">Builder container in your job</div>
+
+          <div class="inner">
+            <div class="buildkit">
+              <div class="bk-label">BuildKit, unpatched</div>
+              <div class="steps">
+                <div class="step"><span class="mono">RUN npm ci</span></div>
+                <div class="step"><span class="mono">RUN npm run build</span></div>
+                <div class="step"><span class="mono">RUN pip install</span></div>
+              </div>
+            </div>
+
+            <!-- 52, 102 and 152 are the three steps' centre lines, measured
+                 from the top of .buildkit. -->
+            <svg
+              class="bus"
+              width="40"
+              height="183"
+              viewBox="0 0 40 183"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M0 52H18V152H0M0 102H33"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+              <path d="M32 97.5L38.5 102L32 106.5Z" fill="currentColor" />
+            </svg>
+
+            <div class="proxy">
+              <div class="title">Proxy</div>
+              <div class="note">every connection<br />against your allowlist</div>
+            </div>
+          </div>
+
+          <div class="hooks">
+            <div class="hook-card">
+              <div class="hook-label">Runtime wrapper</div>
+              <div class="note">mounts the build-only certificate</div>
+            </div>
+
+            <div class="hook-card">
+              <div class="hook-label">Network config</div>
+              <div class="note">each step on its own network</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 141 is the proxy's centre line and 86 and 195 the two verdict
+             cards', all measured from the top of the stage. -->
+        <div class="arrow fork">
+          <svg width="50" height="205" viewBox="0 0 50 205" fill="none" aria-hidden="true">
+            <path d="M0 141H33" stroke="currentColor" stroke-width="1.5" />
+            <path d="M33 86V195" stroke="currentColor" stroke-width="1.5" />
+            <path d="M33 86H44" stroke="#88ebb9" stroke-width="1.5" />
+            <path d="M43 81.5L49.5 86L43 90.5Z" fill="#88ebb9" />
+            <path d="M33 195H44" stroke="#e8917f" stroke-width="1.5" />
+            <path d="M43 190.5L49.5 195L43 199.5Z" fill="#e8917f" />
+          </svg>
+        </div>
+
+        <div class="verdicts">
+          <div class="verdict allowed">
+            <div class="label">Allowed</div>
+            <div class="mono">
+              GET https://registry.npmjs.org/**<br />GET https://pypi.org/simple/**<br />GET
+              https://files.pythonhosted.org/**
+            </div>
+          </div>
+
+          <div class="verdict blocked">
+            <div class="label">Blocked</div>
+            <div class="mono">
+              POST https://registry.npmjs.org/**<br />POST https://evil.example.com/collect
+            </div>
+          </div>
+
+          <div class="down">
+            <div class="down-line"></div>
+            <svg width="12" height="7" viewBox="0 0 12 7" fill="none" aria-hidden="true">
+              <path d="M1.5 0L6 6.5L10.5 0Z" fill="currentColor" />
+            </svg>
+          </div>
+
+          <div class="verdict report">
+            <div class="label">Report in your job summary</div>
+            <div class="note">
+              <span class="ok">ALLOWED</span> and <span class="no">BLOCKED</span>, every request
+            </div>
+          </div>
+        </div>
+
+        <div class="card outcome">
+          <div class="eyebrow">The image you get</div>
+          <div class="note">No certificate, no settings, no traces</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
