@@ -231,31 +231,22 @@ describe("buildInspectRestrictExample", () => {
   it("echoes allowed_tls_rules and allowed_ip_rules as configured, not derived from traffic", () => {
     // Neither is ever decrypted, so there is nothing in `requests` to build
     // them from -- they are the same values the audit run was given.
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2", undefined, [
-      "10.0.0.5:5432",
-    ]);
+    const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
+      allowedIpRules: ["10.0.0.5:5432"],
+    });
     expect(/allowed_ip_rules: \|\n\s+10\.0\.0\.5:5432\n/.test(md)).toBe(true);
 
-    const md2 = buildInspectRestrictExample(
-      requests,
-      "buildcage/docker",
-      "v2",
-      undefined,
-      [],
-      ["db.internal.example.com:8443"],
-    );
+    const md2 = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
+      allowedTlsRules: ["db.internal.example.com:8443"],
+    });
     expect(/allowed_tls_rules: \|\n\s+db\.internal\.example\.com:8443\n/.test(md2)).toBe(true);
   });
 
   it("still renders a section for tls/ip rules alone, with no observed traffic", () => {
-    const md = buildInspectRestrictExample(
-      [],
-      "buildcage/docker",
-      "v2",
-      undefined,
-      ["10.0.0.5:5432"],
-      ["db.internal.example.com:8443"],
-    );
+    const md = buildInspectRestrictExample([], "buildcage/docker", "v2", {
+      allowedIpRules: ["10.0.0.5:5432"],
+      allowedTlsRules: ["db.internal.example.com:8443"],
+    });
     expect(md.includes("allowed_url_rules")).toBe(false);
     expect(/allowed_ip_rules: \|\n\s+10\.0\.0\.5:5432\n/.test(md)).toBe(true);
     expect(/allowed_tls_rules: \|\n\s+db\.internal\.example\.com:8443\n/.test(md)).toBe(true);
@@ -263,7 +254,9 @@ describe("buildInspectRestrictExample", () => {
 
   it("appends the version as a trailing comment when known", () => {
     const sha = "a".repeat(40);
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", sha, "3.1.4");
+    const md = buildInspectRestrictExample(requests, "buildcage/docker", sha, {
+      actionVersion: "3.1.4",
+    });
     expect(md.includes(`@${sha} # 3.1.4\n`)).toBe(true);
   });
 

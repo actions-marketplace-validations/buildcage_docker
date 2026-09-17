@@ -17,6 +17,7 @@
  */
 
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
 
 /** Ports a URL rule may leave unwritten, because the scheme implies them. */
 const DEFAULT_PORT: Record<string, string> = { https: "443", http: "80" };
@@ -142,30 +143,39 @@ export function buildUrlRuleLines(requests: TrafficEvent[]): string[] {
     .map(({ origin, pattern, methods }) => `${sortMethods(methods).join("|")} ${origin}${pattern}`);
 }
 
+export interface BuildInspectRestrictExampleOptions {
+  /** Version to annotate the `uses:` line with, if known, as `# 3.1.4`. */
+  actionVersion?: string;
+  /** Not derived from `requests` -- a passthrough is never decrypted, so
+   *  there is nothing in the traffic to build these from -- they are the
+   *  same values the audit run was configured with, echoed back as-is,
+   *  since they apply unchanged under `restrict` (only enforcement
+   *  differs). */
+  allowedIpRules?: string[];
+  allowedTlsRules?: string[];
+}
+
 /**
- * Render the rules as a collapsed markdown section, or "" if there is nothing
- * to show.
+ * Render the rules as a collapsed markdown section, or "" if there is
+ * nothing to show.
  *
- * `actionRef` is the ref this action was invoked with; `actionVersion`, if
- * known, is appended as a trailing `# 3.1.4` comment. `allowedIpRules` and
- * `allowedTlsRules` are not derived from `requests` -- a passthrough is never
- * decrypted, so there is nothing in the traffic to build them from -- they
- * are the same values the audit run was configured with, echoed back as-is,
- * since they apply unchanged under `restrict` (only enforcement differs).
+ * `actionRef` is the ref this action was invoked with.
  */
 export function buildInspectRestrictExample(
   requests: TrafficEvent[] | null | undefined,
   actionRepo: string,
   actionRef?: string,
-  actionVersion?: string,
-  allowedIpRules: string[] = [],
-  allowedTlsRules: string[] = [],
+  {
+    actionVersion,
+    allowedIpRules = [],
+    allowedTlsRules = [],
+  }: BuildInspectRestrictExampleOptions = {},
 ): string {
   const lines = buildUrlRuleLines(requests ?? []);
   if (lines.length === 0 && allowedIpRules.length === 0 && allowedTlsRules.length === 0) return "";
 
   let yaml = "- name: Start Buildcage\n";
-  yaml += `  uses: ${actionRepo}@${actionRef}${actionVersion ? ` # ${actionVersion}` : ""}\n`;
+  yaml += usesLine(actionRepo, actionRef, actionVersion);
   yaml += "  with:\n";
   yaml += "    proxy_mode: restrict\n";
   yaml += "    proxy_engine: inspect\n";
@@ -184,21 +194,7 @@ export function buildInspectRestrictExample(
     for (const rule of allowedIpRules) yaml += `      ${rule}\n`;
   }
 
-  // GitHub Actions' own indentation convention (jobs: -> <id>: -> steps: ->
-  // "- name:") always puts a step 6 spaces in, so the generated snippet can
-  // be pasted directly into an existing steps: list without re-indenting it.
-  const STEP_INDENT = "      ";
-  yaml = yaml
-    .split("\n")
-    .map((line) => (line ? STEP_INDENT + line : line))
-    .join("\n");
-
-  let md = "\n<details>\n";
-  md += "<summary>🛡️ Switch to restrict mode</summary>\n\n";
-  md += "```yaml\n";
-  md += yaml;
-  md += "```\n\n";
-  md += "<sub>*Permits exactly what this build did; a versioned or dated URL may drift.*</sub>\n\n";
-  md += "</details>\n";
-  return md;
+  return restrictExampleBlock(yaml, {
+    footnote: "Permits exactly what this build did; a versioned or dated URL may drift.",
+  });
 }
