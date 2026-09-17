@@ -37,7 +37,37 @@ function errorMessage(e) {
 }
 //#endregion
 //#region src/lib/errors.ts
-var SetupError = class extends ActionError {}, __awaiter$6 = function(thisArg, _arguments, P, generator) {
+var SetupError = class extends ActionError {};
+//#endregion
+//#region src/core/lib/actions/annotation.ts
+function createAnnotation(enabled) {
+	return enabled ? {
+		notice(message) {
+			console.log(`::notice::${message}`);
+		},
+		warning(message) {
+			console.log(`::warning::${message}`);
+		},
+		error(message) {
+			console.log(`::error::${message}`);
+		}
+	} : {
+		notice() {},
+		warning() {},
+		error() {}
+	};
+}
+const annotate = createAnnotation(!0);
+//#endregion
+//#region src/core/lib/actions/fatal.ts
+function exitOnFatalError(context) {
+	return (err) => {
+		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
+	};
+}
+//#endregion
+//#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
+var __awaiter$6 = function(thisArg, _arguments, P, generator) {
 	function adopt(value) {
 		return value instanceof P ? value : new P(function(resolve) {
 			resolve(value);
@@ -449,7 +479,7 @@ const ENGINES = [
 ], ENGINE_ALIASES = { transparent: "universal" };
 function resolveProxyEngine(input) {
 	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
-	alias && console.log("::notice::proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
+	alias && annotate.notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
 	let engine = alias ?? trimmed;
 	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
 	return engine;
@@ -7199,6 +7229,14 @@ function logRules(label, rules) {
 	console.log(`${label} rules:${rules.length === 0 ? " (none)" : ""}`);
 	for (let r of rules) console.log(`  ${r}`);
 }
+function withLogGroup(title, fn) {
+	console.log(`::group::${title}`);
+	try {
+		return fn();
+	} finally {
+		console.log("::endgroup::");
+	}
+}
 //#endregion
 //#region src/core/lib/docker/compose-project-name.ts
 function deriveProjectName(containerName) {
@@ -7317,17 +7355,17 @@ function reportInspectFailure(e) {
 	stderr.trim() && !/no such object/i.test(stderr) && console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
 }
 function printBuilderLog({ composeFile, projectName, composeEnv }, { printDocker = printDockerViaExec }) {
-	console.log("::group::buildcage: Builder container log");
-	try {
-		printDocker(buildComposeLogsArgs({
-			composeFile,
-			projectName,
-			tail: 100
-		}), composeEnv);
-	} catch {
-		console.log("The builder container's log could not be read.");
-	}
-	console.log("::endgroup::");
+	withLogGroup("buildcage: Builder container log", () => {
+		try {
+			printDocker(buildComposeLogsArgs({
+				composeFile,
+				projectName,
+				tail: 100
+			}), composeEnv);
+		} catch {
+			console.log("The builder container's log could not be read.");
+		}
+	});
 }
 //#endregion
 //#region src/main.ts
@@ -7361,7 +7399,9 @@ async function main() {
 		proxyMode,
 		urlRules,
 		tlsRules
-	}, (message) => console.log(`::warning::${message}`)), console.log("::group::buildcage: Configured ACL Rules"), logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules), console.log("::endgroup::");
+	}, (message) => annotate.warning(message)), withLogGroup("buildcage: Configured ACL Rules", () => {
+		logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules);
+	});
 	let builderName = readBuilderName(), projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
 		builderName,
 		proxyMode,
@@ -7403,7 +7443,5 @@ async function main() {
 		});
 	}
 }
-process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch((err) => {
-	err instanceof ActionError ? console.log(`::error::${err.message}`) : console.log(`::error::Unexpected error in setup: ${errorMessage(err)}`), process.exit(1);
-});
+process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch(exitOnFatalError("setup"));
 //#endregion

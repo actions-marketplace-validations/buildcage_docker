@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import * as core from "@actions/core";
 
 import { errorMessage } from "#core/lib/errors.ts";
+import { annotate } from "#core/lib/actions/annotation.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
 
 export function wantsTrafficArtifact(): boolean {
@@ -60,8 +61,8 @@ export async function uploadTrafficArtifact(
 ): Promise<void> {
   // Only the inspect engine writes the file.
   if (!fileExists(file)) {
-    console.log(
-      "::warning::upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
+    annotate.warning(
+      "upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
         "Only proxy_engine: inspect does.",
     );
     return;
@@ -74,6 +75,6 @@ export async function uploadTrafficArtifact(
     });
     console.log(`Uploaded the traffic JSON as ${name}`);
   } catch (e) {
-    console.log(`::warning::Could not upload the traffic artifact: ${errorMessage(e)}`);
+    annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);
   }
 }

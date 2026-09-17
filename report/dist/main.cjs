@@ -218,6 +218,33 @@ function errorMessage(e) {
 	return e instanceof Error ? e.message : String(e);
 }
 //#endregion
+//#region src/core/lib/actions/annotation.ts
+function createAnnotation(enabled) {
+	return enabled ? {
+		notice(message) {
+			console.log(`::notice::${message}`);
+		},
+		warning(message) {
+			console.log(`::warning::${message}`);
+		},
+		error(message) {
+			console.log(`::error::${message}`);
+		}
+	} : {
+		notice() {},
+		warning() {},
+		error() {}
+	};
+}
+const annotate = createAnnotation(!0);
+//#endregion
+//#region src/core/lib/actions/fatal.ts
+function exitOnFatalError(context) {
+	return (err) => {
+		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
+	};
+}
+//#endregion
 //#region report/src/lib/copy-from-image.ts
 const runDocker = (args) => (0, node_child_process.execFileSync)("docker", args, {
 	encoding: "utf8",
@@ -56114,14 +56141,14 @@ const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => 
 };
 async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
 	if (!fileExists(file)) {
-		console.log("::warning::upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
+		annotate.warning("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
 		return;
 	}
 	let days = Number(getInput("traffic_artifact_retention_days") || ""), name = artifactName(builderName);
 	try {
 		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays: Number.isFinite(days) && days > 0 ? days : void 0 }), console.log(`Uploaded the traffic JSON as ${name}`);
 	} catch (e) {
-		console.log(`::warning::Could not upload the traffic artifact: ${errorMessage(e)}`);
+		annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);
 	}
 }
 //#endregion
@@ -56160,7 +56187,5 @@ async function main() {
 		});
 	}
 }
-process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch((err) => {
-	err instanceof ActionError ? console.log(`::error::${err.message}`) : console.log(`::error::Unexpected error in report: ${errorMessage(err)}`), process.exit(1);
-});
+process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch(exitOnFatalError("report"));
 //#endregion

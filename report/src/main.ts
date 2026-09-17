@@ -8,7 +8,8 @@ import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { createDocker } from "#core/lib/docker/client.ts";
 import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
-import { ActionError, errorMessage } from "#core/lib/errors.ts";
+import { errorMessage } from "#core/lib/errors.ts";
+import { exitOnFatalError } from "#core/lib/actions/fatal.ts";
 import { copyFromContainerImage } from "./lib/copy-from-image.ts";
 import { ReportError } from "./lib/errors.ts";
 import { findReportSourceContainer } from "./lib/find-report-source.ts";
@@ -85,13 +86,6 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch((err) => {
-    if (err instanceof ActionError) {
-      console.log(`::error::${err.message}`);
-    } else {
-      console.log(`::error::Unexpected error in report: ${errorMessage(err)}`);
-    }
-    process.exit(1);
-  });
+  main().catch(exitOnFatalError("report"));
 }
 /* v8 ignore stop */

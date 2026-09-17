@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createAnnotation } from "./annotation.ts";
+import { annotate, createAnnotation } from "./annotation.ts";
 
 describe("createAnnotation", () => {
   describe("enabled", () => {
@@ -43,5 +43,19 @@ describe("createAnnotation", () => {
       createAnnotation(false).warning("careful");
       expect(log.mock.calls.length).toBe(0);
     });
+  });
+});
+
+describe("annotate", () => {
+  it("emits without having to be enabled, so a library-layer warning is never silently dropped", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    annotate.notice("a");
+    annotate.warning("b");
+    annotate.error("c");
+    expect(log.mock.calls.map((c) => c[0])).toStrictEqual([
+      "::notice::a",
+      "::warning::b",
+      "::error::c",
+    ]);
   });
 });
