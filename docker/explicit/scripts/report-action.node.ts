@@ -6,18 +6,16 @@
  * via core/lib/docker/client.ts — including `buildctl` itself, run inside the
  * container via `docker exec` rather than needing buildctl reachable from the
  * runner.
+ *
+ * Everything but the buildctl fetch and the extra log group is
+ * core/lib/report/action-main.ts.
  */
-import * as core from "@actions/core";
-import { createDocker, type Docker } from "#core/lib/docker/client.ts";
-import { buildReportParameters } from "#core/lib/report/parameters.ts";
+import { type Docker } from "#core/lib/docker/client.ts";
+import { runReportAction } from "#core/lib/report/action-main.ts";
 import { buildExplicitReportData } from "#core/lib/report/build/explicit.ts";
-import { renderReportMarkdown } from "#core/lib/report/render/render-report-markdown.ts";
 import { renderCommunicationDetailsBody } from "#core/lib/report/render/communication-details.ts";
-import { emitBlockedOutcome } from "#core/lib/report/outcome/emit.ts";
 import { errorMessage } from "#core/lib/errors.ts";
 import { wrapLogGroup } from "#core/lib/actions/log.ts";
-import { writeStepSummary } from "../../lib/write-step-summary.ts";
-import { readActionVersion } from "../../lib/read-action-version.ts";
 import { selectAllRefs } from "#core/lib/log/build-histories.ts";
 import { parseVertexAllowedLog, type VertexAllowedEntry } from "#core/lib/log/vertex.ts";
 
@@ -54,50 +52,24 @@ function collectBuilds(docker: Docker, containerId: string): VertexAllowedEntry[
   }
 }
 
-async function main(): Promise<void> {
-  const containerId = process.argv[2];
-  if (!containerId) {
-    throw new Error("Usage: report-action.js <container-id>");
-  }
-
-  const docker = createDocker();
-  const parameters = buildReportParameters(docker.readEnv(containerId));
-  const builds = collectBuilds(docker, containerId);
-  const report = await buildExplicitReportData(
-    docker.readFileLines(containerId, LOG_FILE),
-    builds,
-    parameters,
-  );
-
-  for (const line of wrapLogGroup(
-    "HTTP Proxy communication logs",
-    renderCommunicationDetailsBody(report.proxyLogs.builds, report.proxyLogs.denied),
-  )) {
-    console.log(line);
-  }
-
-  const markdown = renderReportMarkdown(
-    report,
-    process.env.GITHUB_ACTION_REPOSITORY || "buildcage/docker",
-    process.env.GITHUB_ACTION_REF || "v2",
-    { actionVersion: readActionVersion(docker, containerId, "explicit") },
-  );
-
-  await writeStepSummary(markdown);
-
-  // Several test/dev invocations run this script directly without setting
-  // fail_on_blocked, unlike the real `report` action where action.yml's
-  // own default always supplies it — fall back to that same default.
-  let failOnBlocked: boolean;
-  try {
-    failOnBlocked = core.getBooleanInput("fail_on_blocked");
-  } catch {
-    failOnBlocked = true;
-  }
-  emitBlockedOutcome(report, { failOnBlocked, summaryFile: process.env.GITHUB_STEP_SUMMARY });
-}
-
-main().catch((e) => {
+runReportAction({
+  proxyEngine: "explicit",
+  build: (docker, containerId, parameters) =>
+    buildExplicitReportData(
+      docker.readFileLines(containerId, LOG_FILE),
+      collectBuilds(docker, containerId),
+      parameters,
+    ),
+  // This engine alone can attribute a request to the RUN step that made it,
+  // so it alone has a per-step breakdown worth printing to the job log.
+  logSections: (report) =>
+    report.engine === "explicit"
+      ? wrapLogGroup(
+          "HTTP Proxy communication logs",
+          renderCommunicationDetailsBody(report.proxyLogs.builds, report.proxyLogs.denied),
+        )
+      : [],
+}).catch((e) => {
   console.log(`::error::Unexpected error in report-action: ${errorMessage(e)}`);
   process.exit(1);
 });
