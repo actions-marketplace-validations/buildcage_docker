@@ -5,3 +5,4 @@ sandbox/dist
 /dist
 **/*.test.ts
 src/core/scripts/test
+/coverage

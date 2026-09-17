@@ -4700,6 +4700,60 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 			return "[UnexpectedJSONParseError]: " + error.message;
 		}
 	};
+})), require_has_flag = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = (flag, argv = process.argv) => {
+		let prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--", position = argv.indexOf(prefix + flag), terminatorPosition = argv.indexOf("--");
+		return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
+	};
+})), require_supports_color = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	let os$1 = require("os"), tty$1 = require("tty"), hasFlag = require_has_flag(), { env } = process, forceColor;
+	hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never") ? forceColor = 0 : (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) && (forceColor = 1), "FORCE_COLOR" in env && (forceColor = env.FORCE_COLOR === "true" ? 1 : env.FORCE_COLOR === "false" ? 0 : env.FORCE_COLOR.length === 0 ? 1 : Math.min(parseInt(env.FORCE_COLOR, 10), 3));
+	function translateLevel(level) {
+		return level !== 0 && {
+			level,
+			hasBasic: !0,
+			has256: level >= 2,
+			has16m: level >= 3
+		};
+	}
+	function supportsColor(haveStream, streamIsTTY) {
+		if (forceColor === 0) return 0;
+		if (hasFlag("color=16m") || hasFlag("color=full") || hasFlag("color=truecolor")) return 3;
+		if (hasFlag("color=256")) return 2;
+		if (haveStream && !streamIsTTY && forceColor === void 0) return 0;
+		let min = forceColor || 0;
+		if (env.TERM === "dumb") return min;
+		if (process.platform === "win32") {
+			let osRelease = os$1.release().split(".");
+			return Number(osRelease[0]) >= 10 && Number(osRelease[2]) >= 10586 ? Number(osRelease[2]) >= 14931 ? 3 : 2 : 1;
+		}
+		if ("CI" in env) return [
+			"TRAVIS",
+			"CIRCLECI",
+			"APPVEYOR",
+			"GITLAB_CI",
+			"GITHUB_ACTIONS",
+			"BUILDKITE"
+		].some((sign) => sign in env) || env.CI_NAME === "codeship" ? 1 : min;
+		if ("TEAMCITY_VERSION" in env) return +!!/^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(env.TEAMCITY_VERSION);
+		if (env.COLORTERM === "truecolor") return 3;
+		if ("TERM_PROGRAM" in env) {
+			let version = parseInt((env.TERM_PROGRAM_VERSION || "").split(".")[0], 10);
+			switch (env.TERM_PROGRAM) {
+				case "iTerm.app": return version >= 3 ? 3 : 2;
+				case "Apple_Terminal": return 2;
+			}
+		}
+		return /-256(color)?$/i.test(env.TERM) ? 2 : /^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM) || "COLORTERM" in env ? 1 : min;
+	}
+	function getSupportLevel(stream) {
+		return translateLevel(supportsColor(stream, stream && stream.isTTY));
+	}
+	module.exports = {
+		supportsColor: getSupportLevel,
+		stdout: translateLevel(supportsColor(!0, tty$1.isatty(1))),
+		stderr: translateLevel(supportsColor(!0, tty$1.isatty(2)))
+	};
 })), require_node = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* Module dependencies.
@@ -4717,7 +4771,7 @@ var require_envelope = /* @__PURE__ */ __commonJSMin(((exports) => {
 		1
 	];
 	try {
-		let supportsColor = require("supports-color");
+		let supportsColor = require_supports_color();
 		supportsColor && (supportsColor.stderr || supportsColor).level >= 2 && (exports.colors = [
 			20,
 			21,

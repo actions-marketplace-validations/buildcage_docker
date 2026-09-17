@@ -88,8 +88,21 @@ jobs:
           make seccomp_profile
           git diff --exit-code -- docker/seccomp/builder.json
 
-      - name: Run unit tests
-        run: make test_unit
+      - name: Run unit tests (with coverage)
+        run: make test_unit_coverage
+
+      - name: Publish the coverage summary
+        run: |
+          {
+            echo '### Unit test coverage'
+            echo
+            echo '```'
+            cat coverage/summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run unit tests under QuickJS
+        run: make test_unit_qjs
 
   # Single, stably-named required status check for branch protection: the
   # matrix-based integration/e2e jobs live in their own workflow files (see

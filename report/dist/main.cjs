@@ -12357,7 +12357,7 @@ function copyFromContainerImage(containerId, containerPath, hostPath, run = runD
 */
 var ReportError = class extends ActionError {};
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/shared/config.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/config.js
 function getUploadChunkSize() {
 	return 8388608;
 }
@@ -17108,7 +17108,7 @@ var init_config = __esmMin((() => {
 	init_timestamp(), init_wrappers(), init_artifact$1(), init_artifact_twirp_client$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/retention.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/retention.js
 function getExpiration(retentionDays) {
 	if (!retentionDays) return;
 	let maxRetentionDays = getRetentionDays();
@@ -17126,7 +17126,7 @@ var init_retention = __esmMin((() => {
 	init_generated(), init_core();
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/path-and-artifact-name-validation.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/path-and-artifact-name-validation.js
 /**
 * Validates the name of the artifact to check to make sure there are no illegal characters
 */
@@ -17239,7 +17239,7 @@ var invalidArtifactFilePathCharacters, invalidArtifactNameCharacters, init_path_
 	module.exports = { version: require_package().version };
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/shared/user-agent.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/user-agent.js
 /**
 * Ensure that this User Agent String is used in all HTTP calls so that we can monitor telemetry between different versions of this package
 */
@@ -17330,7 +17330,7 @@ var InvalidTokenError, init_esm$13 = __esmMin((() => {
 	InvalidTokenError = class extends Error {}, InvalidTokenError.prototype.name = "InvalidTokenError";
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/shared/util.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/util.js
 function getBackendIdsFromToken() {
 	let decoded = jwtDecode(getRuntimeToken());
 	if (!decoded.scp) throw InvalidJwtError;
@@ -17405,7 +17405,7 @@ var InvalidJwtError, init_util$3 = __esmMin((() => {
 	init_core(), init_config(), init_esm$13(), InvalidJwtError = /* @__PURE__ */ Error("Failed to get backend IDs: The provided JWT token is invalid and/or missing claims");
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/shared/artifact-twirp-client.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/artifact-twirp-client.js
 function internalArtifactTwirpClient(options) {
 	let client = new ArtifactHttpClient(getUserAgentString$1(), options?.maxAttempts, options?.retryIntervalMs, options?.retryMultiplier);
 	return new ArtifactServiceClientJSON(client);
@@ -17514,7 +17514,7 @@ var __awaiter$10, ArtifactHttpClient, init_artifact_twirp_client = __esmMin((() 
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/upload-zip-specification.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/upload-zip-specification.js
 /**
 * Checks if a root directory exists and is valid
 * @param rootDirectory an absolute root directory path common to all input files that that will be trimmed from the final zip structure
@@ -17564,13 +17564,13 @@ var init_upload_zip_specification = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/logger/log.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/logger/log.js
 function log(message, ...args) {
 	node_process.default.stderr.write(`${node_util.default.format(message, ...args)}${node_os.EOL}`);
 }
 var init_log$6 = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/env.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/env.js
 /**
 * Returns the value of the specified environment variable.
 *
@@ -17583,7 +17583,7 @@ var init_env = __esmMin((() => {
 	typeof node_process.default.versions.deno == "string" && node_process.default.versions.deno.length, typeof node_process.default.versions.bun == "string" && node_process.default.versions.bun.length;
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/logger/debug.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/logger/debug.js
 function enable(namespaces) {
 	enabledString = namespaces, enabledNamespaces = [], skippedNamespaces = [];
 	let namespaceList = namespaces.split(",").map((ns) => ns.trim());
@@ -17660,7 +17660,7 @@ var debugEnvVariable, enabledString, enabledNamespaces, skippedNamespaces, debug
 	});
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/logger/logger.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/logger/logger.js
 function patchLogMethod(parent, child) {
 	child.log = (...args) => {
 		parent.log(...args);
@@ -17742,7 +17742,7 @@ var TYPESPEC_RUNTIME_LOG_LEVELS, levelMap, context$3, init_logger = __esmMin((()
 	}), context$3.logger;
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/httpHeaders.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/httpHeaders.js
 function normalizeName(name) {
 	return name.toLowerCase();
 }
@@ -17828,7 +17828,7 @@ var HttpHeadersImpl, init_httpHeaders$1 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/uuidUtils.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/uuidUtils.js
 /**
 * Generated Universally Unique Identifier
 *
@@ -17839,7 +17839,7 @@ function randomUUID$1() {
 }
 var init_uuidUtils = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/pipelineRequest.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/pipelineRequest.js
 /**
 * Creates a new pipeline request with the given options.
 * This method is to allow for the easy setting of default values and not required.
@@ -17875,7 +17875,7 @@ var PipelineRequestImpl, init_pipelineRequest$1 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/pipeline.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/pipeline.js
 /**
 * Creates a totally empty pipeline.
 * Useful for testing or creating a custom one.
@@ -18025,7 +18025,7 @@ var ValidPhaseNames, HttpPipeline, init_pipeline$2 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/object.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/object.js
 /**
 * Helper to determine when an input is a generic JS object.
 * @returns true when input is an object type that is not null, Array, RegExp, or Date.
@@ -18035,7 +18035,7 @@ function isObject(input) {
 }
 var init_object = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/error.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/error.js
 /**
 * Typeguard for an error object shape (has name and message)
 * @param e - Something caught by a catch clause.
@@ -18109,7 +18109,7 @@ var init_error$1 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/restError.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/restError.js
 /**
 * Typeguard for RestError
 * @param e - Something caught by a catch clause.
@@ -18179,7 +18179,7 @@ var errorSanitizer, RestError$1, init_restError$1 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/bytesEncoding.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/bytesEncoding.js
 /**
 * The helper that transforms bytes with specific character encoding into string
 * @param bytes - the uint8array bytes
@@ -18202,7 +18202,7 @@ var init_bytesEncoding = __esmMin((() => {})), logger$4, init_log$5 = __esmMin((
 	init_logger(), logger$4 = createClientLogger$1("ts-http-runtime");
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/nodeHttpClient.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/nodeHttpClient.js
 function isReadableStream(body) {
 	return body && typeof body.pipe == "function";
 }
@@ -18378,7 +18378,7 @@ var DEFAULT_TLS_SETTINGS, ReportTransform, NodeHttpClient, init_nodeHttpClient =
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/defaultHttpClient.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/defaultHttpClient.js
 /**
 * Create the correct HttpClient for the current environment.
 */
@@ -18389,7 +18389,7 @@ var init_defaultHttpClient$1 = __esmMin((() => {
 	init_nodeHttpClient();
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/logPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/logPolicy.js
 /**
 * A policy that logs all requests and responses.
 * @param options - Options to configure logPolicy.
@@ -18413,7 +18413,7 @@ var logPolicyName, init_logPolicy$1 = __esmMin((() => {
 	init_log$5(), init_sanitizer(), logPolicyName = "logPolicy";
 })), init_constants$3 = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/random.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/random.js
 /**
 * Returns a random integer value between a lower and upper bound,
 * inclusive of both bounds.
@@ -18427,7 +18427,7 @@ function getRandomIntegerInclusive(min, max) {
 }
 var init_random = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/delay.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/delay.js
 /**
 * Calculates the delay interval for retry attempts using exponential delay with jitter.
 * @param retryAttempt - The current retry attempt number.
@@ -18442,7 +18442,7 @@ var init_delay$1 = __esmMin((() => {
 	init_random();
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/helpers.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/helpers.js
 /**
 * A wrapper for setTimeout that resolves a promise after delayInMs milliseconds.
 * @param delayInMs - The number of milliseconds to be delayed.
@@ -18477,7 +18477,7 @@ var StandardAbortMessage$1, init_helpers = __esmMin((() => {
 	init_AbortError$1(), StandardAbortMessage$1 = "The operation was aborted.";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/retryStrategies/throttlingRetryStrategy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/retryStrategies/throttlingRetryStrategy.js
 /**
 * A response is a throttling retry response if it has a throttling status code (429 or 503),
 * as long as one of the [ "Retry-After" or "retry-after-ms" or "x-ms-retry-after-ms" ] headers has a valid value.
@@ -18525,7 +18525,7 @@ var RetryAfterHeader, AllRetryAfterHeaders, init_throttlingRetryStrategy = __esm
 	];
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/retryStrategies/exponentialRetryStrategy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/retryStrategies/exponentialRetryStrategy.js
 /**
 * A retry strategy that retries with an exponentially increasing delay in these two cases:
 * - When there are errors in the underlying transport layer (e.g. DNS lookup failures).
@@ -18562,7 +18562,7 @@ var DEFAULT_CLIENT_RETRY_INTERVAL, DEFAULT_CLIENT_MAX_RETRY_INTERVAL, init_expon
 	init_delay$1(), init_throttlingRetryStrategy(), DEFAULT_CLIENT_RETRY_INTERVAL = 1e3, DEFAULT_CLIENT_MAX_RETRY_INTERVAL = 64e3;
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/retryPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/retryPolicy.js
 /**
 * retryPolicy is a generic policy to enable retrying requests when certain conditions are met
 */
@@ -18620,7 +18620,7 @@ var retryPolicyLogger, retryPolicyName, init_retryPolicy = __esmMin((() => {
 	init_helpers(), init_restError$1(), init_AbortError$1(), init_logger(), init_constants$3(), retryPolicyLogger = createClientLogger$1("ts-http-runtime retryPolicy"), retryPolicyName = "retryPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/defaultRetryPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/defaultRetryPolicy.js
 /**
 * A policy that retries according to three strategies:
 * - When the server sends a 429 response with a Retry-After header.
@@ -18637,7 +18637,7 @@ var defaultRetryPolicyName, init_defaultRetryPolicy$1 = __esmMin((() => {
 	init_exponentialRetryStrategy(), init_throttlingRetryStrategy(), init_retryPolicy(), init_constants$3(), defaultRetryPolicyName = "defaultRetryPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/formData.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/formData.js
 /**
 * If the request body is a native FormData, convert it to our FormDataMap
 * representation and clear the body. Node.js's HTTP stack doesn't handle
@@ -18657,7 +18657,7 @@ function convertBodyToFormDataMap(body) {
 }
 var init_formData = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/formDataPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/formDataPolicy.js
 /**
 * A policy that encodes FormData on the request into the body.
 */
@@ -18703,7 +18703,7 @@ var formDataPolicyName, init_formDataPolicy$1 = __esmMin((() => {
 	init_bytesEncoding(), init_formData(), init_httpHeaders$1(), formDataPolicyName = "formDataPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/agentPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/agentPolicy.js
 /**
 * Gets a pipeline policy that sets http.agent
 */
@@ -18717,7 +18717,7 @@ var agentPolicyName, init_agentPolicy$1 = __esmMin((() => {
 	agentPolicyName = "agentPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/tlsPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/tlsPolicy.js
 /**
 * Gets a pipeline policy that adds the client certificate to the HttpClient agent for authentication.
 */
@@ -19063,6 +19063,60 @@ var tlsPolicyName, init_tlsPolicy$1 = __esmMin((() => {
 			return "[UnexpectedJSONParseError]: " + error.message;
 		}
 	};
+})), require_has_flag = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = (flag, argv = process.argv) => {
+		let prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--", position = argv.indexOf(prefix + flag), terminatorPosition = argv.indexOf("--");
+		return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
+	};
+})), require_supports_color = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	let os$2 = require("os"), tty$1 = require("tty"), hasFlag = require_has_flag(), { env } = process, forceColor;
+	hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never") ? forceColor = 0 : (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) && (forceColor = 1), "FORCE_COLOR" in env && (forceColor = env.FORCE_COLOR === "true" ? 1 : env.FORCE_COLOR === "false" ? 0 : env.FORCE_COLOR.length === 0 ? 1 : Math.min(parseInt(env.FORCE_COLOR, 10), 3));
+	function translateLevel(level) {
+		return level !== 0 && {
+			level,
+			hasBasic: !0,
+			has256: level >= 2,
+			has16m: level >= 3
+		};
+	}
+	function supportsColor(haveStream, streamIsTTY) {
+		if (forceColor === 0) return 0;
+		if (hasFlag("color=16m") || hasFlag("color=full") || hasFlag("color=truecolor")) return 3;
+		if (hasFlag("color=256")) return 2;
+		if (haveStream && !streamIsTTY && forceColor === void 0) return 0;
+		let min = forceColor || 0;
+		if (env.TERM === "dumb") return min;
+		if (process.platform === "win32") {
+			let osRelease = os$2.release().split(".");
+			return Number(osRelease[0]) >= 10 && Number(osRelease[2]) >= 10586 ? Number(osRelease[2]) >= 14931 ? 3 : 2 : 1;
+		}
+		if ("CI" in env) return [
+			"TRAVIS",
+			"CIRCLECI",
+			"APPVEYOR",
+			"GITLAB_CI",
+			"GITHUB_ACTIONS",
+			"BUILDKITE"
+		].some((sign) => sign in env) || env.CI_NAME === "codeship" ? 1 : min;
+		if ("TEAMCITY_VERSION" in env) return +!!/^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/.test(env.TEAMCITY_VERSION);
+		if (env.COLORTERM === "truecolor") return 3;
+		if ("TERM_PROGRAM" in env) {
+			let version = parseInt((env.TERM_PROGRAM_VERSION || "").split(".")[0], 10);
+			switch (env.TERM_PROGRAM) {
+				case "iTerm.app": return version >= 3 ? 3 : 2;
+				case "Apple_Terminal": return 2;
+			}
+		}
+		return /-256(color)?$/i.test(env.TERM) ? 2 : /^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM) || "COLORTERM" in env ? 1 : min;
+	}
+	function getSupportLevel(stream) {
+		return translateLevel(supportsColor(stream, stream && stream.isTTY));
+	}
+	module.exports = {
+		supportsColor: getSupportLevel,
+		stdout: translateLevel(supportsColor(!0, tty$1.isatty(1))),
+		stderr: translateLevel(supportsColor(!0, tty$1.isatty(2)))
+	};
 })), require_node$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* Module dependencies.
@@ -19080,7 +19134,7 @@ var tlsPolicyName, init_tlsPolicy$1 = __esmMin((() => {
 		1
 	];
 	try {
-		let supportsColor = require("supports-color");
+		let supportsColor = require_supports_color();
 		supportsColor && (supportsColor.stderr || supportsColor).level >= 2 && (exports.colors = [
 			20,
 			21,
@@ -19607,7 +19661,7 @@ var tlsPolicyName, init_tlsPolicy$1 = __esmMin((() => {
 	}
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/proxyPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/proxyPolicy.js
 function getEnvironmentValue(name) {
 	if (process.env[name]) return process.env[name];
 	if (process.env[name.toLowerCase()]) return process.env[name.toLowerCase()];
@@ -19694,7 +19748,7 @@ var import_dist$1, import_dist$2, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY, 
 	import_dist$1 = require_dist$3(), import_dist$2 = require_dist$2(), init_log$5(), HTTPS_PROXY = "HTTPS_PROXY", HTTP_PROXY = "HTTP_PROXY", ALL_PROXY = "ALL_PROXY", NO_PROXY = "NO_PROXY", proxyPolicyName = "proxyPolicy", globalNoProxyList = [], noProxyListLoaded = !1, globalBypassedMap = /* @__PURE__ */ new Map();
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/decompressResponsePolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/decompressResponsePolicy.js
 /**
 * A policy to enable response decompression according to Accept-Encoding header
 * https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Encoding
@@ -19711,7 +19765,7 @@ var decompressResponsePolicyName$1, init_decompressResponsePolicy$1 = __esmMin((
 	decompressResponsePolicyName$1 = "decompressResponsePolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/redirectPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/redirectPolicy.js
 /**
 * A policy to follow Location headers from the server in order
 * to support server-side redirection.
@@ -19743,13 +19797,13 @@ var redirectPolicyName$1, allowedRedirect, init_redirectPolicy$1 = __esmMin((() 
 	init_log$5(), redirectPolicyName$1 = "redirectPolicy", allowedRedirect = ["GET", "HEAD"];
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/typeGuards.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/typeGuards.js
 function isBlob(x) {
 	return x instanceof Blob;
 }
 var init_typeGuards = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/util/concat.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/util/concat.js
 async function* streamAsyncIterator() {
 	let reader = this.getReader();
 	try {
@@ -19792,7 +19846,7 @@ var init_concat = __esmMin((() => {
 	init_typeGuards();
 }));
 //#endregion
-//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8/node_modules/@typespec/ts-http-runtime/dist/esm/policies/multipartPolicy.js
+//#region node_modules/.pnpm/@typespec+ts-http-runtime@0.3.8_supports-color@7.2.0/node_modules/@typespec/ts-http-runtime/dist/esm/policies/multipartPolicy.js
 function generateBoundary() {
 	return `----AzSDKFormBoundary${randomUUID$1()}`;
 }
@@ -19855,7 +19909,7 @@ var multipartPolicyName$1, maxBoundaryLength, validBoundaryCharacters, init_mult
 	init_AbortError$1(), init_logger(), init_httpHeaders$1(), init_pipelineRequest$1(), init_pipeline$2(), init_restError$1(), init_defaultHttpClient$1(), init_logPolicy$1(), init_constants$3(), init_defaultRetryPolicy$1(), init_formDataPolicy$1(), init_agentPolicy$1(), init_tlsPolicy$1(), init_proxyPolicy$1(), init_decompressResponsePolicy$1(), init_redirectPolicy$1(), init_multipartPolicy$1(), init_log$5(), init_env(), init_typeGuards();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/pipeline.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/pipeline.js
 /**
 * Creates a totally empty pipeline.
 * Useful for testing or creating a custom one.
@@ -19869,7 +19923,7 @@ var init_pipeline$1 = __esmMin((() => {
 	init_logger();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+logger@1.4.0/node_modules/@azure/logger/dist/esm/index.js
+//#region node_modules/.pnpm/@azure+logger@1.4.0_supports-color@7.2.0/node_modules/@azure/logger/dist/esm/index.js
 /**
 * Creates a logger for use by the Azure SDKs that inherits from `AzureLogger`.
 * @param namespace - The name of the SDK package.
@@ -19889,7 +19943,7 @@ var context$2, init_esm$11 = __esmMin((() => {
 	init_agentPolicy$1(), init_decompressResponsePolicy$1(), init_defaultRetryPolicy$1(), init_exponentialRetryStrategy(), init_retryPolicy(), init_constants$3(), init_throttlingRetryStrategy(), init_formDataPolicy$1(), init_logPolicy$1(), init_multipartPolicy$1(), init_proxyPolicy$1(), init_redirectPolicy$1(), init_tlsPolicy$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/logPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/logPolicy.js
 /**
 * A policy that logs all requests and responses.
 * @param options - Options to configure logPolicy.
@@ -19904,7 +19958,7 @@ var init_logPolicy = __esmMin((() => {
 	init_log$4(), init_internal$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/redirectPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/redirectPolicy.js
 /**
 * A policy to follow Location headers from the server in order
 * to support server-side redirection.
@@ -19918,7 +19972,7 @@ var redirectPolicyName, init_redirectPolicy = __esmMin((() => {
 	init_internal$1(), redirectPolicyName = redirectPolicyName$1;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/userAgentPlatform.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/userAgentPlatform.js
 /**
 * @internal
 */
@@ -19938,7 +19992,7 @@ var init_userAgentPlatform = __esmMin((() => {})), SDK_VERSION$1, init_constants
 	SDK_VERSION$1 = "1.25.0";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/userAgent.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/userAgent.js
 function getUserAgentString(telemetryInfo) {
 	let parts = [];
 	for (let [key, value] of telemetryInfo) {
@@ -19966,7 +20020,7 @@ var init_userAgent = __esmMin((() => {
 	init_userAgentPlatform(), init_constants$2();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/userAgentPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/userAgentPolicy.js
 /**
 * A policy that sets the User-Agent header (or equivalent) to reflect
 * the library version.
@@ -19985,7 +20039,7 @@ var UserAgentHeaderName, userAgentPolicyName, init_userAgentPolicy = __esmMin(((
 	init_userAgent(), UserAgentHeaderName = getUserAgentHeaderName(), userAgentPolicyName = "userAgentPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/file.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/file.js
 /**
 * Type guard to check if a given object is a blob-like object with a raw content property.
 */
@@ -20006,7 +20060,7 @@ var rawContent, init_file = __esmMin((() => {
 	init_file(), rawContent = Symbol("rawContent");
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/multipartPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/multipartPolicy.js
 /**
 * Pipeline policy for multipart requests
 */
@@ -20024,7 +20078,7 @@ var multipartPolicyName, init_multipartPolicy = __esmMin((() => {
 	init_internal$1(), init_file(), multipartPolicyName = multipartPolicyName$1;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/decompressResponsePolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/decompressResponsePolicy.js
 /**
 * A policy to enable response decompression according to Accept-Encoding header
 * https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Encoding
@@ -20036,7 +20090,7 @@ var decompressResponsePolicyName, init_decompressResponsePolicy = __esmMin((() =
 	init_internal$1(), decompressResponsePolicyName = decompressResponsePolicyName$1;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/defaultRetryPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/defaultRetryPolicy.js
 /**
 * A policy that retries according to three strategies:
 * - When the server sends a 429 response with a Retry-After header.
@@ -20050,7 +20104,7 @@ var init_defaultRetryPolicy = __esmMin((() => {
 	init_internal$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/formDataPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/formDataPolicy.js
 /**
 * A policy that encodes FormData on the request into the body.
 */
@@ -20071,7 +20125,7 @@ var init_formDataPolicy = __esmMin((() => {
 	init_AbortError();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-util@1.14.0/node_modules/@azure/core-util/dist/esm/createAbortablePromise.js
+//#region node_modules/.pnpm/@azure+core-util@1.14.0_supports-color@7.2.0/node_modules/@azure/core-util/dist/esm/createAbortablePromise.js
 /**
 * Creates an abortable promise.
 * @param buildPromise - A function that takes the resolve and reject functions as parameters.
@@ -20107,7 +20161,7 @@ var init_createAbortablePromise = __esmMin((() => {
 	init_esm$10();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-util@1.14.0/node_modules/@azure/core-util/dist/esm/delay.js
+//#region node_modules/.pnpm/@azure+core-util@1.14.0_supports-color@7.2.0/node_modules/@azure/core-util/dist/esm/delay.js
 /**
 * A wrapper for setTimeout that resolves a promise after timeInMs milliseconds.
 * @param timeInMs - The number of milliseconds to be delayed.
@@ -20128,7 +20182,7 @@ var StandardAbortMessage, init_delay = __esmMin((() => {
 	init_createAbortablePromise(), StandardAbortMessage = "The delay was aborted.";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-util@1.14.0/node_modules/@azure/core-util/dist/esm/error.js
+//#region node_modules/.pnpm/@azure+core-util@1.14.0_supports-color@7.2.0/node_modules/@azure/core-util/dist/esm/error.js
 /**
 * Given what is thought to be an error object, return the message if possible.
 * If the message is missing, returns a stringified version of the input.
@@ -20151,7 +20205,7 @@ var init_error = __esmMin((() => {
 	init_internal();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-util@1.14.0/node_modules/@azure/core-util/dist/esm/index.js
+//#region node_modules/.pnpm/@azure+core-util@1.14.0_supports-color@7.2.0/node_modules/@azure/core-util/dist/esm/index.js
 /**
 * Typeguard for an error object shape (has name and message)
 *
@@ -20190,7 +20244,7 @@ var isNodeLike, init_esm$9 = __esmMin((() => {
 	init_internal(), init_createAbortablePromise(), init_delay(), init_error(), isNodeLike = !0;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/proxyPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/proxyPolicy.js
 /**
 * This method converts a proxy url into `ProxySettings` for use with ProxyPolicy.
 * If no argument is given, it attempts to parse a proxy URL from the environment
@@ -20215,7 +20269,7 @@ var init_proxyPolicy = __esmMin((() => {
 	init_internal$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/setClientRequestIdPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/setClientRequestIdPolicy.js
 /**
 * Each PipelineRequest gets a unique id upon creation.
 * This policy passes that unique id along via an HTTP header to enable better
@@ -20234,7 +20288,7 @@ var setClientRequestIdPolicyName, init_setClientRequestIdPolicy = __esmMin((() =
 	setClientRequestIdPolicyName = "setClientRequestIdPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/agentPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/agentPolicy.js
 /**
 * Gets a pipeline policy that sets http.agent
 */
@@ -20245,7 +20299,7 @@ var init_agentPolicy = __esmMin((() => {
 	init_internal$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/tlsPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/tlsPolicy.js
 /**
 * Gets a pipeline policy that adds the client certificate to the HttpClient agent for authentication.
 */
@@ -20409,7 +20463,7 @@ var init_tracingClient = __esmMin((() => {
 	init_instrumenter(), init_tracingClient();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/restError.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/restError.js
 /**
 * Typeguard for RestError
 * @param e - Something caught by a catch clause.
@@ -20421,7 +20475,7 @@ var RestError, init_restError = __esmMin((() => {
 	init_esm$12(), RestError = RestError$1;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/tracingPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/tracingPolicy.js
 /**
 * A simple policy to create OpenTelemetry Spans for each request made by the pipeline
 * that has SpanOptions with a parent.
@@ -20508,7 +20562,7 @@ var tracingPolicyName, init_tracingPolicy = __esmMin((() => {
 	init_esm$8(), init_constants$2(), init_userAgent(), init_log$4(), init_esm$9(), init_restError(), init_internal(), tracingPolicyName = "tracingPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/wrapAbortSignal.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/wrapAbortSignal.js
 /**
 * Creates a native AbortSignal which reflects the state of the provided AbortSignalLike.
 * If the AbortSignalLike is already a native AbortSignal, it is returned as is.
@@ -20532,7 +20586,7 @@ function wrapAbortSignalLike(abortSignalLike) {
 }
 var init_wrapAbortSignal = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/wrapAbortSignalLikePolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/wrapAbortSignalLikePolicy.js
 /**
 * Policy that ensure that any AbortSignalLike is wrapped in a native AbortSignal for processing by the pipeline.
 * Since the ts-http-runtime expects a native AbortSignal, this policy is used to ensure that any AbortSignalLike is wrapped in a native AbortSignal.
@@ -20558,7 +20612,7 @@ var wrapAbortSignalLikePolicyName, init_wrapAbortSignalLikePolicy = __esmMin((()
 	init_wrapAbortSignal(), wrapAbortSignalLikePolicyName = "wrapAbortSignalLikePolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/createPipelineFromOptions.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/createPipelineFromOptions.js
 /**
 * Create a new pipeline with a default set of customizable policies.
 * @param options - Options to configure a custom pipeline.
@@ -20574,7 +20628,7 @@ var init_createPipelineFromOptions = __esmMin((() => {
 	init_logPolicy(), init_pipeline$1(), init_redirectPolicy(), init_userAgentPolicy(), init_multipartPolicy(), init_decompressResponsePolicy(), init_defaultRetryPolicy(), init_formDataPolicy(), init_esm$9(), init_proxyPolicy(), init_setClientRequestIdPolicy(), init_agentPolicy(), init_tlsPolicy(), init_tracingPolicy(), init_wrapAbortSignalLikePolicy();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/defaultHttpClient.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/defaultHttpClient.js
 /**
 * Create the correct HttpClient for the current environment.
 */
@@ -20593,7 +20647,7 @@ var init_defaultHttpClient = __esmMin((() => {
 	init_esm$12(), init_wrapAbortSignal();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/httpHeaders.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/httpHeaders.js
 /**
 * Creates an object that satisfies the `HttpHeaders` interface.
 * @param rawHeaders - A simple object representing initial headers
@@ -20605,7 +20659,7 @@ var init_httpHeaders = __esmMin((() => {
 	init_esm$12();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/pipelineRequest.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/pipelineRequest.js
 /**
 * Creates a new pipeline request with the given options.
 * This method is to allow for the easy setting of default values and not required.
@@ -20618,7 +20672,7 @@ var init_pipelineRequest = __esmMin((() => {
 	init_esm$12();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/tokenCycler.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/util/tokenCycler.js
 /**
 * Converts an an unreliable access token getter (which may resolve with null)
 * into an AccessTokenGetter by retrying the unreliable getter in a regular
@@ -20708,7 +20762,7 @@ var DEFAULT_CYCLER_OPTIONS, init_tokenCycler = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/bearerTokenAuthenticationPolicy.js
+//#region node_modules/.pnpm/@azure+core-rest-pipeline@1.25.0_supports-color@7.2.0/node_modules/@azure/core-rest-pipeline/dist/esm/policies/bearerTokenAuthenticationPolicy.js
 /**
 * Try to send the given request.
 *
@@ -20864,7 +20918,7 @@ var bearerTokenAuthenticationPolicyName, init_bearerTokenAuthenticationPolicy = 
 	init_pipeline$1(), init_createPipelineFromOptions(), init_defaultHttpClient(), init_httpHeaders(), init_pipelineRequest(), init_restError(), init_decompressResponsePolicy(), init_internal$1(), init_setClientRequestIdPolicy(), init_logPolicy(), init_multipartPolicy(), init_proxyPolicy(), init_redirectPolicy(), init_esm$11(), init_constants$2(), init_tracingPolicy(), init_defaultRetryPolicy(), init_userAgentPolicy(), init_tlsPolicy(), init_formDataPolicy(), init_bearerTokenAuthenticationPolicy(), init_tokenCycler(), init_log$4(), init_agentPolicy(), init_file();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-auth@1.11.0/node_modules/@azure/core-auth/dist/esm/tokenCredential.js
+//#region node_modules/.pnpm/@azure+core-auth@1.11.0_supports-color@7.2.0/node_modules/@azure/core-auth/dist/esm/tokenCredential.js
 /**
 * Tests an object to determine whether it implements TokenCredential.
 *
@@ -20878,7 +20932,7 @@ var init_tokenCredential = __esmMin((() => {})), init_esm$6 = __esmMin((() => {
 	init_esm$9(), init_tokenCredential();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-http-compat/dist/esm/policies/disableKeepAlivePolicy.js
+//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__@azure+co_d787bc7df786cb651d567e8aaf5a6964/node_modules/@azure/core-http-compat/dist/esm/policies/disableKeepAlivePolicy.js
 function createDisableKeepAlivePolicy() {
 	return {
 		name: disableKeepAlivePolicyName,
@@ -20897,7 +20951,7 @@ var disableKeepAlivePolicyName, init_disableKeepAlivePolicy = __esmMin((() => {
 	disableKeepAlivePolicyName = "DisableKeepAlivePolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/base64.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/base64.js
 /**
 * Encodes a byte array in base64 format.
 * @param value - the Uint8Array to encode
@@ -20918,7 +20972,7 @@ var init_base64 = __esmMin((() => {
 	init_esm$9();
 })), init_interfaces$1 = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/utils.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/utils.js
 /**
 * A type guard for a primitive response body.
 * @param value - Value to test
@@ -21006,7 +21060,7 @@ var validateISODuration, validUuidRegex, init_utils$3 = __esmMin((() => {
 	validateISODuration = /^(-|\+)?P(?:([-+]?[0-9,.]*)Y)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)W)?(?:([-+]?[0-9,.]*)D)?(?:T(?:([-+]?[0-9,.]*)H)?(?:([-+]?[0-9,.]*)M)?(?:([-+]?[0-9,.]*)S)?)?$/, validUuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/serializer.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/serializer.js
 /**
 * Method that creates and returns a Serializer.
 * @param modelMappers - Known models to map
@@ -21460,7 +21514,7 @@ var SerializerImpl, MapperTypeNames, init_serializer = __esmMin((() => {
 	import_state_cjs = require_state_cjs(), state = import_state_cjs.state;
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/operationHelpers.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/operationHelpers.js
 /**
 * @internal
 * Retrieves the value to use for a given operation argument
@@ -21519,7 +21573,7 @@ var originalRequestSymbol$1, init_operationHelpers = __esmMin((() => {
 	init_state(), originalRequestSymbol$1 = Symbol.for("@azure/core-client original request");
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/deserializationPolicy.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/deserializationPolicy.js
 /**
 * This policy handles parsing out responses according to OperationSpecs on the request.
 */
@@ -21647,7 +21701,7 @@ var defaultJsonContentTypes, defaultXmlContentTypes, deserializationPolicyName, 
 	init_interfaces$1(), init_esm$7(), init_serializer(), init_operationHelpers(), defaultJsonContentTypes = ["application/json", "text/json"], defaultXmlContentTypes = ["application/xml", "application/atom+xml"], deserializationPolicyName = "deserializationPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/interfaceHelpers.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/interfaceHelpers.js
 /**
 * Gets the list of status codes for streaming responses.
 * @internal
@@ -21671,7 +21725,7 @@ var init_interfaceHelpers = __esmMin((() => {
 	init_serializer();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/serializationPolicy.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/serializationPolicy.js
 /**
 * This policy handles assembling the request body and headers using
 * an OperationSpec and OperationArguments on the request.
@@ -21770,7 +21824,7 @@ var serializationPolicyName, init_serializationPolicy = __esmMin((() => {
 	init_interfaces$1(), init_operationHelpers(), init_serializer(), init_interfaceHelpers(), serializationPolicyName = "serializationPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/pipeline.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/pipeline.js
 /**
 * Creates a new Pipeline for use with a Service Client.
 * Adds in deserializationPolicy by default.
@@ -21788,7 +21842,7 @@ var init_pipeline = __esmMin((() => {
 	init_deserializationPolicy(), init_esm$7(), init_serializationPolicy();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/httpClientCache.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/httpClientCache.js
 function getCachedDefaultHttpClient$1() {
 	return cachedHttpClient ||= createDefaultHttpClient(), cachedHttpClient;
 }
@@ -21796,7 +21850,7 @@ var cachedHttpClient, init_httpClientCache = __esmMin((() => {
 	init_esm$7();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/urlHelpers.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/urlHelpers.js
 function getRequestUrl(baseUri, operationSpec, operationArguments, fallbackObject) {
 	let urlReplacements = calculateUrlReplacements(operationSpec, operationArguments, fallbackObject), isAbsolutePath = !1, requestUrl = replaceAll(baseUri, urlReplacements);
 	if (operationSpec.path) {
@@ -21893,7 +21947,7 @@ var CollectionFormatToDelimiterMap, init_urlHelpers = __esmMin((() => {
 	init_esm$11(), logger$2 = createClientLogger("core-client");
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/serviceClient.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/serviceClient.js
 function createDefaultPipeline(options) {
 	let credentialScopes = getCredentialScopes(options), credentialOptions = options.credential && credentialScopes ? {
 		credentialScopes,
@@ -21985,7 +22039,7 @@ var ServiceClient, init_serviceClient = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-client@1.11.0/node_modules/@azure/core-client/dist/esm/authorizeRequestOnTenantChallenge.js
+//#region node_modules/.pnpm/@azure+core-client@1.11.0_supports-color@7.2.0/node_modules/@azure/core-client/dist/esm/authorizeRequestOnTenantChallenge.js
 function isUuid(text) {
 	return /^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(text);
 }
@@ -22066,7 +22120,7 @@ AUTHORIZATION: "authorization" }
 	init_serializer(), init_serviceClient(), init_pipeline(), init_interfaces$1(), init_deserializationPolicy(), init_serializationPolicy(), init_log$3(), init_base64(), init_authorizeRequestOnTenantChallenge();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-http-compat/dist/esm/util.js
+//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__@azure+co_d787bc7df786cb651d567e8aaf5a6964/node_modules/@azure/core-http-compat/dist/esm/util.js
 function toPipelineRequest(webResource, options = {}) {
 	let request = webResource[originalRequestSymbol], headers = createHttpHeaders(webResource.headers.toJson({ preserveCase: !0 }));
 	if (request) return request.headers = headers, request;
@@ -22269,7 +22323,7 @@ var originalRequestSymbol, originalClientRequestSymbol, passThroughProps, HttpHe
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-http-compat/dist/esm/response.js
+//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__@azure+co_d787bc7df786cb651d567e8aaf5a6964/node_modules/@azure/core-http-compat/dist/esm/response.js
 /**
 * A helper to convert response objects from the new pipeline back to the old one.
 * @param response - A response object from core-client.
@@ -22331,7 +22385,7 @@ var originalResponse, init_response = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-http-compat/dist/esm/policies/requestPolicyFactoryPolicy.js
+//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__@azure+co_d787bc7df786cb651d567e8aaf5a6964/node_modules/@azure/core-http-compat/dist/esm/policies/requestPolicyFactoryPolicy.js
 /**
 * A policy that wraps policies written for core-http.
 * @param factories - An array of `RequestPolicyFactory` objects from a core-http pipeline
@@ -22361,7 +22415,7 @@ var HttpPipelineLogLevel, mockRequestPolicyOptions, requestPolicyFactoryPolicyNa
 	}, requestPolicyFactoryPolicyName = "RequestPolicyFactoryPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_@azure+core-rest-pipeline@1.25.0/node_modules/@azure/core-http-compat/dist/esm/httpClientAdapter.js
+//#region node_modules/.pnpm/@azure+core-http-compat@2.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__@azure+co_d787bc7df786cb651d567e8aaf5a6964/node_modules/@azure/core-http-compat/dist/esm/httpClientAdapter.js
 /**
 * Converts a RequestPolicy based HttpClient to a PipelineRequest based HttpClient.
 * @param requestPolicyClient - A HttpClient compatible with core-http
@@ -26845,7 +26899,7 @@ var init_xml = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/streamHelpers.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/streamHelpers.js
 /**
 * Signals the end of a stream by pushing null.
 * In Node.js, this is required to signal the end of a Readable stream.
@@ -26912,7 +26966,7 @@ var init_streamHelpers = __esmMin((() => {})), MAX_SEGMENT_CONTENT_LENGTH, SMReg
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/StructuredMessageEncodingStream.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/StructuredMessageEncodingStream.js
 function isNodeReadableStream(source) {
 	return source !== null && source instanceof node_stream.default && typeof source._read == "function" && typeof source._readableState == "object" && typeof source.pipe == "function";
 }
@@ -27126,7 +27180,7 @@ var StructuredMessageEncodingStream, init_StructuredMessageEncodingStream = __es
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/StructuredMessageDecodingStream.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/StructuredMessageDecodingStream.js
 /**
 * To decode structured body for CRC64 content validtion in storage downloading.
 * @param source -
@@ -27185,7 +27239,7 @@ var StructuredMessageDecodingStream, init_StructuredMessageDecodingStream = __es
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/cache.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/cache.js
 function getCachedDefaultHttpClient() {
 	return _defaultHttpClient ||= createDefaultHttpClient(), _defaultHttpClient;
 }
@@ -27340,7 +27394,7 @@ var _defaultHttpClient, init_cache = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/utils/utils.common.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/utils/utils.common.js
 /**
 * Set URL parameter name and value. If name exists in URL parameters, old value
 * will be replaced by name key. If not provide value, the parameter will be deleted.
@@ -27421,7 +27475,7 @@ async function delay(timeInMs, aborter, abortError) {
 }
 var init_utils_common$2 = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/utils/SharedKeyComparator.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/utils/SharedKeyComparator.js
 function compareHeader(lhs, rhs) {
 	return isLessThan(lhs, rhs) ? -1 : 1;
 }
@@ -28107,7 +28161,7 @@ var table_lv0, table_lv2, table_lv4, init_SharedKeyComparator = __esmMin((() => 
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/policies/StorageBrowserPolicyV2.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/policies/StorageBrowserPolicyV2.js
 /**
 * storageBrowserPolicy is a policy used to prevent browsers from caching requests
 * and to remove cookies and explicit content-length headers.
@@ -28126,7 +28180,7 @@ var storageBrowserPolicyName, init_StorageBrowserPolicyV2 = __esmMin((() => {
 	storageBrowserPolicyName = "storageBrowserPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/policies/StorageCorrectContentLengthPolicy.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/policies/StorageCorrectContentLengthPolicy.js
 /**
 * storageCorrectContentLengthPolicy to correctly set Content-Length header with request body length.
 */
@@ -28145,7 +28199,7 @@ var storageCorrectContentLengthPolicyName, init_StorageCorrectContentLengthPolic
 	init_constants$1(), storageCorrectContentLengthPolicyName = "StorageCorrectContentLengthPolicy";
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/policies/StorageRetryPolicyV2.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/policies/StorageRetryPolicyV2.js
 /**
 * Retry policy with exponential retry and linear retry implemented.
 */
@@ -28234,7 +28288,7 @@ var storageRetryPolicyName, DEFAULT_RETRY_OPTIONS, retriableErrors, RETRY_ABORT_
 	], RETRY_ABORT_ERROR = new AbortError("The operation was aborted.");
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/policies/StorageSharedKeyCredentialPolicyV2.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/policies/StorageSharedKeyCredentialPolicyV2.js
 /**
 * storageSharedKeyCredentialPolicy handles signing requests using storage account keys.
 */
@@ -28315,7 +28369,7 @@ var storageSharedKeyCredentialPolicyName, init_StorageSharedKeyCredentialPolicyV
 	init_constants$1(), init_utils_common$2(), init_SharedKeyComparator(), storageSharedKeyCredentialPolicyName = "storageSharedKeyCredentialPolicy";
 })), init_StorageRedirectRangeHeaderPolicy = __esmMin((() => {}));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0/node_modules/@azure/storage-common/dist/esm/policies/StorageRequestFailureDetailsParserPolicy.js
+//#region node_modules/.pnpm/@azure+storage-common@12.5.0_@azure+core-client@1.11.0_supports-color@7.2.0__supports-color@7.2.0/node_modules/@azure/storage-common/dist/esm/policies/StorageRequestFailureDetailsParserPolicy.js
 /**
 * StorageRequestFailureDetailsParserPolicy
 */
@@ -28400,7 +28454,7 @@ var storageRequestFailureDetailsParserPolicyName, init_StorageRequestFailureDeta
 	];
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/Pipeline.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/Pipeline.js
 /**
 * A helper to decide if a given argument satisfies the Pipeline contract
 * @param pipeline - An argument that may be a Pipeline
@@ -39706,7 +39760,7 @@ var Pipeline, init_Pipeline = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/utils/utils.common.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/utils/utils.common.js
 /**
 * Reserved URL characters must be properly escaped for Storage services like Blob or File.
 *
@@ -40390,7 +40444,7 @@ var accountNameSuffixes, init_utils_common$1 = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/sas/SasIPRange.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/sas/SasIPRange.js
 /**
 * Generate SasIPRange format string. For example:
 *
@@ -40673,7 +40727,7 @@ var init_SasIPRange = __esmMin((() => {})), SASProtocol, SASQueryParameters, ini
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/sas/BlobSASSignatureValues.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/sas/BlobSASSignatureValues.js
 function generateBlobSASQueryParameters(blobSASSignatureValues, sharedKeyCredentialOrUserDelegationKey, accountName) {
 	return generateBlobSASQueryParametersInternal(blobSASSignatureValues, sharedKeyCredentialOrUserDelegationKey, accountName).sasQueryParameters;
 }
@@ -42038,7 +42092,7 @@ var init_BlobSASSignatureValues = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/internal-avro/utils/utils.common.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/internal-avro/utils/utils.common.js
 function arraysEqual(a, b) {
 	if (a === b) return !0;
 	if (a == null || b == null || a.length !== b.length) return !1;
@@ -42564,7 +42618,7 @@ var init_utils_common = __esmMin((() => {})), AvroReader, init_AvroReader = __es
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/models.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/models.js
 function toAccessTier(tier) {
 	if (tier !== void 0) return tier;
 }
@@ -42592,7 +42646,7 @@ var BlockBlobTier, PremiumPageBlobTier, StorageBlobAudience, init_models = __esm
 	})(StorageBlobAudience ||= {});
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/PageBlobRangeResponse.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/PageBlobRangeResponse.js
 /**
 * Function that converts PageRange and ClearRange to a common Range object.
 * PageRange and ClearRange have start and end while Range offset and count
@@ -42888,7 +42942,7 @@ var init_PageBlobRangeResponse = __esmMin((() => {})), PollerStoppedError, Polle
 	init_esm$11(), init_esm$9(), init_lroEngine(), init_poller(), init_pollOperation();
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/pollers/BlobStartCopyFromUrlPoller.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/pollers/BlobStartCopyFromUrlPoller.js
 /**
 * Creates a poll operation given the provided state.
 * @hidden
@@ -42941,7 +42995,7 @@ var BlobBeginCopyFromUrlPoller, cancel, update, toString, init_BlobStartCopyFrom
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/Range.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/Range.js
 /**
 * Generate a range string. For example:
 *
@@ -43048,7 +43102,7 @@ var init_Range = __esmMin((() => {})), BatchStates, Batch, init_Batch = __esmMin
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@azure+storage-blob@12.33.0/node_modules/@azure/storage-blob/dist/esm/utils/utils.js
+//#region node_modules/.pnpm/@azure+storage-blob@12.33.0_supports-color@7.2.0/node_modules/@azure/storage-blob/dist/esm/utils/utils.js
 /**
 * Reads a readable stream into buffer. Fill the buffer from offset to end.
 *
@@ -45385,7 +45439,7 @@ var fsStat, fsCreateReadStream, init_utils$2 = __esmMin((() => {
 	init_BlobServiceClient(), init_Clients(), init_ContainerClient(), init_BlobLeaseClient(), init_AccountSASPermissions(), init_AccountSASResourceTypes(), init_AccountSASServices(), init_AccountSASPermissions(), init_AccountSASResourceTypes(), init_AccountSASServices(), init_SASQueryParameters(), init_constants(), init_utils_common$1(), init_BlobBatch(), init_BlobBatchClient(), init_BlobSASPermissions(), init_BlobSASSignatureValues(), init_ContainerSASPermissions(), init_models(), init_Pipeline(), init_esm$2(), init_SASQueryParameters(), init_generatedModels(), init_log$1();
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/blob-upload.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/blob-upload.js
 function uploadToBlobStorage(authenticatedUploadURL, uploadStream, contentType) {
 	return __awaiter$9(this, void 0, void 0, function* () {
 		let uploadByteCount = 0, lastProgressTime = Date.now(), abortController = new AbortController(), chunkTimer = (interval) => __awaiter$9(this, void 0, void 0, function* () {
@@ -64904,7 +64958,7 @@ while (this[FLUSHCHUNK](this[BUFFERSHIFT]()) && this[BUFFER].length);
 	}, vending.registerFormat("zip", require_zip()), vending.registerFormat("tar", require_tar()), vending.registerFormat("json", require_json()), module.exports = vending;
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/stream.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/stream.js
 function createRawFileUploadStream(filePath) {
 	return __awaiter$8(this, void 0, void 0, function* () {
 		debug(`Creating raw file upload stream for: ${filePath}`);
@@ -64953,7 +65007,7 @@ var __awaiter$8, WaterMarkedUploadStream, init_stream = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/zip.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/zip.js
 function createZipUploadStream(uploadSpecification_1) {
 	return __awaiter$7(this, arguments, void 0, function* (uploadSpecification, compressionLevel = 6) {
 		debug(`Creating Artifact archive with compressionLevel: ${compressionLevel}`);
@@ -65008,7 +65062,7 @@ var import_archiver, __awaiter$7, zipErrorCallback, zipWarningCallback, zipFinis
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/types.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/types.js
 /**
 * Gets the MIME type for a file based on its extension
 */
@@ -65069,7 +65123,7 @@ var mimeTypes, init_types = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/upload/upload-artifact.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/upload/upload-artifact.js
 function uploadArtifact(name, files, rootDirectory, options) {
 	return __awaiter$6(this, void 0, void 0, function* () {
 		let artifactFileName = `${name}.zip`;
@@ -68986,7 +69040,7 @@ var init_github = __esmMin((() => {
 	exports.Parse = require_parser_stream(), exports.Extract = require_extract();
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/download/download-artifact.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/download/download-artifact.js
 function exists(path$6) {
 	return __awaiter$4(this, void 0, void 0, function* () {
 		try {
@@ -69130,7 +69184,7 @@ var import_unzip, __awaiter$4, scrubQueryParameters, init_download_artifact = __
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/find/retry-options.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/find/retry-options.js
 function getRetryOptions(defaultOptions, retries = defaultMaxRetryNumber, exemptStatusCodes = defaultExemptStatusCodes) {
 	if (retries <= 0) return [{ enabled: !1 }, defaultOptions.request];
 	let retryOptions = { enabled: !0 };
@@ -69926,7 +69980,7 @@ var import_light, VERSION, init_dist_bundle = __esmMin((() => {
 	import_light = /* @__PURE__ */ __toESM(require_light(), 1), init_dist_src$3(), VERSION = "0.0.0-development", retry.VERSION = VERSION;
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/find/get-artifact.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/find/get-artifact.js
 function getArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token) {
 	return __awaiter$3(this, void 0, void 0, function* () {
 		let [retryOpts, requestOpts] = getRetryOptions(defaults), getArtifactResp = yield getOctokit(token, {
@@ -70005,7 +70059,7 @@ var __awaiter$3, init_get_artifact = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/delete/delete-artifact.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/delete/delete-artifact.js
 function deleteArtifactPublic(artifactName, workflowRunId, repositoryOwner, repositoryName, token) {
 	return __awaiter$2(this, void 0, void 0, function* () {
 		let [retryOpts, requestOpts] = getRetryOptions(defaults), github = getOctokit(token, {
@@ -70071,7 +70125,7 @@ var __awaiter$2, init_delete_artifact = __esmMin((() => {
 	};
 }));
 //#endregion
-//#region node_modules/.pnpm/@actions+artifact@6.2.1/node_modules/@actions/artifact/lib/internal/find/list-artifacts.js
+//#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/find/list-artifacts.js
 function listArtifactsPublic(workflowRunId_1, repositoryOwner_1, repositoryName_1, token_1) {
 	return __awaiter$1(this, arguments, void 0, function* (workflowRunId, repositoryOwner, repositoryName, token, latest = !1) {
 		info(`Fetching artifact list for workflow run ${workflowRunId} in repository ${repositoryOwner}/${repositoryName}`);

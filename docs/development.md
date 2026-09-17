@@ -92,6 +92,16 @@ make test_integration_buildkit_inspect_debian_restrict
 make test_integration_buildkit_inspect_roundtrip
 ```
 
+### Unit test coverage
+
+`make test_unit_coverage` runs every Node-side unit test in a single vitest pass and writes a
+report to `coverage/`. CI runs the same target and pastes `coverage/summary.txt` into the job
+summary. There are no thresholds: the point is to see which files no test reaches, not to gate
+merges on a number.
+
+The QuickJS run (`make test_unit_qjs`) is not measured separately. It executes the same `.test.ts`
+files as the Node run, so `src/core/lib/acl/`'s line coverage is already accounted for above.
+
 ### Running the suite from several git worktrees
 
 One Docker daemon serves every worktree and namespaces nothing per worktree: the
@@ -263,6 +273,7 @@ above, only shows what has accumulated since the most recent one.
 | `make report_buildkit`                           | Show the report for the currently running builder                      |
 | `make clean_buildkit`                            | Stop and remove the builder's containers/images and the buildx builder |
 | `make test_unit`                                 | Every unit test, the QuickJS ones included (needs Docker)              |
+| `make test_unit_coverage`                        | Every Node unit test in one run, with a coverage report                |
 | `make test_integration_buildkit`                 | Every `test_integration_buildkit_*` target in turn                     |
 | `make test_integration_buildkit_{engine}_{mode}` | One engine and mode (start, build, verify, clean up)                   |
 | `make seccomp_profile`                           | Re-vendor the builder's seccomp profile from moby/profiles             |
