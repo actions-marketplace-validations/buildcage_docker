@@ -3,3 +3,4 @@ node_modules
 /dist/qjs
 /dist/qjs-test
 /dist/report-action
+/coverage
