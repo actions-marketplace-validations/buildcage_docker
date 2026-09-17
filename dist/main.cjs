@@ -467,6 +467,25 @@ function listHostIpv4Addresses({ networkInterfaces: list = node_os.networkInterf
 	return [...found].sort();
 }
 //#endregion
+//#region src/lib/compose-env.ts
+function buildComposeEnv({ builderName, proxyMode, proxyEngine, imageRef, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules }, env, hostAddresses = listHostIpv4Addresses) {
+	return {
+		...env,
+		BUILDER_NAME: builderName,
+		PROXY_MODE: proxyMode,
+		PROXY_ENGINE: proxyEngine,
+		ALLOWED_HTTPS_RULES: httpsRules.join("\n"),
+		ALLOWED_HTTP_RULES: httpRules.join("\n"),
+		ALLOWED_IP_RULES: ipRules.join("\n"),
+		ALLOWED_URL_RULES: urlRules.join("\n"),
+		ALLOWED_TLS_RULES: tlsRules.join("\n"),
+		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
+		BUILDCAGE_IMAGE_REF: imageRef,
+		EXTERNAL_RESOLVER: "",
+		HOST_ADDRESSES: hostAddresses().join(" ")
+	};
+}
+//#endregion
 //#region src/core/lib/provenance/errors.ts
 var VerifyImageError = class extends Error {
 	code;
@@ -7228,6 +7247,57 @@ function describeContainerStartFailure(state, { role, containerName }) {
 	return state.status === "running" ? isContainerReady(state) ? `${subject} is running, but \`docker compose up\` failed. See the Docker output above.${probe}` : `${subject} started but never became ready.${probe}${evidence}` : `${subject} stopped${state.exitCode === null ? "" : ` with code ${state.exitCode}`} instead of starting up.${probe}${evidence}`;
 }
 //#endregion
+//#region src/lib/builder-diagnostics.ts
+const captureDockerViaExec = (args, env) => (0, node_child_process.execFileSync)("docker", args, {
+	encoding: "utf8",
+	env,
+	stdio: [
+		"ignore",
+		"pipe",
+		"pipe"
+	]
+}), printDockerViaExec = (args, env) => {
+	(0, node_child_process.execFileSync)("docker", args, {
+		stdio: "inherit",
+		env
+	});
+};
+function builderStartError(e, { composeFile, projectName, builderName, composeEnv }, deps = {}) {
+	let state = readBuilderState(builderName, composeEnv, deps);
+	return state ? (printBuilderLog({
+		composeFile,
+		projectName,
+		composeEnv
+	}, deps), new SetupError(describeContainerStartFailure(state, {
+		role: "builder",
+		containerName: builderName
+	}), "BUILDER_NOT_READY")) : new SetupError(describeDockerFailure(e, { operation: "docker compose up" }), "DOCKER_UNAVAILABLE");
+}
+function readBuilderState(builderName, composeEnv, { captureDocker = captureDockerViaExec }) {
+	try {
+		return parseContainerState(captureDocker(buildDockerInspectStateArgs(builderName), composeEnv));
+	} catch (e) {
+		return reportInspectFailure(e), null;
+	}
+}
+function reportInspectFailure(e) {
+	let stderr = (e && typeof e == "object" ? e : {}).stderr ?? "";
+	stderr.trim() && !/no such object/i.test(stderr) && console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
+}
+function printBuilderLog({ composeFile, projectName, composeEnv }, { printDocker = printDockerViaExec }) {
+	console.log("::group::buildcage: Builder container log");
+	try {
+		printDocker(buildComposeLogsArgs({
+			composeFile,
+			projectName,
+			tail: 100
+		}), composeEnv);
+	} catch {
+		console.log("The builder container's log could not be read.");
+	}
+	console.log("::endgroup::");
+}
+//#endregion
 //#region src/main.ts
 const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href)), composeFile = (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml");
 async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
@@ -7264,21 +7334,18 @@ async function main() {
 		urlRules,
 		tlsRules
 	}, (message) => console.log(`::warning::${message}`)), console.log("::group::buildcage: Configured ACL Rules"), logRules("HTTPS", rules.httpsRules), logRules("HTTP", rules.httpRules), logRules("IP", rules.ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules), console.log("::endgroup::");
-	let builderName = getInput("builder_name") || "buildcage", projectName = deriveProjectName(builderName), composeEnv = {
-		...env,
-		BUILDER_NAME: builderName,
-		PROXY_MODE: proxyMode,
-		PROXY_ENGINE: proxyEngine,
-		ALLOWED_HTTPS_RULES: rules.httpsRules.join("\n"),
-		ALLOWED_HTTP_RULES: rules.httpRules.join("\n"),
-		ALLOWED_IP_RULES: rules.ipRules.join("\n"),
-		ALLOWED_URL_RULES: urlRules.join("\n"),
-		ALLOWED_TLS_RULES: tlsRules.join("\n"),
-		KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
-		BUILDCAGE_IMAGE_REF: imageRef,
-		EXTERNAL_RESOLVER: "",
-		HOST_ADDRESSES: listHostIpv4Addresses().join(" ")
-	};
+	let builderName = getInput("builder_name") || "buildcage", projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
+		builderName,
+		proxyMode,
+		proxyEngine,
+		imageRef,
+		httpsRules: rules.httpsRules,
+		httpRules: rules.httpRules,
+		ipRules: rules.ipRules,
+		urlRules,
+		tlsRules,
+		knownBlockedRules
+	}, env);
 	try {
 		(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({
 			composeFile,
@@ -7307,52 +7374,6 @@ async function main() {
 			composeEnv
 		});
 	}
-}
-function builderStartError(e, { composeFile, projectName, builderName, composeEnv }) {
-	let state = readBuilderState(builderName, composeEnv);
-	return state ? (printBuilderLog({
-		composeFile,
-		projectName,
-		composeEnv
-	}), new SetupError(describeContainerStartFailure(state, {
-		role: "builder",
-		containerName: builderName
-	}), "BUILDER_NOT_READY")) : new SetupError(describeDockerFailure(e, { operation: "docker compose up" }), "DOCKER_UNAVAILABLE");
-}
-function readBuilderState(builderName, composeEnv) {
-	try {
-		return parseContainerState((0, node_child_process.execFileSync)("docker", buildDockerInspectStateArgs(builderName), {
-			encoding: "utf8",
-			env: composeEnv,
-			stdio: [
-				"ignore",
-				"pipe",
-				"pipe"
-			]
-		}));
-	} catch (e) {
-		return reportInspectFailure(e), null;
-	}
-}
-function reportInspectFailure(e) {
-	let stderr = (e && typeof e == "object" ? e : {}).stderr ?? "";
-	stderr.trim() && !/no such object/i.test(stderr) && console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
-}
-function printBuilderLog({ composeFile, projectName, composeEnv }) {
-	console.log("::group::buildcage: Builder container log");
-	try {
-		(0, node_child_process.execFileSync)("docker", buildComposeLogsArgs({
-			composeFile,
-			projectName,
-			tail: 100
-		}), {
-			stdio: "inherit",
-			env: composeEnv
-		});
-	} catch {
-		console.log("The builder container's log could not be read.");
-	}
-	console.log("::endgroup::");
 }
 const ENGINES = [
 	"universal",

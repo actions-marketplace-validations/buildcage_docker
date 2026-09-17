@@ -12,35 +12,23 @@ import {
 } from "#core/lib/acl/rules.ts";
 import { buildUrlRules } from "#core/lib/acl/url-rules.ts";
 import { checkUrlAndTlsRuleSupport } from "./lib/engine-rule-support.ts";
-import { listHostIpv4Addresses } from "./lib/host-addresses.ts";
+import { buildComposeEnv } from "./lib/compose-env.ts";
 import {
   verifyImageDigestOrThrow,
   type VerifyImageDigestOptions,
   type ResolvedImage,
 } from "#core/lib/provenance/verify-image.ts";
 import { resolveBuildcageImageRef } from "#core/lib/provenance/image-ref.ts";
-import { describeDockerFailure, type DockerErrorLike } from "#core/lib/actions/docker-error.ts";
+import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { logRules } from "#core/lib/actions/log.ts";
 import { deriveProjectName } from "#core/lib/docker/compose-project-name.ts";
-import {
-  buildComposeUpArgs,
-  buildComposeDownArgs,
-  buildComposeLogsArgs,
-} from "#core/lib/docker/args.ts";
-import {
-  buildDockerInspectStateArgs,
-  parseContainerState,
-  describeContainerStartFailure,
-  type ContainerState,
-} from "#core/lib/docker/health.ts";
+import { buildComposeUpArgs, buildComposeDownArgs } from "#core/lib/docker/args.ts";
+import { builderStartError } from "./lib/builder-diagnostics.ts";
 
 export { buildACLRules };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const composeFile = join(__dirname, "../docker/compose.action.yaml");
-
-/** Lines of container log printed when the builder fails to come up. */
-const LOG_TAIL = 100;
 
 // Gates a local-image override used only by this repo's own CI/dev testing
 // (test_action in .github/workflows/test-e2e.yml, and verify-image in
@@ -54,7 +42,11 @@ const LOCAL_IMAGE_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === 
  * Verifies image provenance and resolves the digest-pinned image ref.
  * Throws ProvenanceError("UNVERIFIABLE_REF") if verification can't be
  * performed (branch ref / local ./) — printed by the top-level catch.
+ *
+ * Untested by design: verifyImageDigestOrThrow and resolveBuildcageImageRef
+ * are tested directly.
  */
+/* v8 ignore start */
 async function resolveVerifiedImage({
   actionRef,
   actionRepo,
@@ -69,7 +61,11 @@ async function resolveVerifiedImage({
     pullPolicy: "always",
   };
 }
+/* v8 ignore stop */
 
+// Untested by design: every step main() calls is tested directly, and what it
+// adds is the docker invocations themselves.
+/* v8 ignore start */
 async function main(): Promise<void> {
   const env = process.env;
   const actionRef = env.GITHUB_ACTION_REF ?? "";
@@ -127,27 +123,21 @@ async function main(): Promise<void> {
   // builder_name input and find this container via `docker ps --filter`.
   const projectName = deriveProjectName(builderName);
 
-  const composeEnv = {
-    ...env,
-    BUILDER_NAME: builderName,
-    PROXY_MODE: proxyMode,
-    PROXY_ENGINE: proxyEngine,
-    ALLOWED_HTTPS_RULES: rules.httpsRules.join("\n"),
-    ALLOWED_HTTP_RULES: rules.httpRules.join("\n"),
-    ALLOWED_IP_RULES: rules.ipRules.join("\n"),
-    // Newline separated because a URL rule contains a space, unlike the others.
-    ALLOWED_URL_RULES: urlRules.join("\n"),
-    ALLOWED_TLS_RULES: tlsRules.join("\n"),
-    KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
-    BUILDCAGE_IMAGE_REF: imageRef,
-    // Pinned rather than inherited, like every other variable here: the
-    // resolver the builder uses is the action's choice, not whatever an earlier
-    // step left in the job environment.
-    EXTERNAL_RESOLVER: "",
-    // Completed engine-side with the compose network's gateway, which does not
-    // exist yet here. See lib/host-addresses.ts.
-    HOST_ADDRESSES: listHostIpv4Addresses().join(" "),
-  };
+  const composeEnv = buildComposeEnv(
+    {
+      builderName,
+      proxyMode,
+      proxyEngine,
+      imageRef,
+      httpsRules: rules.httpsRules,
+      httpRules: rules.httpRules,
+      ipRules: rules.ipRules,
+      urlRules,
+      tlsRules,
+      knownBlockedRules,
+    },
+    env,
+  );
 
   try {
     execFileSync("docker", buildComposeDownArgs({ composeFile, projectName }), {
@@ -170,81 +160,7 @@ async function main(): Promise<void> {
     throw builderStartError(e, { composeFile, projectName, builderName, composeEnv });
   }
 }
-
-interface BuilderStartErrorOptions {
-  composeFile: string;
-  projectName: string;
-  builderName: string;
-  composeEnv: NodeJS.ProcessEnv;
-}
-
-/** Asks the container itself why `compose up` failed. With no container to
- *  ask, the failure predates it and is Docker's own. */
-function builderStartError(
-  e: unknown,
-  { composeFile, projectName, builderName, composeEnv }: BuilderStartErrorOptions,
-): SetupError {
-  const state = readBuilderState(builderName, composeEnv);
-  if (!state) {
-    return new SetupError(
-      describeDockerFailure(e, { operation: "docker compose up" }),
-      "DOCKER_UNAVAILABLE",
-    );
-  }
-
-  printBuilderLog({ composeFile, projectName, composeEnv });
-  return new SetupError(
-    describeContainerStartFailure(state, { role: "builder", containerName: builderName }),
-    "BUILDER_NOT_READY",
-  );
-}
-
-function readBuilderState(
-  builderName: string,
-  composeEnv: NodeJS.ProcessEnv,
-): ContainerState | null {
-  try {
-    return parseContainerState(
-      execFileSync("docker", buildDockerInspectStateArgs(builderName), {
-        encoding: "utf8",
-        env: composeEnv,
-        // Captured, not inherited: no container is the expected outcome here,
-        // and the daemon's "no such object" would read as the cause.
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
-    );
-  } catch (e) {
-    reportInspectFailure(e);
-    return null;
-  }
-}
-
-/** Anything other than the expected missing container is worth seeing, even
- *  though the compose failure is what gets reported. */
-function reportInspectFailure(e: unknown): void {
-  const stderr = ((e && typeof e === "object" ? e : {}) as DockerErrorLike).stderr ?? "";
-  if (stderr.trim() && !/no such object/i.test(stderr)) {
-    console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
-  }
-}
-
-/** Best effort: the message that follows still stands without the log. */
-function printBuilderLog({
-  composeFile,
-  projectName,
-  composeEnv,
-}: Omit<BuilderStartErrorOptions, "builderName">): void {
-  console.log("::group::buildcage: Builder container log");
-  try {
-    execFileSync("docker", buildComposeLogsArgs({ composeFile, projectName, tail: LOG_TAIL }), {
-      stdio: "inherit",
-      env: composeEnv,
-    });
-  } catch {
-    console.log("The builder container's log could not be read.");
-  }
-  console.log("::endgroup::");
-}
+/* v8 ignore stop */
 
 /**
  * Resolve and validate the proxy_engine input.
@@ -282,6 +198,9 @@ export function resolveProxyEngine(input: string | undefined): ProxyEngine {
   return engine as ProxyEngine;
 }
 
+// Untested by design: this is the guard that keeps main() from running when
+// this module is imported, so a test can never be inside it.
+/* v8 ignore start */
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     if (err instanceof ActionError) {
@@ -292,3 +211,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+/* v8 ignore stop */

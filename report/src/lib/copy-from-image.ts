@@ -3,8 +3,13 @@ import { execFileSync } from "node:child_process";
 export type RunDocker = (args: string[]) => string;
 
 // stderr is piped, not inherited, so describeDockerFailure can quote it.
+//
+// Untested by design: the default behind the seam above, which only hands
+// execFileSync what the tested caller decided.
+/* v8 ignore start */
 const runDocker: RunDocker = (args) =>
   execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+/* v8 ignore stop */
 
 /**
  * Copies a path out of the image `containerId` was created from, so a `RUN`

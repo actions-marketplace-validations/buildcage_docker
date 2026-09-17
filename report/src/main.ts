@@ -1,17 +1,23 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as core from "@actions/core";
 
 import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { createDocker } from "#core/lib/docker/client.ts";
-import { REPORT_ACTION_SCRIPT_PATH, REPORT_SOURCE_LABEL } from "#core/lib/docker/report-source.ts";
+import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
 import { ActionError, errorMessage } from "#core/lib/errors.ts";
 import { copyFromContainerImage } from "./lib/copy-from-image.ts";
 import { ReportError } from "./lib/errors.ts";
+import { findReportSourceContainer } from "./lib/find-report-source.ts";
+import { uploadTrafficArtifact, wantsTrafficArtifact } from "./lib/traffic-artifact.ts";
+
+// Untested by design, down to the end of the file: every step main() calls is
+// tested directly, and what it adds is the docker/node invocations themselves.
+/* v8 ignore start */
 
 // Gates the COMPOSE_PROJECT_NAME override to this repo's own CI/dev testing.
 const PROJECT_NAME_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS === "1";
@@ -24,31 +30,10 @@ async function main(): Promise<void> {
   );
   const docker = createDocker();
 
-  // 1. Locate the report-source container purely via Docker metadata.
-  let containerId: string;
-  try {
-    const ids = docker.findContainers([
-      `label=com.docker.compose.project=${projectName}`,
-      `label=${REPORT_SOURCE_LABEL}=true`,
-    ]);
-    if (ids.length !== 1) {
-      throw new ReportError(
-        `Expected exactly one buildcage container for builder_name ${JSON.stringify(builderName)}, found ${ids.length}. ` +
-          "Did the setup step run first, with the same builder_name?",
-        "CONTAINER_NOT_FOUND",
-      );
-    }
-    containerId = ids[0];
-  } catch (e) {
-    if (e instanceof ReportError) throw e;
-    throw new ReportError(
-      describeDockerFailure(e, { operation: "docker ps" }),
-      "DOCKER_UNAVAILABLE",
-    );
-  }
+  const containerId = findReportSourceContainer(docker, projectName, builderName);
 
-  // 2. Pull report-action.js out of the (Sigstore-verified) image and run
-  // it with node, inheriting stdio. It owns everything downstream —
+  // Pull report-action.js out of the (Sigstore-verified) image and run it
+  // with node, inheriting stdio. It owns everything downstream —
   // fetching the container's env/logs, rendering the Job Summary, the
   // fail_on_blocked exit decision — so this step just reproduces its exit
   // code as its own.
@@ -84,7 +69,7 @@ async function main(): Promise<void> {
       // Upload the artifact even then; a failing run is when it is most wanted.
       const status = (e as { status?: number | null }).status;
       if (typeof status === "number") {
-        if (trafficFile) await uploadTrafficArtifact(trafficFile);
+        if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
         process.exitCode = status;
         return;
       }
@@ -93,51 +78,9 @@ async function main(): Promise<void> {
         "REPORT_SCRIPT_FAILED",
       );
     }
-    if (trafficFile) await uploadTrafficArtifact(trafficFile);
+    if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
-  }
-}
-
-function wantsTrafficArtifact(): boolean {
-  try {
-    return core.getBooleanInput("upload_traffic_artifact");
-  } catch {
-    // Unset, as in the dev and test invocations that run this from source
-    // rather than through action.yml's own defaults.
-    return false;
-  }
-}
-
-/** Fixed so a workflow can name it, suffixed per builder against collisions. */
-function artifactName(): string {
-  const builder = core.getInput("builder_name") || "buildcage";
-  return builder === "buildcage" ? "buildcage-traffic" : `buildcage-traffic-${builder}`;
-}
-
-/**
- * Upload the traffic JSON, when the engine produced one. Best-effort: the exit
- * decision is already made, so a failed upload only warns. The client is
- * imported lazily so a run that asks for no artifact does not load it.
- */
-async function uploadTrafficArtifact(file: string): Promise<void> {
-  // Only the inspect engine writes the file.
-  if (!existsSync(file)) {
-    console.log(
-      "::warning::upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
-        "Only proxy_engine: inspect does.",
-    );
-    return;
-  }
-  const days = Number(core.getInput("traffic_artifact_retention_days") || "");
-  try {
-    const { DefaultArtifactClient } = await import("@actions/artifact");
-    await new DefaultArtifactClient().uploadArtifact(artifactName(), [file], dirname(file), {
-      retentionDays: Number.isFinite(days) && days > 0 ? days : undefined,
-    });
-    console.log(`Uploaded the traffic JSON as ${artifactName()}`);
-  } catch (e) {
-    console.log(`::warning::Could not upload the traffic artifact: ${errorMessage(e)}`);
   }
 }
 
@@ -151,3 +94,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+/* v8 ignore stop */
