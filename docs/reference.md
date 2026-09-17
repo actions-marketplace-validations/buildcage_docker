@@ -219,8 +219,12 @@ certificate:
 ```yaml
 allowed_tls_rules: |
   db.example.com:5432
-  repo.maven.apache.org:443 # a JVM build, which won't trust the injected CA
+  repo.maven.apache.org:443
 ```
+
+A host rule input is split on whitespace and has no comment syntax, so `#` cannot be used inside one
+the way [`allowed_url_rules`](#url-rules-allowed_url_rules) allows. The second rule above is the
+shape to use for a JVM build, which won't trust the injected CA.
 
 ### Regular expressions
 

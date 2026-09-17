@@ -310,9 +310,10 @@ For implementation internals, see the [Development Guide](./docs/development.md)
 ## CA trust and compatibility
 
 `proxy_engine: inspect` terminates TLS and re-signs it with a CA generated for that build, so the
-build has to trust that CA. As each `RUN` step starts, Buildcage sets the variables the common
-toolchains read for their trust store (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
-`REQUESTS_CA_BUNDLE`, `PIP_CERT`, `DENO_CERT`). A variable the base image or the Dockerfile already
+build has to trust that CA. As each `RUN` step starts, Buildcage points the variables the common
+toolchains read at a store that holds it: `NODE_EXTRA_CA_CERTS`, `DENO_CERT`, `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE` and `PIP_CERT`. `CURL_CA_BUNDLE` is set only in a step with no system CA store
+of its own, since curl reads that store already. A variable the base image or the Dockerfile already
 set is appended to rather than redirected, and neither the CA nor the variables are left in the
 image layers.
 
