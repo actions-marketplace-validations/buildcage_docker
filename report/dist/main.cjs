@@ -24,11 +24,11 @@ var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDes
 	enumerable: !0
 }) : target, mod));
 //#endregion
-let node_child_process = require("node:child_process"), node_fs = require("node:fs");
+let node_fs = require("node:fs");
 node_fs = __toESM(node_fs, 1);
 let node_os = require("node:os");
 node_os = __toESM(node_os, 1);
-let node_path = require("node:path"), node_url = require("node:url"), node_crypto = require("node:crypto"), node_events = require("node:events"), node_readline = require("node:readline"), os = require("os");
+let node_path = require("node:path"), node_url = require("node:url"), node_crypto = require("node:crypto"), node_child_process = require("node:child_process"), node_events = require("node:events"), node_readline = require("node:readline"), os = require("os");
 os = __toESM(os, 1);
 let crypto = require("crypto");
 crypto = __toESM(crypto, 1);
@@ -62,19 +62,6 @@ let stream = require("stream");
 stream = __toESM(stream, 1);
 let buffer = require("buffer"), fs_promises = require("fs/promises");
 fs_promises = __toESM(fs_promises, 1);
-function describeDockerFailure(e, { operation = "docker", env = process.env, exists = node_fs.existsSync } = {}) {
-	let err = e && typeof e == "object" ? e : {}, slimNote = isLikelySlimRunner(env, exists) ? " Detected a container-based GitHub-hosted runner image (e.g. \"ubuntu-slim\") — these ship a Docker client with no daemon and are not supported for this action." : "", whatHappened;
-	if (err.code === "ENOENT") whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
-	else {
-		let captured = typeof err.stderr == "string" ? err.stderr.trim() : "";
-		whatHappened = `${operation} failed${captured ? `: ${captured}` : " (see the Docker output above for the underlying error)"}.`;
-	}
-	return `${whatHappened}${slimNote} Buildcage requires a working Docker installation (client and daemon) on the runner, on Docker Engine 25.0 or later with Compose v2.20.2 or later. Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a full Docker install) instead. See README.md and docs/security.md for details.`;
-}
-function isLikelySlimRunner(_env = process.env, _exists = node_fs.existsSync) {
-	return _env.ImageOS === "Linux" && _exists("/run/.containerenv");
-}
-//#endregion
 //#region src/core/lib/docker/compose-project-name.ts
 function deriveProjectName(containerName) {
 	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
@@ -244,6 +231,21 @@ function exitOnFatalError(context) {
 		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
 	};
 }
+function describeDockerFailure(e, { operation = "docker", env = process.env, exists = node_fs.existsSync } = {}) {
+	let err = e && typeof e == "object" ? e : {}, slimNote = isLikelySlimRunner(env, exists) ? " Detected a container-based GitHub-hosted runner image (e.g. \"ubuntu-slim\") — these ship a Docker client with no daemon and are not supported for this action." : "", whatHappened;
+	if (err.code === "ENOENT") whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
+	else {
+		let captured = typeof err.stderr == "string" ? err.stderr.trim() : "";
+		whatHappened = `${operation} failed${captured ? `: ${captured}` : " (see the Docker output above for the underlying error)"}.`;
+	}
+	return `${whatHappened}${slimNote} Buildcage requires a working Docker installation (client and daemon) on the runner, on Docker Engine 25.0 or later with Compose v2.20.2 or later. Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a full Docker install) instead. See README.md and docs/security.md for details.`;
+}
+function isLikelySlimRunner(_env = process.env, _exists = node_fs.existsSync) {
+	return _env.ImageOS === "Linux" && _exists("/run/.containerenv");
+}
+//#endregion
+//#region report/src/lib/errors.ts
+var ReportError = class extends ActionError {};
 //#endregion
 //#region report/src/lib/copy-from-image.ts
 const runDocker = (args) => (0, node_child_process.execFileSync)("docker", args, {
@@ -255,20 +257,20 @@ const runDocker = (args) => (0, node_child_process.execFileSync)("docker", args,
 	]
 });
 function copyFromContainerImage(containerId, containerPath, hostPath, run = runDocker) {
-	let imageId = run([
+	let imageId = step("docker inspect (resolving the builder's image)", () => run([
 		"inspect",
 		containerId,
 		"--format",
 		"{{.Image}}"
-	]).trim();
-	if (!imageId) throw Error(`docker inspect reported no image for container ${containerId}`);
-	let scratchId = run(["create", imageId]).trim();
+	]).trim());
+	if (!imageId) throw new ReportError(`docker inspect reported no image for container ${containerId}`, "DOCKER_UNAVAILABLE");
+	let scratchId = step("docker create (making a scratch container from the builder's image)", () => run(["create", imageId]).trim());
 	try {
-		run([
+		step(`docker cp (fetching ${containerPath} from the builder image)`, () => run([
 			"cp",
 			`${scratchId}:${containerPath}`,
 			hostPath
-		]);
+		]));
 	} finally {
 		try {
 			run([
@@ -279,9 +281,13 @@ function copyFromContainerImage(containerId, containerPath, hostPath, run = runD
 		} catch {}
 	}
 }
-//#endregion
-//#region report/src/lib/errors.ts
-var ReportError = class extends ActionError {};
+function step(operation, call) {
+	try {
+		return call();
+	} catch (e) {
+		throw new ReportError(describeDockerFailure(e, { operation }), "DOCKER_UNAVAILABLE");
+	}
+}
 //#endregion
 //#region report/src/lib/find-report-source.ts
 function findReportSourceContainer(docker, projectName, builderName) {
@@ -10780,20 +10786,6 @@ function getInput(name, options) {
 	if (options && options.required && !val) throw Error(`Input required and not supplied: ${name}`);
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
-function getBooleanInput(name, options) {
-	let trueValue = [
-		"true",
-		"True",
-		"TRUE"
-	], falseValue = [
-		"false",
-		"False",
-		"FALSE"
-	], val = getInput(name, options);
-	if (trueValue.includes(val)) return !0;
-	if (falseValue.includes(val)) return !1;
-	throw TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}\nSupport boolean input list: \`true | True | TRUE | false | False | FALSE\``);
-}
 function debug(message) {
 	issueCommand("debug", {}, message);
 }
@@ -10814,8 +10806,58 @@ var ExitCode, init_core = __esmMin((() => {
 //#endregion
 //#region report/src/lib/inputs.ts
 init_core();
-function readBuilderName(getInput$1 = getInput) {
-	return getInput$1("builder_name") || "buildcage";
+const TRUE_INPUTS = [
+	"true",
+	"True",
+	"TRUE"
+], FALSE_INPUTS = [
+	"false",
+	"False",
+	"FALSE"
+];
+function readBuilderName(getInput$2 = getInput) {
+	return getInput$2("builder_name") || "buildcage";
+}
+function readTrafficArtifactInputs(getInput$1 = getInput) {
+	return {
+		wanted: readBoolean("upload_traffic_artifact", getInput$1),
+		retentionDays: readRetentionDays(getInput$1)
+	};
+}
+function readBoolean(name, getInput) {
+	let value = getInput(name);
+	return TRUE_INPUTS.includes(value) ? !0 : (value !== "" && !FALSE_INPUTS.includes(value) && annotate.warning(`${name} must be true or false, not ${JSON.stringify(value)}. Reading it as false.`), !1);
+}
+function readRetentionDays(getInput) {
+	let value = getInput("traffic_artifact_retention_days");
+	if (value === "") return;
+	let days = Number(value);
+	if (!Number.isInteger(days) || days <= 0) {
+		annotate.warning(`traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}. Leaving the retention to the repository's own default.`);
+		return;
+	}
+	return days;
+}
+//#endregion
+//#region report/src/lib/run-report-script.ts
+const runNode = (args, env) => {
+	(0, node_child_process.execFileSync)("node", args, {
+		stdio: "inherit",
+		env
+	});
+};
+function runReportScript(scriptPath, containerId, { trafficFile, env = process.env, run = runNode } = {}) {
+	try {
+		run([scriptPath, containerId], trafficFile ? {
+			...env,
+			BUILDCAGE_TRAFFIC_FILE: trafficFile
+		} : env);
+	} catch (e) {
+		let status = e.status;
+		if (typeof status != "number") throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
+		return status;
+	}
+	return 0;
 }
 //#endregion
 //#region node_modules/.pnpm/@actions+artifact@6.2.1_supports-color@7.2.0/node_modules/@actions/artifact/lib/internal/shared/config.js
@@ -56124,14 +56166,6 @@ If the error persists, please check whether Actions and API requests are operati
 }));
 //#endregion
 //#region report/src/lib/traffic-artifact.ts
-init_core();
-function wantsTrafficArtifact() {
-	try {
-		return getBooleanInput("upload_traffic_artifact");
-	} catch {
-		return !1;
-	}
-}
 function artifactName(builderName) {
 	return builderName === "buildcage" ? "buildcage-traffic" : `buildcage-traffic-${builderName}`;
 }
@@ -56139,14 +56173,14 @@ const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => 
 	let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
 	return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
 };
-async function uploadTrafficArtifact(file, builderName, { reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
+async function uploadTrafficArtifact(file, builderName, { retentionDays, reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
 	if (!fileExists(file)) {
 		reportScriptFinished && annotate.warning("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
 		return;
 	}
-	let days = Number(getInput("traffic_artifact_retention_days") || ""), name = artifactName(builderName);
+	let name = artifactName(builderName);
 	try {
-		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays: Number.isFinite(days) && days > 0 ? days : void 0 }), console.log(`Uploaded the traffic JSON as ${name}`);
+		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays }), console.log(`Uploaded the traffic JSON as ${name}`);
 	} catch (e) {
 		annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);
 	}
@@ -56154,31 +56188,15 @@ async function uploadTrafficArtifact(file, builderName, { reportScriptFinished =
 //#endregion
 //#region report/src/main.ts
 async function main() {
-	let builderName = readBuilderName(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile, reportScriptFinished = !1;
+	let builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
-		try {
-			copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath);
-		} catch (e) {
-			throw new ReportError(describeDockerFailure(e, { operation: "docker cp (fetching report-action.js from the builder image)" }), "DOCKER_UNAVAILABLE");
-		}
-		trafficFile = wantsTrafficArtifact() ? (0, node_path.join)(scratchDir, "traffic.json") : void 0;
-		try {
-			(0, node_child_process.execFileSync)("node", [reportActionPath, containerId], {
-				stdio: "inherit",
-				env: trafficFile ? {
-					...process.env,
-					BUILDCAGE_TRAFFIC_FILE: trafficFile
-				} : process.env
-			});
-		} catch (e) {
-			let status = e.status;
-			if (typeof status != "number") throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
-			process.exitCode = status;
-		}
-		reportScriptFinished = !0;
+		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile }), reportScriptFinished = !0;
 	} finally {
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, { reportScriptFinished }), (0, node_fs.rmSync)(scratchDir, {
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, {
+			retentionDays: trafficArtifact.retentionDays,
+			reportScriptFinished
+		}), (0, node_fs.rmSync)(scratchDir, {
 			recursive: !0,
 			force: !0
 		});

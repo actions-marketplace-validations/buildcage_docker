@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { copyFromContainerImage } from "./copy-from-image.ts";
+import { ReportError } from "./errors.ts";
 import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
 
 const BUILDER_ID = "builder123";
@@ -19,6 +20,27 @@ function fakeRun(responses: string[]): { run: (args: string[]) => string; calls:
       return responses[i++] ?? "";
     },
   };
+}
+
+/** A run where `failing` throws with stderr, and every other step succeeds. */
+function failingAt(failing: string): (args: string[]) => string {
+  return (args: string[]) => {
+    if (args[0] === failing) {
+      throw Object.assign(new Error("exit 1"), { status: 1, stderr: `${failing} said no` });
+    }
+    if (args[0] === "inspect") return IMAGE_ID;
+    if (args[0] === "create") return SCRATCH_ID;
+    return "";
+  };
+}
+
+function caught(call: () => unknown): ReportError {
+  try {
+    call();
+  } catch (e) {
+    return e as ReportError;
+  }
+  throw new Error("expected copyFromContainerImage to throw");
 }
 
 describe("copyFromContainerImage", () => {
@@ -47,17 +69,15 @@ describe("copyFromContainerImage", () => {
 
   it("removes the scratch container even when the copy fails", () => {
     const calls: string[][] = [];
+    const failing = failingAt("cp");
     const run = (args: string[]) => {
       calls.push(args);
-      if (args[0] === "inspect") return IMAGE_ID;
-      if (args[0] === "create") return SCRATCH_ID;
-      if (args[0] === "cp") throw new Error("no such file");
-      return "";
+      return failing(args);
     };
 
     expect(() =>
       copyFromContainerImage(BUILDER_ID, REPORT_ACTION_SCRIPT_PATH, HOST_PATH, run),
-    ).toThrow("no such file");
+    ).toThrow(ReportError);
     expect(calls.at(-1)).toStrictEqual(["rm", "-f", SCRATCH_ID]);
   });
 
@@ -65,19 +85,41 @@ describe("copyFromContainerImage", () => {
     const run = (args: string[]) => {
       if (args[0] === "inspect") return IMAGE_ID;
       if (args[0] === "create") return SCRATCH_ID;
-      throw new Error(args[0] === "cp" ? "no such file" : "rm failed");
+      throw Object.assign(new Error("exit 1"), {
+        stderr: args[0] === "cp" ? "no such file" : "rm failed",
+      });
     };
 
-    expect(() =>
-      copyFromContainerImage(BUILDER_ID, REPORT_ACTION_SCRIPT_PATH, HOST_PATH, run),
-    ).toThrow("no such file");
+    expect(
+      caught(() => copyFromContainerImage(BUILDER_ID, REPORT_ACTION_SCRIPT_PATH, HOST_PATH, run))
+        .message,
+    ).toContain("no such file");
+  });
+
+  // Reporting a docker create failure as a docker cp failure sends the reader
+  // looking at the wrong step.
+  it.each([
+    ["inspect", "docker inspect (resolving the builder's image)"],
+    ["create", "docker create (making a scratch container from the builder's image)"],
+    ["cp", `docker cp (fetching ${REPORT_ACTION_SCRIPT_PATH} from the builder image)`],
+  ])("names %s as the operation that failed", (failing, operation) => {
+    const error = caught(() =>
+      copyFromContainerImage(BUILDER_ID, REPORT_ACTION_SCRIPT_PATH, HOST_PATH, failingAt(failing)),
+    );
+
+    expect(error).toBeInstanceOf(ReportError);
+    expect(error.code).toBe("DOCKER_UNAVAILABLE");
+    expect(error.message).toContain(`${operation} failed: ${failing} said no`);
   });
 
   it("throws when docker inspect reports no image", () => {
     const { run } = fakeRun(["\n"]);
 
-    expect(() =>
+    const error = caught(() =>
       copyFromContainerImage(BUILDER_ID, REPORT_ACTION_SCRIPT_PATH, HOST_PATH, run),
-    ).toThrow(`docker inspect reported no image for container ${BUILDER_ID}`);
+    );
+
+    expect(error.code).toBe("DOCKER_UNAVAILABLE");
+    expect(error.message).toBe(`docker inspect reported no image for container ${BUILDER_ID}`);
   });
 });

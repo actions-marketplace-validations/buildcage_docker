@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
-import { readBuilderName } from "./inputs.ts";
+import { readBuilderName, readTrafficArtifactInputs } from "./inputs.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
 
 /** Stands in for core.getInput, which returns "" for anything unset. */
@@ -21,5 +21,64 @@ describe("readBuilderName", () => {
 
   it("treats an empty input as unset rather than as a builder named ''", () => {
     expect(readBuilderName(inputs({ builder_name: "" }))).toBe(DEFAULT_BUILDER_NAME);
+  });
+});
+
+describe("readTrafficArtifactInputs", () => {
+  it.each(["true", "True", "TRUE"])("reads %o as a yes", (value) => {
+    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: value })).wanted).toBe(true);
+  });
+
+  it.each(["false", "False", "FALSE"])("reads %o as a no", (value) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: value })).wanted).toBe(
+      false,
+    );
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  // The dev and test invocations run this from source rather than through
+  // action.yml's own defaults.
+  it("is a silent no when unset", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(readTrafficArtifactInputs(inputs()).wanted).toBe(false);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("warns rather than reading a typo as a no", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: "yes" })).wanted).toBe(
+      false,
+    );
+    expect(log).toHaveBeenCalledWith(
+      '::warning::upload_traffic_artifact must be true or false, not "yes". Reading it as false.',
+    );
+  });
+
+  it("passes a positive whole number of retention days through", () => {
+    expect(
+      readTrafficArtifactInputs(inputs({ traffic_artifact_retention_days: "7" })).retentionDays,
+    ).toBe(7);
+  });
+
+  it("leaves the retention to the repository's own default when unset", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(readTrafficArtifactInputs(inputs()).retentionDays).toBeUndefined();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "-1", "7.5", "forever"])("warns about %o rather than dropping it", (value) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(
+      readTrafficArtifactInputs(inputs({ traffic_artifact_retention_days: value })).retentionDays,
+    ).toBeUndefined();
+    expect(log.mock.calls[0][0]).toContain(
+      `traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}`,
+    );
   });
 });
