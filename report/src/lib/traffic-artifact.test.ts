@@ -109,6 +109,33 @@ describe("uploadTrafficArtifact", () => {
     expect(log.mock.calls[0][0]).toContain("Only proxy_engine: inspect does.");
   });
 
+  it("stays quiet about a missing file when the report script never finished", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { upload, calls } = fakeUpload();
+
+    await uploadTrafficArtifact(FILE, "buildcage", {
+      reportScriptFinished: false,
+      fileExists: () => false,
+      upload,
+    });
+
+    expect(calls).toStrictEqual([]);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("still uploads a file the report script wrote before it died", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { upload, calls } = fakeUpload();
+
+    await uploadTrafficArtifact(FILE, "buildcage", {
+      reportScriptFinished: false,
+      fileExists: () => true,
+      upload,
+    });
+
+    expect(calls[0][0]).toBe("buildcage-traffic");
+  });
+
   it("warns rather than throwing when the upload fails", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const { upload } = fakeUpload(new Error("artifact service unavailable"));
