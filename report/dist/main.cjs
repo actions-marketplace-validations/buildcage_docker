@@ -56154,7 +56154,7 @@ async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.e
 //#endregion
 //#region report/src/main.ts
 async function main() {
-	let builderName = readBuilderName(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-"));
+	let builderName = readBuilderName(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		try {
@@ -56162,7 +56162,7 @@ async function main() {
 		} catch (e) {
 			throw new ReportError(describeDockerFailure(e, { operation: "docker cp (fetching report-action.js from the builder image)" }), "DOCKER_UNAVAILABLE");
 		}
-		let trafficFile = wantsTrafficArtifact() ? (0, node_path.join)(scratchDir, "traffic.json") : void 0;
+		trafficFile = wantsTrafficArtifact() ? (0, node_path.join)(scratchDir, "traffic.json") : void 0;
 		try {
 			(0, node_child_process.execFileSync)("node", [reportActionPath, containerId], {
 				stdio: "inherit",
@@ -56174,14 +56174,13 @@ async function main() {
 		} catch (e) {
 			let status = e.status;
 			if (typeof status == "number") {
-				trafficFile && await uploadTrafficArtifact(trafficFile, builderName), process.exitCode = status;
+				process.exitCode = status;
 				return;
 			}
 			throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
 		}
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName);
 	} finally {
-		(0, node_fs.rmSync)(scratchDir, {
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName), (0, node_fs.rmSync)(scratchDir, {
 			recursive: !0,
 			force: !0
 		});

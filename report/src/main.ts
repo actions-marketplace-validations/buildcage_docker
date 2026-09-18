@@ -39,6 +39,9 @@ async function main(): Promise<void> {
   // fail_on_blocked exit decision — so this step just reproduces its exit
   // code as its own.
   const scratchDir = mkdtempSync(join(tmpdir(), "buildcage-report-"));
+  // The path is handed to the script, so only a file this step created is
+  // ever uploaded. Only the inspect engine writes it.
+  let trafficFile: string | undefined;
   try {
     const reportActionPath = join(scratchDir, "report-action.js");
 
@@ -53,9 +56,7 @@ async function main(): Promise<void> {
       );
     }
 
-    // The path is handed to the script, so only a file this step created is
-    // ever uploaded. Only the inspect engine writes it.
-    const trafficFile = wantsTrafficArtifact() ? join(scratchDir, "traffic.json") : undefined;
+    trafficFile = wantsTrafficArtifact() ? join(scratchDir, "traffic.json") : undefined;
 
     // A separate catch from the docker cp above, so the error the user
     // sees names the actual failure instead of a misleading Docker message.
@@ -67,10 +68,8 @@ async function main(): Promise<void> {
     } catch (e) {
       // A numeric exit status means report-action.js ran and already
       // explained itself via its own inherited stdio — just reproduce it.
-      // Upload the artifact even then; a failing run is when it is most wanted.
       const status = (e as { status?: number | null }).status;
       if (typeof status === "number") {
-        if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
         process.exitCode = status;
         return;
       }
@@ -79,8 +78,10 @@ async function main(): Promise<void> {
         "REPORT_SCRIPT_FAILED",
       );
     }
-    if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
   } finally {
+    // Uploaded from here so every path the script reached keeps the artifact;
+    // a failing run is when it is most wanted.
+    if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
     rmSync(scratchDir, { recursive: true, force: true });
   }
 }
