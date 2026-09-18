@@ -12,8 +12,12 @@ import { writeFileSync } from "node:fs";
 import { formatElapsedFixed } from "../elapsed-time.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 
-/** One event, as it appears in the JSON. */
-export interface TrafficRecord {
+/**
+ * One event, as it appears in the JSON: the same event the report renders,
+ * with the time written as text and the elapsed time alongside it. Every other
+ * field is documented on TrafficEvent.
+ */
+export type TrafficRecord = Omit<TrafficEvent, "time"> & {
   /** ISO 8601 UTC, from the proxy's own clock. */
   time: string;
   /** Time since the proxy itself started, always HH:MM:SS.mmm -- the shape
@@ -21,29 +25,7 @@ export interface TrafficRecord {
    *  start time could not be determined; never fabricated from something
    *  else. */
   elapsed?: string;
-  /** `allow`, `block`, `audit` when nothing was being enforced, or
-   *  `discovery` for a lookup no rule decided. */
-  action: string;
-  /** `https`, `http`, `tls`, `tcp` or `dns`. */
-  protocol: string;
-  host: string;
-  /** Absent for dns, which connects to nothing. */
-  port?: number;
-  /** The record type asked for; only on a discovery lookup or a refused
-   *  service name, where the type is the point. */
-  queryType?: string;
-  /** http and https only. */
-  method?: string;
-  url?: string;
-  /** Absent for a refusal, for dns, and for anything not decrypted. */
-  status?: number;
-  /** Absent for a refusal and for dns. */
-  bytes?: number;
-  /** Present only when action is `block`. */
-  reason?: string;
-  /** Address it was actually sent to. Absent for dns. */
-  destination?: string;
-}
+};
 
 /**
  * Build the records for one run, oldest first.

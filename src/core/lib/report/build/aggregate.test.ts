@@ -91,7 +91,7 @@ describe("aggregateAllowedHosts", () => {
         { entries: [{ method: "GET", url: "https://allowed.example.com/", status: 200 }] },
       ],
     ];
-    expect(aggregateAllowedHosts(builds, "ALLOWED")).toStrictEqual([
+    expect(aggregateAllowedHosts(builds)).toStrictEqual([
       { host: "allowed.example.com", port: "443", ruleType: "HTTPS", reason: "-", count: 2 },
     ]);
   });
@@ -101,36 +101,25 @@ describe("aggregateAllowedHosts", () => {
       [{ entries: [{ method: "GET", url: "https://allowed.example.com/one" }] }],
       [{ entries: [{ method: "GET", url: "https://allowed.example.com/two" }] }],
     ];
-    const result = aggregateAllowedHosts(builds, "ALLOWED");
+    const result = aggregateAllowedHosts(builds);
     expect(result.length).toBe(1);
     expect(result[0].count).toBe(2);
   });
 
-  it("uses the given decision label", () => {
-    const builds = [[{ entries: [{ method: "GET", url: "https://allowed.example.com/" }] }]];
-    expect(aggregateAllowedHosts(builds, "ALLOWED")[0]?.count).toBe(1);
-    // decision itself isn't part of the aggregated shape (aggregate() drops it),
-    // but distinct decisions must not collide during aggregation
-    const mixed = [[{ entries: [{ method: "GET", url: "https://allowed.example.com/" }] }]];
-    expect(aggregateAllowedHosts(mixed, "AUDIT")).toStrictEqual([
-      { host: "allowed.example.com", port: "443", ruleType: "HTTPS", reason: "-", count: 1 },
-    ]);
-  });
-
   it("skips vertices with no entries", () => {
     const builds = [[{ entries: [] }]];
-    expect(aggregateAllowedHosts(builds, "ALLOWED")).toStrictEqual([]);
+    expect(aggregateAllowedHosts(builds)).toStrictEqual([]);
   });
 
   it("returns an empty array for no builds at all", () => {
-    expect(aggregateAllowedHosts([], "ALLOWED")).toStrictEqual([]);
+    expect(aggregateAllowedHosts([])).toStrictEqual([]);
   });
 
   it("resolves host/port the same way as core/lib/log/parse-identifier.ts's parseIdentifier", () => {
     const builds = [
       [{ entries: [{ method: "GET", url: "http://allowed.example.com:8080/path" }] }],
     ];
-    expect(aggregateAllowedHosts(builds, "ALLOWED")).toStrictEqual([
+    expect(aggregateAllowedHosts(builds)).toStrictEqual([
       { host: "allowed.example.com", port: "8080", ruleType: "HTTP", reason: "-", count: 1 },
     ]);
   });
@@ -148,8 +137,6 @@ describe("aggregateAllowedHosts — identifiers the parser cannot read", () => {
         },
       ],
     ];
-    expect(aggregateAllowedHosts(builds, "ALLOWED").map((e) => e.host)).toStrictEqual([
-      "a.example.com",
-    ]);
+    expect(aggregateAllowedHosts(builds).map((e) => e.host)).toStrictEqual(["a.example.com"]);
   });
 });

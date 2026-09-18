@@ -1,8 +1,13 @@
 import { markdownTable, type ColumnFormat } from "./markdown-table.ts";
 import type { AggregatedEntry } from "#core/lib/log/aggregate.ts";
 
-export interface HostTableRow extends Omit<AggregatedEntry, "reason"> {
-  reason?: string;
+/**
+ * A row of a host table, at whatever stage it reaches the renderer: an
+ * aggregated row on its own for the allowed/audited table, annotated by
+ * annotateKnownBlocked for the blocked one, and folded by
+ * foldExpectedBlockedRows when a rule covers several hosts.
+ */
+export interface HostTableRow extends AggregatedEntry {
   expected?: boolean;
   /** The known_blocked_rules rule that marked the row expected, which folded
    *  rows are grouped by (see ../build/aggregate.ts). */
