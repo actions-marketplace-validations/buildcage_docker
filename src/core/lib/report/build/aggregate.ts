@@ -1,11 +1,9 @@
 import { completeRulePort, convertRule } from "#core/lib/acl/wildcard-rules.ts";
 import { parseIdentifier } from "#core/lib/log/parse-identifier.ts";
-import { aggregate, type AggregatedEntry } from "#core/lib/log/aggregate.ts";
-import type { AllowedRequest } from "#core/lib/log/proxy-request-text.ts";
+import { aggregate, type AggregatedEntry, type LogEntry } from "#core/lib/log/aggregate.ts";
+import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
 
-export type BlockedRow = AggregatedEntry;
-
-export interface AnnotatedBlockedRow extends BlockedRow {
+export interface AnnotatedBlockedRow extends AggregatedEntry {
   expected: boolean;
   /** The rule that matched, port-completed, for the report to group rows by.
    *  Undefined exactly when `expected` is false. */
@@ -26,7 +24,7 @@ export interface ExpectedFlag {
  * `expectedBy` reports the completed text rather than the shorthand.
  */
 export function annotateKnownBlocked(
-  blockedRows: BlockedRow[],
+  blockedRows: AggregatedEntry[],
   knownBlockedRules: string[],
 ): AnnotatedBlockedRow[] {
   const matchers = knownBlockedRules.map((rule) => {
@@ -51,30 +49,29 @@ export function annotateKnownBlocked(
  * not -- right, since no port was involved. Without this a refused name could
  * never be marked expected.
  */
-function targetOf(row: BlockedRow): string {
+function targetOf(row: AggregatedEntry): string {
   return `${row.host}:${row.port === "-" ? "0" : row.port}`;
 }
 
 /**
  * Build the host-aggregated allowed/audited table from the same per-build
- * vertex data vertex.ts's parseVertexAllowedLog() produces for
- * the per-command breakdown.
+ * vertex data vertex.ts's parseVertexAllowedLog() produces for the
+ * per-command breakdown.
  *
- * decision is "ALLOWED" (restrict mode) or "AUDIT" (audit mode).
+ * Which decision the rows came from is not carried: the table shows the hosts
+ * a build reached, and the heading above it says whether they were allowed or
+ * merely audited (see render-report-markdown.ts).
  */
-export interface HasEntries {
-  entries: AllowedRequest[];
-}
-
-export function aggregateAllowedHosts(builds: HasEntries[][], decision: string): AggregatedEntry[] {
-  const entries = [];
+export function aggregateAllowedHosts(
+  builds: Pick<VertexAllowedEntry, "entries">[][],
+): AggregatedEntry[] {
+  const entries: LogEntry[] = [];
   for (const vertices of builds) {
     for (const { entries: vertexEntries } of vertices) {
       for (const { url } of vertexEntries) {
         const parsed = parseIdentifier(url);
         if (!parsed) continue;
         entries.push({
-          decision,
           ruleType: parsed.scheme === "https" ? "HTTPS" : "HTTP",
           host: parsed.host,
           port: parsed.port,

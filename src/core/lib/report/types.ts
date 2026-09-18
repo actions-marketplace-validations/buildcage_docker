@@ -1,4 +1,4 @@
-import type { HostTableRow } from "./render/host-table.ts";
+import type { AggregatedEntry } from "../log/aggregate.ts";
 import type { AnnotatedBlockedRow } from "./build/aggregate.ts";
 import type { VertexAllowedEntry } from "../log/vertex.ts";
 import type { TrafficEvent } from "../log/traffic-event.ts";
@@ -19,8 +19,9 @@ export interface ReportDataCommon {
   parameters: GenReportParameters;
 
   /** restrict mode's allowed traffic or audit mode's audited traffic —
-   *  which heading applies is decided from parameters.mode. */
-  passed: HostTableRow[];
+   *  which heading applies is decided from parameters.mode. Never annotated:
+   *  known_blocked_rules only ever marks a blocked row. */
+  passed: AggregatedEntry[];
 
   /** Aggregated blocked-domain rows, already annotated against
    *  knownBlockedRules. Can be non-empty even in audit mode. */

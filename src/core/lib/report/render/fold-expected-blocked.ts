@@ -3,7 +3,7 @@ import type { HostTableRow } from "./host-table.ts";
 interface ExpectedGroup {
   rule: string;
   ruleType: string;
-  reason?: string;
+  reason: string;
   /** Distinct hosts, not rows: one host blocked on two ports is two rows. */
   hosts: Set<string>;
   count: number;
@@ -30,7 +30,7 @@ export function foldExpectedBlockedRows(rows: HostTableRow[]): HostTableRow[] {
     }
     // One rule can cover a refused name and a refused connection at once, so
     // ruleType and reason stay in the key rather than one row claiming both.
-    const key = `${row.expectedBy}\t${row.ruleType}\t${row.reason ?? ""}`;
+    const key = `${row.expectedBy}\t${row.ruleType}\t${row.reason}`;
     const group = groups.get(key);
     if (group) {
       group.hosts.add(row.host);
