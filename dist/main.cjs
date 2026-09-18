@@ -474,9 +474,9 @@ const ENGINES = [
 	"explicit",
 	"inspect"
 ], ENGINE_ALIASES = { transparent: "universal" };
-function resolveProxyEngine(input) {
+function resolveProxyEngine(input, notice) {
 	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
-	alias && annotate.notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
+	alias && notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
 	let engine = alias ?? trimmed;
 	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
 	return engine;
@@ -486,15 +486,15 @@ function resolveProxyEngine(input) {
 function readBuilderName(getInput$1 = getInput) {
 	return getInput$1("builder_name") || "buildcage";
 }
-function readEngineInputs(getInput$2 = getInput) {
-	return { proxyEngine: resolveProxyEngine(getInput$2("proxy_engine")) };
+function readEngineInputs(notice, getInput$3 = getInput) {
+	return { proxyEngine: resolveProxyEngine(getInput$3("proxy_engine"), notice) };
 }
-function readRuleInputs(getInput$3 = getInput) {
-	let proxyMode = getInput$3("proxy_mode") || "restrict", rules = buildACLRules({
-		httpsRulesInput: getInput$3("allowed_https_rules"),
-		httpRulesInput: getInput$3("allowed_http_rules"),
-		ipRulesInput: getInput$3("allowed_ip_rules")
-	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput$3("known_blocked_rules")), urlRulesInput = getInput$3("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput$3("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+function readRuleInputs(getInput$2 = getInput) {
+	let proxyMode = getInput$2("proxy_mode") || "restrict", rules = buildACLRules({
+		httpsRulesInput: getInput$2("allowed_https_rules"),
+		httpRulesInput: getInput$2("allowed_http_rules"),
+		ipRulesInput: getInput$2("allowed_ip_rules")
+	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput$2("known_blocked_rules")), urlRulesInput = getInput$2("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput$2("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
 	return {
 		proxyMode,
 		httpsRules: rules.httpsRules,
@@ -7362,7 +7362,7 @@ async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
 	};
 }
 async function main() {
-	let env = process.env, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs();
+	let env = process.env, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs(annotate.notice);
 	console.log(`Proxy engine: ${proxyEngine}`);
 	let { imageRef, pullPolicy } = await resolveVerifiedImage({
 		actionRef,
@@ -7376,7 +7376,7 @@ async function main() {
 		proxyMode,
 		urlRules,
 		tlsRules
-	}, (message) => annotate.warning(message)), withLogGroup("buildcage: Configured ACL Rules", () => {
+	}, annotate.warning), withLogGroup("buildcage: Configured ACL Rules", () => {
 		logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules);
 	});
 	let builderName = readBuilderName(), projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({

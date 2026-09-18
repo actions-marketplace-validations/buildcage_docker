@@ -25,60 +25,68 @@ describe("readBuilderName", () => {
 });
 
 describe("readTrafficArtifactInputs", () => {
+  const silent = () => {};
+
   it.each(["true", "True", "TRUE"])("reads %o as a yes", (value) => {
-    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: value })).wanted).toBe(true);
+    expect(
+      readTrafficArtifactInputs(silent, inputs({ upload_traffic_artifact: value })).wanted,
+    ).toBe(true);
   });
 
   it.each(["false", "False", "FALSE"])("reads %o as a no", (value) => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
 
-    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: value })).wanted).toBe(
+    expect(readTrafficArtifactInputs(warn, inputs({ upload_traffic_artifact: value })).wanted).toBe(
       false,
     );
-    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   // The dev and test invocations run this from source rather than through
   // action.yml's own defaults.
   it("is a silent no when unset", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
 
-    expect(readTrafficArtifactInputs(inputs()).wanted).toBe(false);
-    expect(log).not.toHaveBeenCalled();
+    expect(readTrafficArtifactInputs(warn, inputs()).wanted).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("warns rather than reading a typo as a no", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
 
-    expect(readTrafficArtifactInputs(inputs({ upload_traffic_artifact: "yes" })).wanted).toBe(
+    expect(readTrafficArtifactInputs(warn, inputs({ upload_traffic_artifact: "yes" })).wanted).toBe(
       false,
     );
-    expect(log).toHaveBeenCalledWith(
-      '::warning::upload_traffic_artifact must be true or false, not "yes". Reading it as false.',
+    expect(warn).toHaveBeenCalledWith(
+      'upload_traffic_artifact must be true or false, not "yes". Reading it as false.',
     );
   });
 
   it("passes a positive whole number of retention days through", () => {
     expect(
-      readTrafficArtifactInputs(inputs({ traffic_artifact_retention_days: "7" })).retentionDays,
+      readTrafficArtifactInputs(silent, inputs({ traffic_artifact_retention_days: "7" }))
+        .retentionDays,
     ).toBe(7);
   });
 
   it("leaves the retention to the repository's own default when unset", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
 
-    expect(readTrafficArtifactInputs(inputs()).retentionDays).toBeUndefined();
-    expect(log).not.toHaveBeenCalled();
+    expect(readTrafficArtifactInputs(warn, inputs()).retentionDays).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it.each(["0", "-1", "7.5", "forever"])("warns about %o rather than dropping it", (value) => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
 
     expect(
-      readTrafficArtifactInputs(inputs({ traffic_artifact_retention_days: value })).retentionDays,
+      readTrafficArtifactInputs(warn, inputs({ traffic_artifact_retention_days: value }))
+        .retentionDays,
     ).toBeUndefined();
-    expect(log.mock.calls[0][0]).toContain(
-      `traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}`,
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}`,
+      ),
     );
   });
 });

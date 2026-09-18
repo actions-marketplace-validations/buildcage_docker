@@ -194,17 +194,6 @@ function createDocker(run = defaultRunCommand, spawnDocker = defaultSpawnCommand
 	};
 }
 //#endregion
-//#region src/core/lib/errors.ts
-var ActionError = class extends Error {
-	code;
-	constructor(message, code) {
-		super(message), this.name = new.target.name, this.code = code;
-	}
-};
-function errorMessage(e) {
-	return e instanceof Error ? e.message : String(e);
-}
-//#endregion
 //#region src/core/lib/actions/annotation.ts
 function createAnnotation(enabled) {
 	return enabled ? {
@@ -224,6 +213,17 @@ function createAnnotation(enabled) {
 	};
 }
 const annotate = createAnnotation(!0);
+//#endregion
+//#region src/core/lib/errors.ts
+var ActionError = class extends Error {
+	code;
+	constructor(message, code) {
+		super(message), this.name = new.target.name, this.code = code;
+	}
+};
+function errorMessage(e) {
+	return e instanceof Error ? e.message : String(e);
+}
 //#endregion
 //#region src/core/lib/actions/fatal.ts
 function exitOnFatalError(context) {
@@ -10815,25 +10815,25 @@ const TRUE_INPUTS = [
 	"False",
 	"FALSE"
 ];
-function readBuilderName(getInput$2 = getInput) {
-	return getInput$2("builder_name") || "buildcage";
+function readBuilderName(getInput$1 = getInput) {
+	return getInput$1("builder_name") || "buildcage";
 }
-function readTrafficArtifactInputs(getInput$1 = getInput) {
+function readTrafficArtifactInputs(warn, getInput$2 = getInput) {
 	return {
-		wanted: readBoolean("upload_traffic_artifact", getInput$1),
-		retentionDays: readRetentionDays(getInput$1)
+		wanted: readBoolean("upload_traffic_artifact", getInput$2, warn),
+		retentionDays: readRetentionDays(getInput$2, warn)
 	};
 }
-function readBoolean(name, getInput) {
+function readBoolean(name, getInput, warn) {
 	let value = getInput(name);
-	return TRUE_INPUTS.includes(value) ? !0 : (value !== "" && !FALSE_INPUTS.includes(value) && annotate.warning(`${name} must be true or false, not ${JSON.stringify(value)}. Reading it as false.`), !1);
+	return TRUE_INPUTS.includes(value) ? !0 : (value !== "" && !FALSE_INPUTS.includes(value) && warn(`${name} must be true or false, not ${JSON.stringify(value)}. Reading it as false.`), !1);
 }
-function readRetentionDays(getInput) {
+function readRetentionDays(getInput, warn) {
 	let value = getInput("traffic_artifact_retention_days");
 	if (value === "") return;
 	let days = Number(value);
 	if (!Number.isInteger(days) || days <= 0) {
-		annotate.warning(`traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}. Leaving the retention to the repository's own default.`);
+		warn(`traffic_artifact_retention_days must be a whole number of days above zero, not ${JSON.stringify(value)}. Leaving the retention to the repository's own default.`);
 		return;
 	}
 	return days;
@@ -56173,27 +56173,27 @@ const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => 
 	let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
 	return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
 };
-async function uploadTrafficArtifact(file, builderName, { retentionDays, reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
+async function uploadTrafficArtifact(file, builderName, warn, { retentionDays, reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
 	if (!fileExists(file)) {
-		reportScriptFinished && annotate.warning("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
+		reportScriptFinished && warn("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
 		return;
 	}
 	let name = artifactName(builderName);
 	try {
 		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays }), console.log(`Uploaded the traffic JSON as ${name}`);
 	} catch (e) {
-		annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);
+		warn(`Could not upload the traffic artifact: ${errorMessage(e)}`);
 	}
 }
 //#endregion
 //#region report/src/main.ts
 async function main() {
-	let builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
+	let builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(annotate.warning), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile }), reportScriptFinished = !0;
 	} finally {
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, {
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, annotate.warning, {
 			retentionDays: trafficArtifact.retentionDays,
 			reportScriptFinished
 		}), (0, node_fs.rmSync)(scratchDir, {

@@ -27,11 +27,13 @@ describe("artifactName", () => {
 });
 
 describe("uploadTrafficArtifact", () => {
+  const silent = () => {};
+
   it("uploads the file from its own directory, under the builder's name", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const { upload, calls } = fakeUpload();
 
-    await uploadTrafficArtifact(FILE, "second", { fileExists: () => true, upload });
+    await uploadTrafficArtifact(FILE, "second", silent, { fileExists: () => true, upload });
 
     expect(calls).toStrictEqual([
       [
@@ -48,7 +50,7 @@ describe("uploadTrafficArtifact", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { upload, calls } = fakeUpload();
 
-    await uploadTrafficArtifact(FILE, "buildcage", {
+    await uploadTrafficArtifact(FILE, "buildcage", silent, {
       retentionDays: 7,
       fileExists: () => true,
       upload,
@@ -58,34 +60,34 @@ describe("uploadTrafficArtifact", () => {
   });
 
   it("warns and uploads nothing when the engine produced no traffic JSON", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
     const { upload, calls } = fakeUpload();
 
-    await uploadTrafficArtifact(FILE, "buildcage", { fileExists: () => false, upload });
+    await uploadTrafficArtifact(FILE, "buildcage", warn, { fileExists: () => false, upload });
 
     expect(calls).toStrictEqual([]);
-    expect(log.mock.calls[0][0]).toContain("Only proxy_engine: inspect does.");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Only proxy_engine: inspect does."));
   });
 
   it("stays quiet about a missing file when the report script never finished", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
     const { upload, calls } = fakeUpload();
 
-    await uploadTrafficArtifact(FILE, "buildcage", {
+    await uploadTrafficArtifact(FILE, "buildcage", warn, {
       reportScriptFinished: false,
       fileExists: () => false,
       upload,
     });
 
     expect(calls).toStrictEqual([]);
-    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("still uploads a file the report script wrote before it died", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { upload, calls } = fakeUpload();
 
-    await uploadTrafficArtifact(FILE, "buildcage", {
+    await uploadTrafficArtifact(FILE, "buildcage", silent, {
       reportScriptFinished: false,
       fileExists: () => true,
       upload,
@@ -95,15 +97,15 @@ describe("uploadTrafficArtifact", () => {
   });
 
   it("warns rather than throwing when the upload fails", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.fn();
     const { upload } = fakeUpload(new Error("artifact service unavailable"));
 
     await expect(
-      uploadTrafficArtifact(FILE, "buildcage", { fileExists: () => true, upload }),
+      uploadTrafficArtifact(FILE, "buildcage", warn, { fileExists: () => true, upload }),
     ).resolves.toBeUndefined();
 
-    expect(log).toHaveBeenCalledWith(
-      "::warning::Could not upload the traffic artifact: artifact service unavailable",
+    expect(warn).toHaveBeenCalledWith(
+      "Could not upload the traffic artifact: artifact service unavailable",
     );
   });
 });
