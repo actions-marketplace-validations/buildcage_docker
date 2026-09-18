@@ -31,9 +31,17 @@ const DETAILS_CLOSE = "</details>\n";
  * a fenced code block left open by the cut and noting that it happened.
  * `artifactAvailable` decides whether that note points at the artifact or
  * suggests turning it on -- it does not fetch or check anything itself.
+ *
+ * `limitBytes` is GitHub's limit. A caller passes its own only to say what
+ * "too large" means without building something that large: every branch below
+ * is reached by the ratio of input to limit, not by the absolute size.
  */
-export function truncateForStepSummary(markdown: string, artifactAvailable: boolean): string {
-  if (Buffer.byteLength(markdown, "utf8") <= STEP_SUMMARY_LIMIT_BYTES - SAFETY_MARGIN_BYTES) {
+export function truncateForStepSummary(
+  markdown: string,
+  artifactAvailable: boolean,
+  limitBytes: number = STEP_SUMMARY_LIMIT_BYTES,
+): string {
+  if (Buffer.byteLength(markdown, "utf8") <= limitBytes - SAFETY_MARGIN_BYTES) {
     return markdown;
   }
 
@@ -52,7 +60,7 @@ export function truncateForStepSummary(markdown: string, artifactAvailable: bool
     Buffer.byteLength(before, "utf8") +
     Buffer.byteLength(after, "utf8") +
     Buffer.byteLength(note, "utf8");
-  const budget = Math.max(0, STEP_SUMMARY_LIMIT_BYTES - SAFETY_MARGIN_BYTES - fixedBytes);
+  const budget = Math.max(0, limitBytes - SAFETY_MARGIN_BYTES - fixedBytes);
 
   let kept = "";
   let usedBytes = 0;
