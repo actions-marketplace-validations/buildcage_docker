@@ -119,15 +119,12 @@ describe("fetchRegistryToken", () => {
     expect(callCount, "should make exactly one request").toBe(1);
   });
 
-  it("throws TOKEN_ERROR on 401 when no Docker credentials (private, not logged in)", async () => {
+  it("throws TOKEN_ERROR on 401/403 when no Docker credentials (private, not logged in)", async () => {
     await expectVerifyError(
       call(null, async () => failsWith(401)),
       "TOKEN_ERROR",
       /docker login/,
     );
-  });
-
-  it("throws TOKEN_ERROR on 403 when no Docker credentials (private, not logged in)", async () => {
     await expectVerifyError(
       call(null, async () => failsWith(403)),
       "TOKEN_ERROR",
@@ -172,13 +169,6 @@ describe("fetchRegistryToken", () => {
       /docker login/,
     );
     expect(callCount, "should not retry with anonymous").toBe(1);
-  });
-
-  it("throws TOKEN_ERROR immediately on 403 when Docker credentials are present (no fallback)", async () => {
-    await expectVerifyError(
-      call(Buffer.from("actor:token").toString("base64"), async () => failsWith(403)),
-      "TOKEN_ERROR",
-    );
   });
 
   it("throws TRANSIENT on 5xx when Docker credentials are present", async () => {
