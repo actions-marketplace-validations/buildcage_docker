@@ -1,5 +1,6 @@
 import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { formatElapsedVariable } from "../elapsed-time.ts";
+import { wrapCommunicationDetails } from "./communication-section.ts";
 
 /**
  * Render the communication detail as a collapsed markdown section, or "" if
@@ -28,7 +29,7 @@ export function renderInspectDetails(
 
   const body = shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
   // A fenced block, so URLs need no markdown escaping and stay copy-pastable.
-  return `\n<details>\n<summary>💬 Communication details</summary>\n\n\`\`\`\n${body}\`\`\`\n\n</details>\n`;
+  return wrapCommunicationDetails(`\`\`\`\n${body}\`\`\`\n\n`);
 }
 
 const MARK: Record<string, string> = { block: "🚫", discovery: "ℹ️" };

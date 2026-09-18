@@ -1,6 +1,7 @@
 import type { AllowedRequest } from "#core/lib/log/proxy-request-text.ts";
 import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
 import type { DeniedEntry } from "../types.ts";
+import { wrapCommunicationDetails } from "./communication-section.ts";
 
 /**
  * Render the explicit engine's communication detail as a collapsed markdown
@@ -21,7 +22,7 @@ export function renderCommunicationDetails(
 ): string {
   const body = renderCommunicationDetailsBody(builds, deniedTimeline);
   if (!body) return "";
-  return `\n<details>\n<summary>💬 Communication details</summary>\n\n${body}</details>\n`;
+  return wrapCommunicationDetails(body);
 }
 
 /**

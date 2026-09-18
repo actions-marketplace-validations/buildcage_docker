@@ -11,18 +11,16 @@
  * is the only part ever cut here.
  */
 
+import {
+  COMMUNICATION_DETAILS_CLOSE as DETAILS_CLOSE,
+  COMMUNICATION_DETAILS_OPEN as DETAILS_OPEN,
+} from "./communication-section.ts";
+
 // GitHub's own limit, in bytes.
 const STEP_SUMMARY_LIMIT_BYTES = 1024 * 1024;
 // Headroom for byte-counting slop and for the truncation notice itself, so
 // appending the notice can never be what pushes the file over the edge.
 const SAFETY_MARGIN_BYTES = 8 * 1024;
-
-// Both renderers that produce a Communication details section (inspect,
-// explicit) open it with this exact literal, and it appears nowhere else in
-// a report -- the audit-mode example blocks use <details> too, but without
-// this <summary>.
-const DETAILS_OPEN = "<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n";
-const DETAILS_CLOSE = "</details>\n";
 
 /**
  * Returns `markdown` unchanged when it already fits. Otherwise cuts the
