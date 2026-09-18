@@ -291,7 +291,8 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 .
 ├── action.yml                # Setup action entry (node24 → dist/main.cjs, dist/post.cjs)
 ├── src/                      # Source (ESM): verify image provenance, resolve image ref, compose up
-│   ├── lib/                  # Setup action's own small helpers (errors.ts)
+│   ├── lib/                  # Setup action's own modules. setup-step.ts is the step itself, in the
+│   │                         # order its parts have to happen in; src/main.ts is only the entry guard
 │   └── core/                 # Code shared across actions
 │       ├── lib/               # All shared library code, consolidated: acl/ (rule parsing and the
 │       │                     # proxy config generators) is dual-consumed by Node and QuickJS;

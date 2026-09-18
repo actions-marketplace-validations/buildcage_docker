@@ -10,9 +10,9 @@ var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDes
 	enumerable: !0
 }) : target, mod));
 //#endregion
-let node_child_process = require("node:child_process"), node_path = require("node:path");
+let node_url = require("node:url"), node_child_process = require("node:child_process"), node_path = require("node:path");
 node_path = __toESM(node_path, 1);
-let node_url = require("node:url"), os = require("os");
+let os = require("os");
 os = __toESM(os, 1);
 let fs = require("fs");
 fs = __toESM(fs, 1);
@@ -35,9 +35,6 @@ var ActionError = class extends Error {
 function errorMessage(e) {
 	return e instanceof Error ? e.message : String(e);
 }
-//#endregion
-//#region src/lib/errors.ts
-var SetupError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/actions/annotation.ts
 function createAnnotation(enabled) {
@@ -66,8 +63,8 @@ function exitOnFatalError(context) {
 	};
 }
 //#endregion
-//#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
-var __awaiter$6 = function(thisArg, _arguments, P, generator) {
+//#region src/lib/errors.ts
+var SetupError = class extends ActionError {}, __awaiter$6 = function(thisArg, _arguments, P, generator) {
 	function adopt(value) {
 		return value instanceof P ? value : new P(function(resolve) {
 			resolve(value);
@@ -7260,6 +7257,11 @@ function buildComposeDownArgs({ composeFile, projectName }) {
 	];
 }
 //#endregion
+//#region src/lib/local-image.ts
+async function readLocalImageOverride(env, log = console.log) {
+	return null;
+}
+//#endregion
 //#region src/core/lib/docker/health.ts
 function buildDockerInspectStateArgs(containerName) {
 	return [
@@ -7344,15 +7346,34 @@ function printBuilderLog({ composeFile, projectName, composeEnv }, { printDocker
 	});
 }
 //#endregion
-//#region src/main.ts
-const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href)), composeFile = (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml");
-async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
+//#region src/lib/setup-step.ts
+const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href)), COMPOSE_FILE = (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml"), realDeps = {
+	readEngineInputs,
+	readRuleInputs,
+	readBuilderName,
+	readLocalImageOverride,
+	verifyImageDigestOrThrow,
+	checkUrlAndTlsRuleSupport,
+	logRules,
+	withLogGroup,
+	builderStartError,
+	runDocker: (args, env) => {
+		(0, node_child_process.execFileSync)("docker", args, {
+			stdio: "inherit",
+			env
+		});
+	},
+	log: console.log,
+	notice: annotate.notice,
+	warn: annotate.warning
+};
+async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }, { verifyImageDigestOrThrow, log }) {
 	let digest = await verifyImageDigestOrThrow({
 		actionRef,
 		actionRepo,
 		proxyEngine
 	});
-	return console.log(`Image provenance verified for ref: ${JSON.stringify(actionRef)} (digest ${digest}).`), {
+	return log(`Image provenance verified for ref: ${JSON.stringify(actionRef)} (digest ${digest}).`), {
 		imageRef: resolveBuildcageImageRef({
 			imageDigest: digest,
 			actionRepository: actionRepo
@@ -7360,22 +7381,28 @@ async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }) {
 		pullPolicy: "always"
 	};
 }
-async function main() {
-	let env = process.env, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs(annotate.notice);
-	console.log(`Proxy engine: ${proxyEngine}`);
-	let { imageRef, pullPolicy } = await resolveVerifiedImage({
+async function runSetupStep(env, overrides = {}) {
+	let { readEngineInputs, readRuleInputs, readBuilderName, readLocalImageOverride, verifyImageDigestOrThrow, checkUrlAndTlsRuleSupport, logRules, withLogGroup, builderStartError, runDocker, log, notice, warn } = {
+		...realDeps,
+		...overrides
+	}, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs(notice);
+	log(`Proxy engine: ${proxyEngine}`);
+	let { imageRef, pullPolicy } = await readLocalImageOverride(env, log) ?? await resolveVerifiedImage({
 		actionRef,
 		actionRepo,
 		proxyEngine
+	}, {
+		verifyImageDigestOrThrow,
+		log
 	});
-	console.log(`buildcage: image: ${imageRef}`);
+	log(`buildcage: image: ${imageRef}`);
 	let { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } = readRuleInputs();
 	checkUrlAndTlsRuleSupport({
 		proxyEngine,
 		proxyMode,
 		urlRules,
 		tlsRules
-	}, annotate.warning), withLogGroup("buildcage: Configured ACL Rules", () => {
+	}, warn), withLogGroup("buildcage: Configured ACL Rules", () => {
 		logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules);
 	});
 	let builderName = readBuilderName(), projectName = deriveProjectName(builderName), composeEnv = buildComposeEnv({
@@ -7391,33 +7418,29 @@ async function main() {
 		knownBlockedRules
 	}, env);
 	try {
-		(0, node_child_process.execFileSync)("docker", buildComposeDownArgs({
-			composeFile,
+		runDocker(buildComposeDownArgs({
+			composeFile: COMPOSE_FILE,
 			projectName
-		}), {
-			stdio: "inherit",
-			env: composeEnv
-		});
+		}), composeEnv);
 	} catch (e) {
 		throw new SetupError(describeDockerFailure(e, { operation: "docker compose down" }), "DOCKER_UNAVAILABLE");
 	}
 	try {
-		(0, node_child_process.execFileSync)("docker", buildComposeUpArgs({
-			composeFile,
+		runDocker(buildComposeUpArgs({
+			composeFile: COMPOSE_FILE,
 			projectName,
 			pullPolicy
-		}), {
-			stdio: "inherit",
-			env: composeEnv
-		});
+		}), composeEnv);
 	} catch (e) {
 		throw builderStartError(e, {
-			composeFile,
+			composeFile: COMPOSE_FILE,
 			projectName,
 			builderName,
 			composeEnv
 		});
 	}
 }
-process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch(exitOnFatalError("setup"));
+//#endregion
+//#region src/main.ts
+process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && runSetupStep(process.env).catch(exitOnFatalError("setup"));
 //#endregion
