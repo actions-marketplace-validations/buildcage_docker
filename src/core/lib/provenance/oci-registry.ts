@@ -53,6 +53,38 @@ async function withRegistryErrors<T>(what: string, fn: () => Promise<T>): Promis
   }
 }
 
+/**
+ * The response-status ladder every registry call needs, in one place.
+ *
+ * `subject` names what was being fetched ("bundle blob", "fallback tag") and
+ * goes into each message. `onFailure` classifies a response that failed for
+ * none of the reasons above: TRANSIENT where a retry could still succeed,
+ * NOT_FOUND where the thing asked for is simply absent. A caller that reads a
+ * particular status as something more specific checks for it before calling
+ * this.
+ */
+function assertRegistryOk(
+  resp: FetchLikeResponse,
+  subject: string,
+  onFailure: "TRANSIENT" | "NOT_FOUND",
+): void {
+  if (resp.status >= 500) {
+    throw new VerifyImageError(
+      `Transient error fetching ${subject}: HTTP ${resp.status}`,
+      "TRANSIENT",
+    );
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    throw new VerifyImageError(
+      `Registry denied access to ${subject}: HTTP ${resp.status}. ` + PRIVATE_REPO_HINT,
+      "TRANSIENT",
+    );
+  }
+  if (!resp.ok) {
+    throw new VerifyImageError(`Failed to fetch ${subject}: HTTP ${resp.status}`, onFailure);
+  }
+}
+
 export interface HeadersLike {
   get(name: string): string | null;
 }
@@ -138,25 +170,7 @@ export async function fetchManifestDigest(
         "NOT_FOUND",
       );
     }
-    if (resp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error fetching manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      throw new VerifyImageError(
-        `Registry denied access to manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}. ` +
-          PRIVATE_REPO_HINT,
-        "TRANSIENT",
-      );
-    }
-    if (!resp.ok) {
-      throw new VerifyImageError(
-        `Failed to fetch manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
+    assertRegistryOk(resp, `manifest for ${registry}/${repo}:${tag}`, "TRANSIENT");
     const digest = resp.headers!.get("Docker-Content-Digest");
     if (!digest) {
       throw new VerifyImageError(
@@ -237,21 +251,7 @@ async function fetchRegistryJson(
     if (resp.status === 404) {
       throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
     }
-    if (resp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error fetching ${what}: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      throw new VerifyImageError(
-        `Registry denied access to ${what}: HTTP ${resp.status}. ` + PRIVATE_REPO_HINT,
-        "TRANSIENT",
-      );
-    }
-    if (!resp.ok) {
-      throw new VerifyImageError(`Failed to fetch ${what}: HTTP ${resp.status}`, "TRANSIENT");
-    }
+    assertRegistryOk(resp, what, "TRANSIENT");
     return await resp.json!();
   });
 }
@@ -301,63 +301,72 @@ export async function fetchRegistryToken(
   });
 }
 
-/**
- * Pull the Sigstore Bundle from the OCI registry.
- * Tries the OCI 1.1 Referrers API first; falls back to the sha256-<hex> tag scheme.
- *
- * Throws VerifyImageError(NOT_FOUND) when no bundle exists for this digest.
- * Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
- */
-export async function fetchBundle(
-  registry: string,
-  repo: string,
-  digest: string,
-  token: string,
-  _fetch: FetchLike = fetch,
-): Promise<unknown> {
-  const api = `https://${registry}/v2/${repo}`;
-  const headers = { Authorization: `Bearer ${token}` };
+/** The one answer three different dead ends give, so it is worded once. */
+function noBundleFound(digest: string): VerifyImageError {
+  return new VerifyImageError(
+    `No Sigstore bundle found for digest ${digest}. ` +
+      `The image may not have been signed with --new-bundle-format.`,
+    "NOT_FOUND",
+  );
+}
 
-  // Try OCI 1.1 Referrers API
-  const fromReferrers = await withRegistryErrors("fetching referrers", async () => {
-    const refResp = await _fetch(
+/**
+ * Ask the OCI 1.1 Referrers API for the bundle.
+ *
+ * Wrapped rather than returned bare: a registry that answered without a
+ * matching artifactType has not said the bundle is absent, only that it does
+ * not index it, and the caller has another place to look. Undefined says that;
+ * a wrapper keeps it from being confused with a bundle.
+ */
+async function bundleFromReferrers(
+  api: string,
+  digest: string,
+  headers: Record<string, string>,
+  _fetch: FetchLike,
+): Promise<{ bundle: unknown } | undefined> {
+  return withRegistryErrors("fetching referrers", async () => {
+    const resp = await _fetch(
       `${api}/referrers/${digest}?artifactType=${encodeURIComponent(BUNDLE_MEDIA_TYPE)}`,
       { headers },
     );
-    if (refResp.status >= 500) {
+    // Not assertRegistryOk: a registry with no Referrers API answers 404 or
+    // 405, and that is not a failure here -- only a 5xx leaves it unknown
+    // whether it would have had one.
+    if (resp.status >= 500) {
       throw new VerifyImageError(
-        `Transient error from referrers API: HTTP ${refResp.status}`,
+        `Transient error from referrers API: HTTP ${resp.status}`,
         "TRANSIENT",
       );
     }
-    if (refResp.ok) {
-      const referrers = await refResp.json!();
-      const manifest = (referrers.manifests ?? []).find(
-        (m: OciDescriptor) => m.artifactType === BUNDLE_MEDIA_TYPE,
-      );
-      if (manifest) {
-        // Wrapped rather than returned bare so the sentinel below can't be
-        // confused with a bundle. Awaiting here relabels nothing:
-        // fetchBundleFromManifestDigest has its own withRegistryErrors, so it
-        // only ever rejects with a VerifyImageError, which passes through.
-        return {
-          bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch),
-        };
-      }
-      // Referrers API responded but no matching artifactType → fall through to tag fallback
-    }
-    return undefined;
+    if (!resp.ok) return undefined;
+    const referrers = await resp.json!();
+    const manifest = (referrers.manifests ?? []).find(
+      (m: OciDescriptor) => m.artifactType === BUNDLE_MEDIA_TYPE,
+    );
+    if (!manifest) return undefined;
+    // Awaiting here relabels nothing: fetchBundleFromManifestDigest has its
+    // own withRegistryErrors, so it only ever rejects with a VerifyImageError,
+    // which passes through.
+    return { bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch) };
   });
-  if (fromReferrers) return fromReferrers.bundle;
+}
 
-  // Fallback: sha256-<hex> tag scheme.
-  // The OCI Referrers Tag Schema represents this as an OCI Image Index whose
-  // manifests[] entries point to individual referrer artifacts (as served by
-  // registries such as GHCR).  Accept both the image-index and the legacy
-  // direct-manifest-with-layers formats.
-  const fallbackTag = digest.replace(":", "-");
+/**
+ * Ask the sha256-<hex> tag scheme for the bundle.
+ *
+ * The OCI Referrers Tag Schema represents this as an OCI Image Index whose
+ * manifests[] entries point to individual referrer artifacts (as served by
+ * registries such as GHCR). Both that and the legacy
+ * direct-manifest-with-layers format are accepted.
+ */
+async function bundleFromFallbackTag(
+  api: string,
+  digest: string,
+  headers: Record<string, string>,
+  _fetch: FetchLike,
+): Promise<unknown> {
   return withRegistryErrors("fetching fallback tag", async () => {
-    const tagResp = await _fetch(`${api}/manifests/${fallbackTag}`, {
+    const resp = await _fetch(`${api}/manifests/${digest.replace(":", "-")}`, {
       headers: {
         ...headers,
         Accept: [
@@ -370,33 +379,10 @@ export async function fetchBundle(
     // 404: tag doesn't exist. 400: some registries return Bad Request instead of
     // 404 when the sha256-<hex> tag name is unrecognised (e.g. no Referrers tag
     // support at all). Treat both as "no bundle" rather than a transient error.
-    if (tagResp.status === 404 || tagResp.status === 400) {
-      throw new VerifyImageError(
-        `No Sigstore bundle found for digest ${digest}. ` +
-          `The image may not have been signed with --new-bundle-format.`,
-        "NOT_FOUND",
-      );
-    }
-    if (tagResp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error from fallback tag API: HTTP ${tagResp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (tagResp.status === 401 || tagResp.status === 403) {
-      throw new VerifyImageError(
-        `Registry denied access to fallback tag: HTTP ${tagResp.status}. ` + PRIVATE_REPO_HINT,
-        "TRANSIENT",
-      );
-    }
-    if (!tagResp.ok) {
-      throw new VerifyImageError(
-        `Unexpected error fetching fallback tag: HTTP ${tagResp.status}`,
-        "NOT_FOUND",
-      );
-    }
+    if (resp.status === 404 || resp.status === 400) throw noBundleFound(digest);
+    assertRegistryOk(resp, "fallback tag", "NOT_FOUND");
 
-    const tagManifest = await tagResp.json!();
+    const tagManifest = await resp.json!();
 
     // OCI Referrers Tag Schema: the tag is an Image Index whose manifests[] entries
     // are descriptors for individual referrer artifacts.
@@ -427,26 +413,38 @@ export async function fetchBundle(
         if (!layer) continue;
         return fetchBundleBlob(api, layer.digest, headers, _fetch);
       }
-      throw new VerifyImageError(
-        `No Sigstore bundle found for digest ${digest}. ` +
-          `The image may not have been signed with --new-bundle-format.`,
-        "NOT_FOUND",
-      );
+      throw noBundleFound(digest);
     }
 
     // Legacy format: the bundle is stored directly as a layer in the manifest.
     const layer = (tagManifest.layers ?? []).find(
       (l: OciDescriptor) => l.mediaType === BUNDLE_MEDIA_TYPE,
     );
-    if (!layer) {
-      throw new VerifyImageError(
-        `No Sigstore bundle found for digest ${digest}. ` +
-          `The image may not have been signed with --new-bundle-format.`,
-        "NOT_FOUND",
-      );
-    }
+    if (!layer) throw noBundleFound(digest);
     return fetchBundleBlob(api, layer.digest, headers, _fetch);
   });
+}
+
+/**
+ * Pull the Sigstore Bundle from the OCI registry.
+ * Tries the OCI 1.1 Referrers API first; falls back to the sha256-<hex> tag scheme.
+ *
+ * Throws VerifyImageError(NOT_FOUND) when no bundle exists for this digest.
+ * Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
+ */
+export async function fetchBundle(
+  registry: string,
+  repo: string,
+  digest: string,
+  token: string,
+  _fetch: FetchLike = fetch,
+): Promise<unknown> {
+  const api = `https://${registry}/v2/${repo}`;
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const fromReferrers = await bundleFromReferrers(api, digest, headers, _fetch);
+  if (fromReferrers) return fromReferrers.bundle;
+  return bundleFromFallbackTag(api, digest, headers, _fetch);
 }
 
 // Fetch an OCI image manifest by digest, then fetch the bundle blob from its first
@@ -461,24 +459,7 @@ async function fetchBundleFromManifestDigest(
     const resp = await _fetch(`${api}/manifests/${manifestDigest}`, {
       headers: { ...headers, Accept: "application/vnd.oci.image.manifest.v1+json" },
     });
-    if (resp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error fetching bundle manifest: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      throw new VerifyImageError(
-        `Registry denied access to bundle manifest: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (!resp.ok) {
-      throw new VerifyImageError(
-        `Failed to fetch bundle manifest: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
+    assertRegistryOk(resp, "bundle manifest", "TRANSIENT");
     const manifest = await resp.json!();
     const layer = (manifest.layers ?? []).find(
       (l: OciDescriptor) => l.mediaType === BUNDLE_MEDIA_TYPE,
@@ -498,21 +479,7 @@ async function fetchBundleBlob(
 ): Promise<unknown> {
   return withRegistryErrors("fetching bundle blob", async () => {
     const resp = await _fetch(`${api}/blobs/${blobDigest}`, { headers });
-    if (resp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error fetching bundle blob: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      throw new VerifyImageError(
-        `Registry denied access fetching bundle blob: HTTP ${resp.status}. ` + PRIVATE_REPO_HINT,
-        "TRANSIENT",
-      );
-    }
-    if (!resp.ok) {
-      throw new VerifyImageError(`Failed to fetch bundle blob: HTTP ${resp.status}`, "NOT_FOUND");
-    }
+    assertRegistryOk(resp, "bundle blob", "NOT_FOUND");
     return resp.json!();
   });
 }

@@ -565,6 +565,11 @@ async function withRegistryErrors(what, fn) {
 		throw err instanceof VerifyImageError ? err : new VerifyImageError(`Transient error ${what}: ${errorMessage(err)}`, "TRANSIENT");
 	}
 }
+function assertRegistryOk(resp, subject, onFailure) {
+	if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching ${subject}: HTTP ${resp.status}`, "TRANSIENT");
+	if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to ${subject}: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
+	if (!resp.ok) throw new VerifyImageError(`Failed to fetch ${subject}: HTTP ${resp.status}`, onFailure);
+}
 function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileSync) {
 	try {
 		let configDir = _env.DOCKER_CONFIG ?? node_path.default.join(node_os.default.homedir(), ".docker"), config = JSON.parse(_readFileSync(node_path.default.join(configDir, "config.json"), "utf8"));
@@ -585,9 +590,7 @@ async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
 			headers
 		});
 		if (resp.status === 404) throw new VerifyImageError(`Docker image not found: ${registry}/${repo}:${tag}. Make sure the action ref corresponds to a published release.`, "NOT_FOUND");
-		if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}`, "TRANSIENT");
-		if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
-		if (!resp.ok) throw new VerifyImageError(`Failed to fetch manifest for ${registry}/${repo}:${tag}: HTTP ${resp.status}`, "TRANSIENT");
+		assertRegistryOk(resp, `manifest for ${registry}/${repo}:${tag}`, "TRANSIENT");
 		let digest = resp.headers.get("Docker-Content-Digest");
 		if (!digest) throw new VerifyImageError(`No digest in manifest response for ${registry}/${repo}:${tag}`, "TRANSIENT");
 		return digest;
@@ -614,10 +617,7 @@ async function fetchRegistryJson(url, headers, what, _fetch) {
 	return withRegistryErrors(`fetching ${what}`, async () => {
 		let resp = await _fetch(url, { headers });
 		if (resp.status === 404) throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
-		if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching ${what}: HTTP ${resp.status}`, "TRANSIENT");
-		if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to ${what}: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
-		if (!resp.ok) throw new VerifyImageError(`Failed to fetch ${what}: HTTP ${resp.status}`, "TRANSIENT");
-		return await resp.json();
+		return assertRegistryOk(resp, what, "TRANSIENT"), await resp.json();
 	});
 }
 async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
@@ -629,27 +629,27 @@ async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
 		throw new VerifyImageError(basicAuth ? `Registry authentication failed: HTTP ${resp.status}. The credentials in Docker config may be expired — run \`docker login ${registry}\` again.` : `Failed to get registry token: HTTP ${resp.status}. The package may be private. Run \`docker login ${registry}\` (or use docker/login-action with 'packages: read') before this action.`, "TOKEN_ERROR");
 	});
 }
-async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
-	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, fromReferrers = await withRegistryErrors("fetching referrers", async () => {
-		let refResp = await _fetch(`${api}/referrers/${digest}?artifactType=application%2Fvnd.dev.sigstore.bundle.v0.3%2Bjson`, { headers });
-		if (refResp.status >= 500) throw new VerifyImageError(`Transient error from referrers API: HTTP ${refResp.status}`, "TRANSIENT");
-		if (refResp.ok) {
-			let manifest = ((await refResp.json()).manifests ?? []).find((m) => m.artifactType === BUNDLE_MEDIA_TYPE);
-			if (manifest) return { bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch) };
-		}
+function noBundleFound(digest) {
+	return new VerifyImageError(`No Sigstore bundle found for digest ${digest}. The image may not have been signed with --new-bundle-format.`, "NOT_FOUND");
+}
+async function bundleFromReferrers(api, digest, headers, _fetch) {
+	return withRegistryErrors("fetching referrers", async () => {
+		let resp = await _fetch(`${api}/referrers/${digest}?artifactType=application%2Fvnd.dev.sigstore.bundle.v0.3%2Bjson`, { headers });
+		if (resp.status >= 500) throw new VerifyImageError(`Transient error from referrers API: HTTP ${resp.status}`, "TRANSIENT");
+		if (!resp.ok) return;
+		let manifest = ((await resp.json()).manifests ?? []).find((m) => m.artifactType === BUNDLE_MEDIA_TYPE);
+		if (manifest) return { bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch) };
 	});
-	if (fromReferrers) return fromReferrers.bundle;
-	let fallbackTag = digest.replace(":", "-");
+}
+async function bundleFromFallbackTag(api, digest, headers, _fetch) {
 	return withRegistryErrors("fetching fallback tag", async () => {
-		let tagResp = await _fetch(`${api}/manifests/${fallbackTag}`, { headers: {
+		let resp = await _fetch(`${api}/manifests/${digest.replace(":", "-")}`, { headers: {
 			...headers,
 			Accept: ["application/vnd.oci.image.index.v1+json", "application/vnd.oci.image.manifest.v1+json"].join(", ")
 		} });
-		if (tagResp.status === 404 || tagResp.status === 400) throw new VerifyImageError(`No Sigstore bundle found for digest ${digest}. The image may not have been signed with --new-bundle-format.`, "NOT_FOUND");
-		if (tagResp.status >= 500) throw new VerifyImageError(`Transient error from fallback tag API: HTTP ${tagResp.status}`, "TRANSIENT");
-		if (tagResp.status === 401 || tagResp.status === 403) throw new VerifyImageError(`Registry denied access to fallback tag: HTTP ${tagResp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
-		if (!tagResp.ok) throw new VerifyImageError(`Unexpected error fetching fallback tag: HTTP ${tagResp.status}`, "NOT_FOUND");
-		let tagManifest = await tagResp.json();
+		if (resp.status === 404 || resp.status === 400) throw noBundleFound(digest);
+		assertRegistryOk(resp, "fallback tag", "NOT_FOUND");
+		let tagManifest = await resp.json();
 		if (Array.isArray(tagManifest.manifests)) {
 			for (let m of tagManifest.manifests) {
 				if (m.mediaType !== "application/vnd.oci.image.manifest.v1+json") continue;
@@ -664,12 +664,16 @@ async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
 				let layer = (sub.layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
 				if (layer) return fetchBundleBlob(api, layer.digest, headers, _fetch);
 			}
-			throw new VerifyImageError(`No Sigstore bundle found for digest ${digest}. The image may not have been signed with --new-bundle-format.`, "NOT_FOUND");
+			throw noBundleFound(digest);
 		}
 		let layer = (tagManifest.layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
-		if (!layer) throw new VerifyImageError(`No Sigstore bundle found for digest ${digest}. The image may not have been signed with --new-bundle-format.`, "NOT_FOUND");
+		if (!layer) throw noBundleFound(digest);
 		return fetchBundleBlob(api, layer.digest, headers, _fetch);
 	});
+}
+async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
+	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, fromReferrers = await bundleFromReferrers(api, digest, headers, _fetch);
+	return fromReferrers ? fromReferrers.bundle : bundleFromFallbackTag(api, digest, headers, _fetch);
 }
 async function fetchBundleFromManifestDigest(api, manifestDigest, headers, _fetch = fetch) {
 	return withRegistryErrors("fetching bundle manifest", async () => {
@@ -677,9 +681,7 @@ async function fetchBundleFromManifestDigest(api, manifestDigest, headers, _fetc
 			...headers,
 			Accept: "application/vnd.oci.image.manifest.v1+json"
 		} });
-		if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching bundle manifest: HTTP ${resp.status}`, "TRANSIENT");
-		if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to bundle manifest: HTTP ${resp.status}`, "TRANSIENT");
-		if (!resp.ok) throw new VerifyImageError(`Failed to fetch bundle manifest: HTTP ${resp.status}`, "TRANSIENT");
+		assertRegistryOk(resp, "bundle manifest", "TRANSIENT");
 		let layer = ((await resp.json()).layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
 		if (!layer) throw new VerifyImageError("No Sigstore bundle layer found in bundle manifest", "NOT_FOUND");
 		return fetchBundleBlob(api, layer.digest, headers, _fetch);
@@ -688,10 +690,7 @@ async function fetchBundleFromManifestDigest(api, manifestDigest, headers, _fetc
 async function fetchBundleBlob(api, blobDigest, headers, _fetch = fetch) {
 	return withRegistryErrors("fetching bundle blob", async () => {
 		let resp = await _fetch(`${api}/blobs/${blobDigest}`, { headers });
-		if (resp.status >= 500) throw new VerifyImageError(`Transient error fetching bundle blob: HTTP ${resp.status}`, "TRANSIENT");
-		if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access fetching bundle blob: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
-		if (!resp.ok) throw new VerifyImageError(`Failed to fetch bundle blob: HTTP ${resp.status}`, "NOT_FOUND");
-		return resp.json();
+		return assertRegistryOk(resp, "bundle blob", "NOT_FOUND"), resp.json();
 	});
 }
 //#endregion
