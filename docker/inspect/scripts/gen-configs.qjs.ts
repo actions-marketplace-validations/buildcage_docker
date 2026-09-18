@@ -18,6 +18,7 @@
 import * as std from "qjs:std";
 import { generateHaproxyConfig } from "#core/lib/acl/haproxy-config.js";
 import { generateCorednsConfig } from "#core/lib/acl/coredns-config.js";
+import { compileRuleSet } from "#core/lib/acl/haproxy-rules.js";
 import { buildUrlRules } from "#core/lib/acl/url-rules.js";
 import { splitRuleTokens } from "#core/lib/acl/wildcard-rules.js";
 
@@ -67,14 +68,12 @@ try {
     proxyAddress,
     hostAddressFile,
   });
-  const coredns = generateCorednsConfig({
-    httpsRules,
-    httpRules,
-    tlsRules,
-    urlRules,
-    proxyAddress,
-    mode: mode === "audit" ? "audit" : "restrict",
-  });
+  // The same compilation the proxy's own config comes out of, so a name the
+  // rules allow cannot be logged as denied, or the other way round.
+  const coredns = generateCorednsConfig(
+    compileRuleSet({ httpsRules, httpRules, tlsRules, urlRules }),
+    { proxyAddress, mode: mode === "audit" ? "audit" : "restrict" },
+  );
 
   // A warning here means a rule cannot be honoured in full, so it has to be
   // visible in the build log rather than only in a file nobody reads.

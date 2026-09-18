@@ -5,12 +5,13 @@
  */
 import { describe, it } from "vitest";
 import { generateCorednsConfig, type CorednsConfigOptions } from "./coredns-config.ts";
+import { compileRuleSet, type RuleInputs } from "./haproxy-rules.ts";
 import { buildUrlRules } from "./url-rules.ts";
 import { expectMatchesGolden } from "../test/golden.node.ts";
 
 const PROXY = "172.20.0.1";
 
-const CASES: Record<string, CorednsConfigOptions> = {
+const CASES: Record<string, RuleInputs & Partial<CorednsConfigOptions>> = {
   // Nothing but the proxy address: the skeleton, refusing every name.
   "restrict-empty": { proxyAddress: PROXY },
 
@@ -57,10 +58,15 @@ const CASES: Record<string, CorednsConfigOptions> = {
 };
 
 describe("generateCorednsConfig golden files", () => {
-  for (const [name, options] of Object.entries(CASES)) {
+  for (const [name, { httpsRules, httpRules, tlsRules, urlRules, ...options }] of Object.entries(
+    CASES,
+  )) {
     it(`matches __fixtures__/coredns/${name}.conf`, () => {
       expectMatchesGolden(
-        generateCorednsConfig(options).config,
+        generateCorednsConfig(compileRuleSet({ httpsRules, httpRules, tlsRules, urlRules }), {
+          ...options,
+          proxyAddress: options.proxyAddress ?? PROXY,
+        }).config,
         new URL(`./__fixtures__/coredns/${name}.conf`, import.meta.url),
       );
     });

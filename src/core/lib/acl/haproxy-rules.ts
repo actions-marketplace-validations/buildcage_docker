@@ -111,6 +111,13 @@ export interface CompiledRuleSet {
   ip: CompiledIpRule[];
   tls: CompiledTlsRule[];
   /**
+   * Every name a rule allows, as a host-only regex with no anchors,
+   * deduplicated: what the resolver's allowlist is generated from; see
+   * coredns-config.ts. IP rules are absent, an address being reached without
+   * a name.
+   */
+  resolverHosts: string[];
+  /**
    * Rules that could not be honoured in full, for the caller to surface. Only
    * IP rules reach this list: a host, TLS or URL rule that will not compile
    * throws instead, which stops the proxy from starting at all.
@@ -119,17 +126,64 @@ export interface CompiledRuleSet {
 }
 
 /**
- * Split a compiled `host:port` authority into a name matcher and the port.
+ * Split a `host:port` rule at its port separator.
+ *
+ * @throws {Error} if the rule names no port, names one that is neither a
+ *   number nor `*`, or leaves a `:` in the host half
+ */
+function splitHostRule(pattern: string): { host: string; port: string } {
+  const colonIndex = pattern.lastIndexOf(":");
+  if (colonIndex === -1) {
+    throw new Error(`Invalid rule "${pattern}": missing port`);
+  }
+  const port = pattern.slice(colonIndex + 1);
+  if (!/^(?:\d+|\*)$/.test(port)) {
+    throw new Error(`Invalid port in rule "${pattern}": "${port}"`);
+  }
+  const host = pattern.slice(0, colonIndex);
+  if (host.includes(":")) {
+    throw new Error(
+      `Invalid host in rule "${pattern}": "${host}" holds a ":", so the one this rule was split ` +
+        `at is not its port separator. An IPv6 address is not supported here.`,
+    );
+  }
+  return { host, port };
+}
+
+/**
+ * A host rule's name half as a regex, with no port and no anchors.
+ *
+ * The resolver's allowlist is built from these, a DNS query having no port to
+ * match against, and the proxy's own matcher is the same expression anchored.
+ * One derivation, so the two can never accept different names.
+ */
+function hostOnlyRegexOfRule(pattern: string): string {
+  if (pattern.startsWith("~")) return splitRawRegexHost(pattern).host;
+  return domainToRegexPartial(splitHostRule(pattern).host);
+}
+
+/**
+ * The same for a URL rule, whose host half url-rules.ts has already compiled
+ * into `authorityRegex`: `^<host>$` for a `~` rule, `^<host>:<port>$`
+ * otherwise.
+ */
+function hostOnlyRegexOfUrlRule(rule: UrlRule): string {
+  const authority = rule.authorityRegex.slice(1, -1);
+  return rule.isRegex ? authority : authority.slice(0, authority.lastIndexOf(":"));
+}
+
+/**
+ * A URL rule's name matcher and the port it names.
  *
  * The port is matched against the connection (`dst_port`), not the Host header:
  * a header omits a default port, so matching it there would make `host:9443`
  * also permit `host` on 443.
  */
-function splitHostAndPort(hostRegexWithPort: string): { hostRegex: string; port: string | null } {
-  const colonIndex = hostRegexWithPort.lastIndexOf(":");
-  const port = hostRegexWithPort.slice(colonIndex + 1);
+function urlRuleToMatcher(rule: UrlRule): { hostRegex: string; port: string | null } {
+  const hostOnly = hostOnlyRegexOfUrlRule(rule);
+  const port = rule.authorityRegex.slice(1, -1).slice(hostOnly.length + 1);
   return {
-    hostRegex: `^${hostRegexWithPort.slice(0, colonIndex)}$`,
+    hostRegex: `^${hostOnly}$`,
     // url-rules.ts spells "any port" as [0-9]+ in the authority it compiles.
     port: port === "[0-9]+" ? null : port,
   };
@@ -143,24 +197,15 @@ function hostRuleToMatcher(pattern: string): {
 } {
   if (pattern.startsWith("~")) {
     // Validates: the regex compiles, it names a port, and the host half
-    // compiles alone -- the host half itself is only needed by
-    // coredns-config.ts, but the checks apply here just the same.
+    // compiles alone.
     splitRawRegexHost(pattern);
     return { hostMatch: "hostPort", hostRegex: anchorRawRegex(pattern.slice(1)), port: null };
   }
-  const colonIndex = pattern.lastIndexOf(":");
-  if (colonIndex === -1) {
-    throw new Error(`Invalid rule "${pattern}": missing port`);
-  }
-  const portText = pattern.slice(colonIndex + 1);
-  const hostPattern = pattern.slice(0, colonIndex);
-  if (!/^(?:\d+|\*)$/.test(portText)) {
-    throw new Error(`Invalid port in rule "${pattern}": "${portText}"`);
-  }
+  const { port } = splitHostRule(pattern);
   return {
     hostMatch: "wildcard",
-    hostRegex: `^${domainToRegexPartial(hostPattern)}$`,
-    port: portText === "*" ? null : portText,
+    hostRegex: `^${hostOnlyRegexOfRule(pattern)}$`,
+    port: port === "*" ? null : port,
   };
 }
 
@@ -197,8 +242,7 @@ function compileSchemeRules(
     out.push({
       id: "",
       hostMatch: "wildcard",
-      // authorityRegex is `^<hostRegex>:<port>$`.
-      ...splitHostAndPort(rule.authorityRegex.slice(1, -1)),
+      ...urlRuleToMatcher(rule),
       pathRegex: rule.pathRegex,
       methods: rule.methods,
       raw: rule.raw,
@@ -268,6 +312,21 @@ export function compileRuleSet(inputs: RuleInputs): CompiledRuleSet {
       ...hostRuleToMatcher(pattern),
       raw: pattern,
     })),
+    resolverHosts: resolverHosts(inputs),
     warnings,
   };
+}
+
+/** The names above, in the order the rules were given and without repeats. */
+function resolverHosts(inputs: RuleInputs): string[] {
+  const hosts: string[] = [];
+  const add = (regex: string) => {
+    if (!hosts.includes(regex)) hosts.push(regex);
+  };
+  for (const pattern of inputs.httpsRules ?? []) add(hostOnlyRegexOfRule(pattern));
+  for (const pattern of inputs.httpRules ?? []) add(hostOnlyRegexOfRule(pattern));
+  // A TLS rule's name has to resolve too, even though it is not inspected.
+  for (const pattern of inputs.tlsRules ?? []) add(hostOnlyRegexOfRule(pattern));
+  for (const rule of inputs.urlRules ?? []) add(hostOnlyRegexOfUrlRule(rule));
+  return hosts;
 }

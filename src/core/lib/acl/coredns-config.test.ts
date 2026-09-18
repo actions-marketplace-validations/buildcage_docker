@@ -1,11 +1,27 @@
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
-import { escapeForCel, generateCorednsConfig } from "./coredns-config.ts";
+import {
+  escapeForCel,
+  generateCorednsConfig,
+  type CorednsConfigOptions,
+} from "./coredns-config.ts";
+import { compileRuleSet, type RuleInputs } from "./haproxy-rules.ts";
 import { buildUrlRules } from "./url-rules.ts";
 
 const BASE = { proxyAddress: "172.20.0.1" };
 
-function gen(options: Partial<Parameters<typeof generateCorednsConfig>[0]> = {}): string {
-  return generateCorednsConfig({ ...BASE, ...options }).config;
+/** Rules and Corefile options in one bag, as the generator took them before
+ *  the rules moved behind compileRuleSet. */
+type CaseOptions = RuleInputs & Partial<CorednsConfigOptions>;
+
+function generate({ httpsRules, httpRules, tlsRules, urlRules, ...options }: CaseOptions = {}) {
+  return generateCorednsConfig(compileRuleSet({ httpsRules, httpRules, tlsRules, urlRules }), {
+    ...BASE,
+    ...options,
+  });
+}
+
+function gen(options: CaseOptions = {}): string {
+  return generate(options).config;
 }
 
 /** The allowlist view's CEL expression line, as it would reach CoreDNS. */
@@ -116,8 +132,7 @@ describe("allowlist scope", () => {
   });
 
   it("takes the host from an http url rule, which still has to resolve", () => {
-    const result = generateCorednsConfig({
-      ...BASE,
+    const result = generate({
       urlRules: buildUrlRules("GET http://a.example.com/x"),
     });
     expect(exprLine(result.config).includes("a\\\\.example\\\\.com")).toBe(true);
@@ -133,16 +148,14 @@ describe("allowlist scope", () => {
   });
 
   it("takes the host from a ~regex host rule instead of mangling it as a wildcard", () => {
-    const result = generateCorednsConfig({
-      ...BASE,
+    const result = generate({
       tlsRules: ["~^.*\\.example\\.com:8443$"],
     });
     expect(exprLine(result.config).includes(".*\\\\.example\\\\.com")).toBe(true);
   });
 
   it("takes the host from a ~regex url rule, with its port stripped from the host match", () => {
-    const result = generateCorednsConfig({
-      ...BASE,
+    const result = generate({
       urlRules: buildUrlRules("GET ~^https://a\\.com:8443/x$"),
     });
     expect(exprLine(result.config).includes("a\\\\.com")).toBe(true);
