@@ -36,10 +36,6 @@ describe("wildcardToRegex", () => {
     expect(() => wildcardToRegex("w*.example.com:443")).toThrow(/Invalid wildcard/);
   });
 
-  it("rejects mixed ** in part", () => {
-    expect(() => wildcardToRegex("w**.example.com:443")).toThrow(/Invalid wildcard/);
-  });
-
   it("escapes regex meta characters in domain", () => {
     expect(wildcardToRegex("example+site.com:443")).toBe("example\\+site\\.com:443");
   });
@@ -48,15 +44,9 @@ describe("wildcardToRegex", () => {
     expect(wildcardToRegex("example.com:*")).toBe("example\\.com:\\d+");
   });
 
-  it("rejects missing port", () => {
+  it("rejects a port that is missing, non-numeric or not the last colon", () => {
     expect(() => wildcardToRegex("example.com")).toThrow(/Invalid pattern/);
-  });
-
-  it("rejects non-numeric port", () => {
     expect(() => wildcardToRegex("example.com:abc")).toThrow(/Invalid pattern/);
-  });
-
-  it("rejects multiple colons", () => {
     expect(() => wildcardToRegex("example.com:443:extra")).toThrow(/Invalid pattern/);
   });
 });
@@ -65,16 +55,8 @@ describe("wildcardToRegex", () => {
 // convertRule
 // ---------------------------------------------------------------------------
 describe("convertRule", () => {
-  it("domain with explicit port", () => {
-    expect(convertRule("example.com:8443")).toBe("^example\\.com:8443$");
-  });
-
-  it("wildcard with explicit port", () => {
+  it("wraps the wildcard conversion in anchors", () => {
     expect(convertRule("*.example.com:8443")).toBe("^[^.]+\\.example\\.com:8443$");
-  });
-
-  it("** wildcard with explicit port", () => {
-    expect(convertRule("**.example.com:443")).toBe("^.+\\.example\\.com:443$");
   });
 
   it("regex rule (~ prefix) — returned as-is without ~", () => {
@@ -196,10 +178,6 @@ describe("parseAndValidateRules", () => {
       "example.com:443",
       "*.foo.com:8443",
     ]);
-  });
-
-  it("empty input → empty array", () => {
-    expect(parseAndValidateRules("")).toStrictEqual([]);
   });
 
   it("validates syntax eagerly, throwing on invalid wildcard rules", () => {

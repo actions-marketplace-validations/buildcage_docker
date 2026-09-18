@@ -147,8 +147,12 @@ describe("convertUrlRule regex escape hatch", () => {
   });
 
   it("keeps an alternation that a group holds on one side of the split", () => {
+    // A URL rule's port is optional, so the host half is matched with and
+    // without one rather than folded into a dst_port ACL: any regex is fine
+    // there, literal or not. The resolver's allowlist drops it either way.
     const r = convertUrlRule("GET ~^https://a\\.com:(443|8443)/(x|y)$");
     expect(r.hostRegex).toBe("^a\\.com:(443|8443)$");
+    expect(r.authorityRegex).toBe("^a\\.com$");
     expect(r.pathRegex).toBe("^/(x|y)$");
   });
 
@@ -168,15 +172,6 @@ describe("convertUrlRule regex escape hatch", () => {
     expect(r.hostRegex).toBe("^a\\.com:8443$");
     expect(r.authorityRegex).toBe("^a\\.com$");
     expect(r.pathRegex).toBe("^/x$");
-  });
-
-  it("accepts a non-literal port in the host half, unlike the other rule kinds", () => {
-    // A URL rule's port is optional, so its host half is matched with and
-    // without one rather than folded into a single dst_port ACL -- any
-    // regex is fine there, literal or not.
-    const r = convertUrlRule("GET ~^https://a\\.com:(443|8443)/x$");
-    expect(r.hostRegex).toBe("^a\\.com:(443|8443)$");
-    expect(r.authorityRegex).toBe("^a\\.com$");
   });
 });
 
@@ -223,11 +218,8 @@ describe("methods", () => {
     expect(convertUrlRule("get https://a.com/x").methods?.join(",")).toBe("GET");
   });
 
-  it("pipe separates multiple methods", () => {
+  it("pipe or comma separates multiple methods", () => {
     expect(convertUrlRule("GET|POST https://a.com/x").methods?.join(",")).toBe("GET,POST");
-  });
-
-  it("comma separates multiple methods", () => {
     expect(convertUrlRule("GET,POST https://a.com/x").methods?.join(",")).toBe("GET,POST");
   });
 
