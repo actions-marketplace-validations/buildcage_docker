@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { errorMessage } from "#core/lib/errors.ts";
-import { annotate } from "#core/lib/actions/annotation.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
+import type { Warn } from "./inputs.ts";
 
 /** Fixed so a workflow can name it, suffixed per builder against collisions. */
 export function artifactName(builderName: string): string {
@@ -51,6 +51,7 @@ export interface UploadTrafficArtifactOptions {
 export async function uploadTrafficArtifact(
   file: string,
   builderName: string,
+  warn: Warn,
   {
     retentionDays,
     reportScriptFinished = true,
@@ -61,7 +62,7 @@ export async function uploadTrafficArtifact(
   if (!fileExists(file)) {
     // Only the inspect engine writes the file.
     if (reportScriptFinished) {
-      annotate.warning(
+      warn(
         "upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
           "Only proxy_engine: inspect does.",
       );
@@ -73,6 +74,6 @@ export async function uploadTrafficArtifact(
     await upload(name, [file], dirname(file), { retentionDays });
     console.log(`Uploaded the traffic JSON as ${name}`);
   } catch (e) {
-    annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);
+    warn(`Could not upload the traffic artifact: ${errorMessage(e)}`);
   }
 }

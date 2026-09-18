@@ -10,11 +10,13 @@
  */
 import * as core from "@actions/core";
 
-import { annotate } from "#core/lib/actions/annotation.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
 
 /** Narrowed to what this module needs, so a test can pass a plain lookup. */
 export type GetInput = (name: string) => string;
+
+/** Where a rejected value's explanation goes; the entry point supplies it. */
+export type Warn = (message: string) => void;
 
 /** The spellings @actions/core's own getBooleanInput accepts. */
 const TRUE_INPUTS = ["true", "True", "TRUE"];
@@ -31,11 +33,12 @@ export interface TrafficArtifactInputs {
 }
 
 export function readTrafficArtifactInputs(
+  warn: Warn,
   getInput: GetInput = core.getInput,
 ): TrafficArtifactInputs {
   return {
-    wanted: readBoolean("upload_traffic_artifact", getInput),
-    retentionDays: readRetentionDays(getInput),
+    wanted: readBoolean("upload_traffic_artifact", getInput, warn),
+    retentionDays: readRetentionDays(getInput, warn),
   };
 }
 
@@ -44,27 +47,25 @@ export function readTrafficArtifactInputs(
  * rather than through action.yml's own defaults. Anything else unreadable is
  * a typo, and saying so beats an artifact that never appears.
  */
-function readBoolean(name: string, getInput: GetInput): boolean {
+function readBoolean(name: string, getInput: GetInput, warn: Warn): boolean {
   const value = getInput(name);
   if (TRUE_INPUTS.includes(value)) {
     return true;
   }
   if (value !== "" && !FALSE_INPUTS.includes(value)) {
-    annotate.warning(
-      `${name} must be true or false, not ${JSON.stringify(value)}. Reading it as false.`,
-    );
+    warn(`${name} must be true or false, not ${JSON.stringify(value)}. Reading it as false.`);
   }
   return false;
 }
 
-function readRetentionDays(getInput: GetInput): number | undefined {
+function readRetentionDays(getInput: GetInput, warn: Warn): number | undefined {
   const value = getInput("traffic_artifact_retention_days");
   if (value === "") {
     return undefined;
   }
   const days = Number(value);
   if (!Number.isInteger(days) || days <= 0) {
-    annotate.warning(
+    warn(
       `traffic_artifact_retention_days must be a whole number of days above zero, not ` +
         `${JSON.stringify(value)}. Leaving the retention to the repository's own default.`,
     );

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
 import { createDocker } from "#core/lib/docker/client.ts";
 import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
+import { annotate } from "#core/lib/actions/annotation.ts";
 import { exitOnFatalError } from "#core/lib/actions/fatal.ts";
 import { copyFromContainerImage } from "./lib/copy-from-image.ts";
 import { findReportSourceContainer } from "./lib/find-report-source.ts";
@@ -22,7 +23,7 @@ const PROJECT_NAME_OVERRIDE_ENABLED = process.env.BUILDCAGE_BUILD_TEST_HOOKS ===
 
 async function main(): Promise<void> {
   const builderName = readBuilderName();
-  const trafficArtifact = readTrafficArtifactInputs();
+  const trafficArtifact = readTrafficArtifactInputs(annotate.warning);
   const projectName = resolveProjectName(
     builderName,
     PROJECT_NAME_OVERRIDE_ENABLED ? process.env.COMPOSE_PROJECT_NAME : undefined,
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
     // Uploaded from here so every path that ran the script keeps the file:
     // a failing run is when it is most wanted.
     if (trafficFile) {
-      await uploadTrafficArtifact(trafficFile, builderName, {
+      await uploadTrafficArtifact(trafficFile, builderName, annotate.warning, {
         retentionDays: trafficArtifact.retentionDays,
         reportScriptFinished,
       });
