@@ -26,6 +26,16 @@ export const SLIM_RUNNER_DETECTED_PREFIX =
 const SLIM_RUNNER_NOTE = `${SLIM_RUNNER_DETECTED_PREFIX} — these ship a Docker client with no daemon and are not supported for this action.`;
 
 /**
+ * The stderr a caught child-process error carried, trimmed, or "" when it
+ * carried none. Every message built from a failed spawn needs exactly this,
+ * and the shape it has to reach through is the same each time.
+ */
+export function capturedStderr(e: unknown): string {
+  const err = (e && typeof e === "object" ? e : {}) as DockerErrorLike;
+  return typeof err.stderr === "string" ? err.stderr.trim() : "";
+}
+
+/**
  * Turns a caught `docker` invocation error into an actionable message,
  * pointing at the runner requirement instead of surfacing execFileSync's
  * opaque "Command failed: docker ...args..." text. Deliberately doesn't
@@ -48,7 +58,7 @@ export function describeDockerFailure(
   if (err.code === "ENOENT") {
     whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
   } else {
-    const captured = typeof err.stderr === "string" ? err.stderr.trim() : "";
+    const captured = capturedStderr(e);
     const detail = captured
       ? `: ${captured}`
       : " (see the Docker output above for the underlying error)";

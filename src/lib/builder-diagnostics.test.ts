@@ -22,9 +22,9 @@ const UNHEALTHY_STATE = JSON.stringify({
 /** Records every docker invocation, so one fake covers both seams. */
 function fakeDocker(overrides: { state?: string | Error; log?: Error } = {}): {
   deps: BuilderDiagnosticsDeps;
-  calls: { args: string[]; env: NodeJS.ProcessEnv }[];
+  calls: { args: string[]; env?: NodeJS.ProcessEnv }[];
 } {
-  const calls: { args: string[]; env: NodeJS.ProcessEnv }[] = [];
+  const calls: { args: string[]; env?: NodeJS.ProcessEnv }[] = [];
   return {
     calls,
     deps: {
