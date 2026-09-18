@@ -4,6 +4,7 @@
  */
 import { createIncrementalAggregator, type AggregatedEntry } from "./aggregate.ts";
 import { splitHostPort } from "./authority.ts";
+import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export interface HaproxyLogScanResult {
   /** ALLOWED entries in restrict mode, AUDIT entries in audit mode — never
@@ -15,7 +16,7 @@ export interface HaproxyLogScanResult {
   /** True iff the log opens with the startup marker. Anything else means its
    *  beginning is gone, rotated away or erased. Only the marker counts:
    *  HAProxy's own output appears mid-run and could stand in for it. */
-  logHeadIntact: boolean;
+  headIntact: boolean;
   /** Lines carrying the marker below yet matching no format above. Each is a
    *  decision the report cannot account for. */
   unparsed: number;
@@ -27,10 +28,6 @@ export interface HaproxyLogScanResult {
 // decision.
 const logPattern =
   /^\[[^\]]*\]\s+buildcage\s+\[(AUDIT|ALLOWED|BLOCKED)\]\s+\((\w+)\)\s+"([A-Za-z0-9._:-]+)"\s*([A-Za-z0-9-]*)\s*$/;
-
-/** Echoed before HAProxy starts, so it is always the log's first line (see
- *  universal/files/s6-rc.d/haproxy/run). */
-const START_MARKER = "buildcage haproxy starting";
 
 /** What a decision line carries and nothing else does: the startup marker has
  *  no bracket after the name. A cut line keeps it, only its tail being lost. */
@@ -51,7 +48,7 @@ export async function scanHaproxyLog(
   const blocked = createIncrementalAggregator();
   const passedDecision = isAudit ? "AUDIT" : "ALLOWED";
   let blockedCount = 0;
-  let logHeadIntact: boolean | undefined;
+  let headIntact: boolean | undefined;
   let unparsed = 0;
 
   for await (const line of lines) {
@@ -59,11 +56,11 @@ export async function scanHaproxyLog(
     if (!m) {
       const trimmed = line.trim();
       if (trimmed === "") continue;
-      logHeadIntact ??= trimmed.startsWith(START_MARKER);
+      headIntact ??= trimmed.startsWith(PROXY_START_MARKER);
       if (trimmed.includes(DECISION_MARKER)) unparsed++;
       continue;
     }
-    logHeadIntact ??= false;
+    headIntact ??= false;
     const [, decision, ruleType, hostPort, reason] = m;
     const { host, port } = splitHostPort(hostPort);
     const entry = { host, port: port ?? "0", ruleType, reason: reason || "-" };
@@ -80,7 +77,7 @@ export async function scanHaproxyLog(
     passed: passed.toSortedArray(),
     blocked: blocked.toSortedArray(),
     blockedCount,
-    logHeadIntact: logHeadIntact ?? false,
+    headIntact: headIntact ?? false,
     unparsed,
   };
 }

@@ -39,7 +39,8 @@
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
-import { splitHostPort } from "./authority.ts";
+import { parseObservedUrl } from "./authority.ts";
+import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
@@ -61,10 +62,8 @@ const DNS_START_MARKER = "buildcage coredns starting";
  *  [NOTICE]/[WARNING] output never does. */
 const LINE_PREFIX = "buildcage ";
 
-/** The marker the proxy prints once at startup. See hasProxyStarted. */
-const START_MARKER = "buildcage haproxy starting";
-/** Same marker, capturing the millisecond epoch it was printed with. */
-const START = /^buildcage haproxy starting (\d+)$/;
+/** The startup marker, capturing the millisecond epoch it was printed with. */
+const START = new RegExp(`^${PROXY_START_MARKER} (\\d+)$`);
 
 /** The resolver log's timestamp, in seconds since the epoch. */
 function timeOf(stamp: string): number {
@@ -122,13 +121,9 @@ function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
   return isAudit ? "audit" : "allow";
 }
 
-const URL_AUTHORITY = /^https?:\/\/([^/?#]+)/;
-
 /** The host half of an absolute URL's authority, without its port. */
 function hostOf(url: string): string {
-  const match = URL_AUTHORITY.exec(url);
-  if (!match) return url;
-  return splitHostPort(match[1]).host;
+  return parseObservedUrl(url)?.host ?? url;
 }
 
 /** Parse one proxy-log line, or null if it is not one of ours. */
@@ -232,7 +227,7 @@ export async function scanInspectLog(
     if (match && startedAt === undefined) startedAt = Number(match[1]) / 1000;
     // Excluded by prefix rather than by `match`: a qjs that failed to print
     // the stamp would leave the marker bare, which is not a missing event.
-    if (trimmed.startsWith(LINE_PREFIX) && !trimmed.startsWith(START_MARKER)) unparsed++;
+    if (trimmed.startsWith(LINE_PREFIX) && !trimmed.startsWith(PROXY_START_MARKER)) unparsed++;
   }
   return { events, startedAt, headIntact: headIntact ?? false, unparsed };
 }
@@ -246,7 +241,7 @@ export async function scanInspectLog(
  */
 export function hasProxyStarted(lines: Iterable<string>): boolean {
   for (const line of lines) {
-    if (line.includes(START_MARKER)) return true;
+    if (line.includes(PROXY_START_MARKER)) return true;
   }
   return false;
 }
