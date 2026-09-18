@@ -36,7 +36,7 @@ jobs:
           RUN apt-get update && \
               apt-get install -y --no-install-recommends curl && \
               rm -rf /var/lib/apt/lists/*
-          RUN npm init -y && npm install --ignore-scripts express
+          RUN npm init -y && npm install --ignore-scripts @hono/node-server
           # Unneeded by the build; leave it out of the rules you paste back in.
           RUN curl -sS --max-time 5 -o /dev/null https://example.com/ || true
           EOF

@@ -44,7 +44,7 @@ jobs:
           RUN apt-get update && \
               apt-get install -y --no-install-recommends curl && \
               rm -rf /var/lib/apt/lists/*
-          RUN npm init -y && npm install --ignore-scripts express
+          RUN npm init -y && npm install --ignore-scripts @hono/node-server
           # Refused: the report names the full URL, not just the host.
           RUN curl -sS --max-time 5 -o /dev/null https://example.com/ || true
           EOF
