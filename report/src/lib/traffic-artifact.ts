@@ -1,20 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import * as core from "@actions/core";
 
 import { errorMessage } from "#core/lib/errors.ts";
 import { annotate } from "#core/lib/actions/annotation.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
-
-export function wantsTrafficArtifact(): boolean {
-  try {
-    return core.getBooleanInput("upload_traffic_artifact");
-  } catch {
-    // Unset, as in the dev and test invocations that run this from source
-    // rather than through action.yml's own defaults.
-    return false;
-  }
-}
 
 /** Fixed so a workflow can name it, suffixed per builder against collisions. */
 export function artifactName(builderName: string): string {
@@ -44,6 +33,8 @@ const uploadViaActionsArtifact: UploadArtifact = async (name, files, rootDirecto
 /* v8 ignore stop */
 
 export interface UploadTrafficArtifactOptions {
+  /** Undefined leaves the retention to the repository's own default. */
+  retentionDays?: number;
   /** False when report-action.js died before it could write the file, so its
    *  absence says nothing about the engine. */
   reportScriptFinished?: boolean;
@@ -61,6 +52,7 @@ export async function uploadTrafficArtifact(
   file: string,
   builderName: string,
   {
+    retentionDays,
     reportScriptFinished = true,
     fileExists = existsSync,
     upload = uploadViaActionsArtifact,
@@ -76,12 +68,9 @@ export async function uploadTrafficArtifact(
     }
     return;
   }
-  const days = Number(core.getInput("traffic_artifact_retention_days") || "");
   const name = artifactName(builderName);
   try {
-    await upload(name, [file], dirname(file), {
-      retentionDays: Number.isFinite(days) && days > 0 ? days : undefined,
-    });
+    await upload(name, [file], dirname(file), { retentionDays });
     console.log(`Uploaded the traffic JSON as ${name}`);
   } catch (e) {
     annotate.warning(`Could not upload the traffic artifact: ${errorMessage(e)}`);

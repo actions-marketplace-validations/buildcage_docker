@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 
+import { describeDockerFailure } from "#core/lib/actions/docker-error.ts";
+import { ReportError } from "./errors.ts";
+
 export type RunDocker = (args: string[]) => string;
 
 // stderr is piped, not inherited, so describeDockerFailure can quote it.
@@ -24,20 +27,40 @@ export function copyFromContainerImage(
   hostPath: string,
   run: RunDocker = runDocker,
 ): void {
-  const imageId = run(["inspect", containerId, "--format", "{{.Image}}"]).trim();
+  const imageId = step("docker inspect (resolving the builder's image)", () =>
+    run(["inspect", containerId, "--format", "{{.Image}}"]).trim(),
+  );
   if (!imageId) {
-    throw new Error(`docker inspect reported no image for container ${containerId}`);
+    throw new ReportError(
+      `docker inspect reported no image for container ${containerId}`,
+      "DOCKER_UNAVAILABLE",
+    );
   }
 
   // No command needed: every buildcage image defines an ENTRYPOINT.
-  const scratchId = run(["create", imageId]).trim();
+  const scratchId = step(
+    "docker create (making a scratch container from the builder's image)",
+    () => run(["create", imageId]).trim(),
+  );
   try {
-    run(["cp", `${scratchId}:${containerPath}`, hostPath]);
+    step(`docker cp (fetching ${containerPath} from the builder image)`, () =>
+      run(["cp", `${scratchId}:${containerPath}`, hostPath]),
+    );
   } finally {
     try {
       run(["rm", "-f", scratchId]);
     } catch {
       // The copy is already done; don't fail the report over a leaked container.
     }
+  }
+}
+
+/** Names the docker call in the error, so a failure of one step is not
+ *  reported as a failure of another. */
+function step<T>(operation: string, call: () => T): T {
+  try {
+    return call();
+  } catch (e) {
+    throw new ReportError(describeDockerFailure(e, { operation }), "DOCKER_UNAVAILABLE");
   }
 }
