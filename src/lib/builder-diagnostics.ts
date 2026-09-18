@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-import { describeDockerFailure, type DockerErrorLike } from "#core/lib/actions/docker-error.ts";
+import { capturedStderr, describeDockerFailure } from "#core/lib/actions/docker-error.ts";
 import { buildComposeLogsArgs } from "#core/lib/docker/args.ts";
 import type { RunDocker } from "#core/lib/docker/client.ts";
 import { withLogGroup } from "#core/lib/actions/log.ts";
@@ -86,9 +86,9 @@ function readBuilderState(
 /** Anything other than the expected missing container is worth seeing, even
  *  though the compose failure is what gets reported. */
 function reportInspectFailure(e: unknown): void {
-  const stderr = ((e && typeof e === "object" ? e : {}) as DockerErrorLike).stderr ?? "";
-  if (stderr.trim() && !/no such object/i.test(stderr)) {
-    console.log(`buildcage: could not read the builder container's state: ${stderr.trim()}`);
+  const stderr = capturedStderr(e);
+  if (stderr && !/no such object/i.test(stderr)) {
+    console.log(`buildcage: could not read the builder container's state: ${stderr}`);
   }
 }
 
