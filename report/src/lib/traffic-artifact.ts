@@ -43,9 +43,12 @@ const uploadViaActionsArtifact: UploadArtifact = async (name, files, rootDirecto
 };
 /* v8 ignore stop */
 
-/** `fileExists`/`upload` are injectable so tests can assert on the arguments
- *  instead of mocking node:fs and @actions/artifact directly. */
-export interface UploadTrafficArtifactDeps {
+export interface UploadTrafficArtifactOptions {
+  /** False when report-action.js died before it could write the file, so its
+   *  absence says nothing about the engine. */
+  reportScriptFinished?: boolean;
+  /** `fileExists`/`upload` are injectable so tests can assert on the arguments
+   *  instead of mocking node:fs and @actions/artifact directly. */
   fileExists?: (file: string) => boolean;
   upload?: UploadArtifact;
 }
@@ -57,14 +60,20 @@ export interface UploadTrafficArtifactDeps {
 export async function uploadTrafficArtifact(
   file: string,
   builderName: string,
-  { fileExists = existsSync, upload = uploadViaActionsArtifact }: UploadTrafficArtifactDeps = {},
+  {
+    reportScriptFinished = true,
+    fileExists = existsSync,
+    upload = uploadViaActionsArtifact,
+  }: UploadTrafficArtifactOptions = {},
 ): Promise<void> {
-  // Only the inspect engine writes the file.
   if (!fileExists(file)) {
-    annotate.warning(
-      "upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
-        "Only proxy_engine: inspect does.",
-    );
+    // Only the inspect engine writes the file.
+    if (reportScriptFinished) {
+      annotate.warning(
+        "upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
+          "Only proxy_engine: inspect does.",
+      );
+    }
     return;
   }
   const days = Number(core.getInput("traffic_artifact_retention_days") || "");

@@ -56139,9 +56139,9 @@ const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => 
 	let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
 	return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
 };
-async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
+async function uploadTrafficArtifact(file, builderName, { reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
 	if (!fileExists(file)) {
-		annotate.warning("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
+		reportScriptFinished && annotate.warning("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
 		return;
 	}
 	let days = Number(getInput("traffic_artifact_retention_days") || ""), name = artifactName(builderName);
@@ -56154,7 +56154,7 @@ async function uploadTrafficArtifact(file, builderName, { fileExists = node_fs.e
 //#endregion
 //#region report/src/main.ts
 async function main() {
-	let builderName = readBuilderName(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile;
+	let builderName = readBuilderName(), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile, reportScriptFinished = !1;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		try {
@@ -56173,14 +56173,12 @@ async function main() {
 			});
 		} catch (e) {
 			let status = e.status;
-			if (typeof status == "number") {
-				process.exitCode = status;
-				return;
-			}
-			throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
+			if (typeof status != "number") throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
+			process.exitCode = status;
 		}
+		reportScriptFinished = !0;
 	} finally {
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName), (0, node_fs.rmSync)(scratchDir, {
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, { reportScriptFinished }), (0, node_fs.rmSync)(scratchDir, {
 			recursive: !0,
 			force: !0
 		});

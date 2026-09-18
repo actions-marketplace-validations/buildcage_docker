@@ -42,6 +42,7 @@ async function main(): Promise<void> {
   // The path is handed to the script, so only a file this step created is
   // ever uploaded. Only the inspect engine writes it.
   let trafficFile: string | undefined;
+  let reportScriptFinished = false;
   try {
     const reportActionPath = join(scratchDir, "report-action.js");
 
@@ -66,22 +67,24 @@ async function main(): Promise<void> {
         env: trafficFile ? { ...process.env, BUILDCAGE_TRAFFIC_FILE: trafficFile } : process.env,
       });
     } catch (e) {
-      // A numeric exit status means report-action.js ran and already
-      // explained itself via its own inherited stdio — just reproduce it.
       const status = (e as { status?: number | null }).status;
-      if (typeof status === "number") {
-        process.exitCode = status;
-        return;
+      if (typeof status !== "number") {
+        throw new ReportError(
+          `Failed to run report-action.js: ${errorMessage(e)}`,
+          "REPORT_SCRIPT_FAILED",
+        );
       }
-      throw new ReportError(
-        `Failed to run report-action.js: ${errorMessage(e)}`,
-        "REPORT_SCRIPT_FAILED",
-      );
+      // A numeric exit status means report-action.js ran and already
+      // explained itself via its own inherited stdio, so just reproduce it.
+      process.exitCode = status;
     }
+    reportScriptFinished = true;
   } finally {
-    // Uploaded from here so every path the script reached keeps the artifact;
+    // Uploaded from here so every path that ran the script keeps the file:
     // a failing run is when it is most wanted.
-    if (trafficFile) await uploadTrafficArtifact(trafficFile, builderName);
+    if (trafficFile) {
+      await uploadTrafficArtifact(trafficFile, builderName, { reportScriptFinished });
+    }
     rmSync(scratchDir, { recursive: true, force: true });
   }
 }
