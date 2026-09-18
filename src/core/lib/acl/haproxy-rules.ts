@@ -110,7 +110,11 @@ export interface CompiledRuleSet {
   http: CompiledRule[];
   ip: CompiledIpRule[];
   tls: CompiledTlsRule[];
-  /** Rules that could not be honoured in full, for the caller to surface. */
+  /**
+   * Rules that could not be honoured in full, for the caller to surface. Only
+   * IP rules reach this list: a host, TLS or URL rule that will not compile
+   * throws instead, which stops the proxy from starting at all.
+   */
   warnings: string[];
 }
 
