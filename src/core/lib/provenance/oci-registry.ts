@@ -1,24 +1,19 @@
 /**
- * oci-registry.ts — OCI registry I/O helpers
+ * oci-registry.ts — OCI registry transport, auth and manifest reads
  *
  * All errors are thrown as VerifyImageError (see errors.ts).
  * Callers do not need to catch and re-wrap; just let them propagate.
  */
 
-import { readFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { VerifyImageError } from "./errors.ts";
 import { errorMessage } from "../errors.ts";
-
-const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
 
 /** Appended to every 401/403 message: the status alone reads as a bug in the
  *  action, when by far the likeliest cause is an unauthenticated runner. */
 const PRIVATE_REPO_HINT =
   "For private repositories, ensure the runner is authenticated to the registry.";
 
-interface OciDescriptor {
+export interface OciDescriptor {
   mediaType?: string;
   artifactType?: string;
   digest: string;
@@ -40,11 +35,9 @@ const INDEX_MEDIA_TYPES = [
  * -- a DNS failure, a socket reset, a malformed JSON body -- into a transient
  * one naming what was being fetched.
  *
- * Every call in this module needs exactly this, and had its own copy: eight
- * identical catch blocks differing only in the phrase after "Transient error".
- * `what` is that phrase, e.g. "fetching bundle blob".
+ * `what` is the phrase after "Transient error", e.g. "fetching bundle blob".
  */
-async function withRegistryErrors<T>(what: string, fn: () => Promise<T>): Promise<T> {
+export async function withRegistryErrors<T>(what: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
@@ -52,6 +45,9 @@ async function withRegistryErrors<T>(what: string, fn: () => Promise<T>): Promis
     throw new VerifyImageError(`Transient error ${what}: ${errorMessage(err)}`, "TRANSIENT");
   }
 }
+
+/** How a non-ok response with no more specific reading is classified. */
+export type RegistryFailure = "TRANSIENT" | "NOT_FOUND";
 
 /**
  * The response-status ladder every registry call needs, in one place.
@@ -63,10 +59,10 @@ async function withRegistryErrors<T>(what: string, fn: () => Promise<T>): Promis
  * particular status as something more specific checks for it before calling
  * this.
  */
-function assertRegistryOk(
+export function assertRegistryOk(
   resp: FetchLikeResponse,
   subject: string,
-  onFailure: "TRANSIENT" | "NOT_FOUND",
+  onFailure: RegistryFailure,
 ): void {
   if (resp.status >= 500) {
     throw new VerifyImageError(
@@ -106,35 +102,66 @@ export interface FetchInit {
 
 export type FetchLike = (url: string, init?: FetchInit) => Promise<FetchLikeResponse>;
 
-// Narrowed to the one overload of node:fs's readFileSync this module actually
-// calls, so tests can pass a simple stub instead of the fully overloaded type.
-export type ReadFileSyncLike = (path: string, encoding: string) => string;
-
 /**
- * Read the base64 Basic-auth credential for ghcr.io from Docker's config.json.
- * Returns the raw `auth` string (base64) if found, or null if not logged in.
- * Credential helpers (credsStore/credHelpers) are not supported — only direct
- * base64 auth written by `docker login` / `docker/login-action` is detected.
+ * One repository's API endpoint with a pull token attached. Everything that
+ * reads from the registry goes through it, so the base URL, the Authorization
+ * header and the injected fetch are held once rather than threaded through
+ * every call.
  */
-export function readGhcrBasicAuth(
-  _env: NodeJS.ProcessEnv = process.env,
-  _readFileSync: ReadFileSyncLike = readFileSync as ReadFileSyncLike,
-): string | null {
-  try {
-    const configDir = _env.DOCKER_CONFIG ?? path.join(os.homedir(), ".docker");
-    const config: { auths?: Record<string, { auth?: string }> } = JSON.parse(
-      _readFileSync(path.join(configDir, "config.json"), "utf8"),
-    );
-    for (const [key, value] of Object.entries(config.auths ?? {})) {
-      const normalized = key.replace(/^https?:\/\//, "").replace(/\/$/, "");
-      if (normalized === "ghcr.io" && typeof value.auth === "string" && value.auth) {
-        return value.auth;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+export interface RegistryClient {
+  /**
+   * GET a JSON document under the repository, e.g. `/manifests/<digest>`.
+   * `what` names it in any error.
+   */
+  getJson(
+    path: string,
+    what: string,
+    opts?: {
+      /** Media types to negotiate, where the endpoint needs narrowing. */
+      accept?: string;
+      /** How a non-ok response reads, a 404 aside. Defaults to TRANSIENT. */
+      onFailure?: RegistryFailure;
+      /**
+       * Read a 404 as the document simply being absent. Defaults to true; pass
+       * false where the registry has already pointed at the document, so a 404
+       * contradicts it rather than answering.
+       */
+      absentOn404?: boolean;
+    },
+  ): Promise<any>;
+  /** Fetch a path, leaving the response to a caller with its own status ladder. */
+  request(path: string, init?: { method?: string; accept?: string }): Promise<FetchLikeResponse>;
+}
+
+export function registryClient(
+  registry: string,
+  repo: string,
+  token: string,
+  _fetch: FetchLike,
+): RegistryClient {
+  const api = `https://${registry}/v2/${repo}`;
+  const authorization = `Bearer ${token}`;
+
+  const request: RegistryClient["request"] = (path, init = {}) =>
+    _fetch(`${api}${path}`, {
+      method: init.method,
+      headers: init.accept
+        ? { Authorization: authorization, Accept: init.accept }
+        : { Authorization: authorization },
+    });
+
+  return {
+    request,
+    getJson: (path, what, opts = {}) =>
+      withRegistryErrors(`fetching ${what}`, async () => {
+        const resp = await request(path, { accept: opts.accept });
+        if (resp.status === 404 && opts.absentOn404 !== false) {
+          throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
+        }
+        assertRegistryOk(resp, what, opts.onFailure ?? "TRANSIENT");
+        return await resp.json!();
+      }),
+  };
 }
 
 /**
@@ -151,32 +178,29 @@ export async function fetchManifestDigest(
   token: string,
   _fetch: FetchLike = fetch,
 ): Promise<string> {
-  const url = `https://${registry}/v2/${repo}/manifests/${tag}`;
-  // Accept only index/manifest-list types so the registry returns the image index
-  // digest — not a per-platform manifest digest. The Sigstore bundle is signed
-  // against the index digest, so content-negotiating down to a platform manifest
-  // would cause the bundle lookup to fail.
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: INDEX_MEDIA_TYPES.join(", "),
-  };
+  const client = registryClient(registry, repo, token, _fetch);
+  const image = `${registry}/${repo}:${tag}`;
 
-  return withRegistryErrors(`fetching manifest digest for ${registry}/${repo}:${tag}`, async () => {
-    const resp = await _fetch(url, { method: "HEAD", headers });
+  return withRegistryErrors(`fetching manifest digest for ${image}`, async () => {
+    // Accept only index/manifest-list types so the registry returns the image index
+    // digest — not a per-platform manifest digest. The Sigstore bundle is signed
+    // against the index digest, so content-negotiating down to a platform manifest
+    // would cause the bundle lookup to fail.
+    const resp = await client.request(`/manifests/${tag}`, {
+      method: "HEAD",
+      accept: INDEX_MEDIA_TYPES.join(", "),
+    });
     if (resp.status === 404) {
       throw new VerifyImageError(
-        `Docker image not found: ${registry}/${repo}:${tag}. ` +
+        `Docker image not found: ${image}. ` +
           `Make sure the action ref corresponds to a published release.`,
         "NOT_FOUND",
       );
     }
-    assertRegistryOk(resp, `manifest for ${registry}/${repo}:${tag}`, "TRANSIENT");
+    assertRegistryOk(resp, `manifest for ${image}`, "TRANSIENT");
     const digest = resp.headers!.get("Docker-Content-Digest");
     if (!digest) {
-      throw new VerifyImageError(
-        `No digest in manifest response for ${registry}/${repo}:${tag}`,
-        "TRANSIENT",
-      );
+      throw new VerifyImageError(`No digest in manifest response for ${image}`, "TRANSIENT");
     }
     return digest;
   });
@@ -196,17 +220,12 @@ export async function fetchImageConfigLabels(
   token: string,
   _fetch: FetchLike = fetch,
 ): Promise<Record<string, string>> {
-  const api = `https://${registry}/v2/${repo}`;
-  const headers = { Authorization: `Bearer ${token}` };
+  const client = registryClient(registry, repo, token, _fetch);
   const image = `${registry}/${repo}@${digest}`;
 
-  const accept = [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", ");
-  const root = await fetchRegistryJson(
-    `${api}/manifests/${digest}`,
-    { ...headers, Accept: accept },
-    `manifest for ${image}`,
-    _fetch,
-  );
+  const root = await client.getJson(`/manifests/${digest}`, `manifest for ${image}`, {
+    accept: [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", "),
+  });
 
   let manifest = root;
   if (Array.isArray(root.manifests)) {
@@ -218,11 +237,10 @@ export async function fetchImageConfigLabels(
     if (!platform) {
       throw new VerifyImageError(`No platform manifest in image index ${image}`, "NOT_FOUND");
     }
-    manifest = await fetchRegistryJson(
-      `${api}/manifests/${platform.digest}`,
-      { ...headers, Accept: MANIFEST_MEDIA_TYPES.join(", ") },
+    manifest = await client.getJson(
+      `/manifests/${platform.digest}`,
       `platform manifest for ${image}`,
-      _fetch,
+      { accept: MANIFEST_MEDIA_TYPES.join(", ") },
     );
   }
 
@@ -230,30 +248,8 @@ export async function fetchImageConfigLabels(
   if (!configDigest) {
     throw new VerifyImageError(`No image config in manifest for ${image}`, "NOT_FOUND");
   }
-  const config = await fetchRegistryJson(
-    `${api}/blobs/${configDigest}`,
-    headers,
-    `image config for ${image}`,
-    _fetch,
-  );
+  const config = await client.getJson(`/blobs/${configDigest}`, `image config for ${image}`);
   return config.config?.Labels ?? {};
-}
-
-/** GET a registry JSON document, mapping response statuses onto VerifyImageError. */
-async function fetchRegistryJson(
-  url: string,
-  headers: Record<string, string>,
-  what: string,
-  _fetch: FetchLike,
-): Promise<any> {
-  return withRegistryErrors(`fetching ${what}`, async () => {
-    const resp = await _fetch(url, { headers });
-    if (resp.status === 404) {
-      throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
-    }
-    assertRegistryOk(resp, what, "TRANSIENT");
-    return await resp.json!();
-  });
 }
 
 /**
@@ -298,188 +294,5 @@ export async function fetchRegistryToken(
             `(or use docker/login-action with 'packages: read') before this action.`,
       "TOKEN_ERROR",
     );
-  });
-}
-
-/** The one answer three different dead ends give, so it is worded once. */
-function noBundleFound(digest: string): VerifyImageError {
-  return new VerifyImageError(
-    `No Sigstore bundle found for digest ${digest}. ` +
-      `The image may not have been signed with --new-bundle-format.`,
-    "NOT_FOUND",
-  );
-}
-
-/**
- * Ask the OCI 1.1 Referrers API for the bundle.
- *
- * Wrapped rather than returned bare: a registry that answered without a
- * matching artifactType has not said the bundle is absent, only that it does
- * not index it, and the caller has another place to look. Undefined says that;
- * a wrapper keeps it from being confused with a bundle.
- */
-async function bundleFromReferrers(
-  api: string,
-  digest: string,
-  headers: Record<string, string>,
-  _fetch: FetchLike,
-): Promise<{ bundle: unknown } | undefined> {
-  return withRegistryErrors("fetching referrers", async () => {
-    const resp = await _fetch(
-      `${api}/referrers/${digest}?artifactType=${encodeURIComponent(BUNDLE_MEDIA_TYPE)}`,
-      { headers },
-    );
-    // Not assertRegistryOk: a registry with no Referrers API answers 404 or
-    // 405, and that is not a failure here -- only a 5xx leaves it unknown
-    // whether it would have had one.
-    if (resp.status >= 500) {
-      throw new VerifyImageError(
-        `Transient error from referrers API: HTTP ${resp.status}`,
-        "TRANSIENT",
-      );
-    }
-    if (!resp.ok) return undefined;
-    const referrers = await resp.json!();
-    const manifest = (referrers.manifests ?? []).find(
-      (m: OciDescriptor) => m.artifactType === BUNDLE_MEDIA_TYPE,
-    );
-    if (!manifest) return undefined;
-    // Awaiting here relabels nothing: fetchBundleFromManifestDigest has its
-    // own withRegistryErrors, so it only ever rejects with a VerifyImageError,
-    // which passes through.
-    return { bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch) };
-  });
-}
-
-/**
- * Ask the sha256-<hex> tag scheme for the bundle.
- *
- * The OCI Referrers Tag Schema represents this as an OCI Image Index whose
- * manifests[] entries point to individual referrer artifacts (as served by
- * registries such as GHCR). Both that and the legacy
- * direct-manifest-with-layers format are accepted.
- */
-async function bundleFromFallbackTag(
-  api: string,
-  digest: string,
-  headers: Record<string, string>,
-  _fetch: FetchLike,
-): Promise<unknown> {
-  return withRegistryErrors("fetching fallback tag", async () => {
-    const resp = await _fetch(`${api}/manifests/${digest.replace(":", "-")}`, {
-      headers: {
-        ...headers,
-        Accept: [
-          "application/vnd.oci.image.index.v1+json",
-          "application/vnd.oci.image.manifest.v1+json",
-        ].join(", "),
-      },
-    });
-
-    // 404: tag doesn't exist. 400: some registries return Bad Request instead of
-    // 404 when the sha256-<hex> tag name is unrecognised (e.g. no Referrers tag
-    // support at all). Treat both as "no bundle" rather than a transient error.
-    if (resp.status === 404 || resp.status === 400) throw noBundleFound(digest);
-    assertRegistryOk(resp, "fallback tag", "NOT_FOUND");
-
-    const tagManifest = await resp.json!();
-
-    // OCI Referrers Tag Schema: the tag is an Image Index whose manifests[] entries
-    // are descriptors for individual referrer artifacts.
-    if (Array.isArray(tagManifest.manifests)) {
-      for (const m of tagManifest.manifests as OciDescriptor[]) {
-        if (m.mediaType !== "application/vnd.oci.image.manifest.v1+json") continue;
-        // Standard: m.artifactType matches directly.
-        if (m.artifactType === BUNDLE_MEDIA_TYPE) {
-          return fetchBundleFromManifestDigest(api, m.digest, headers, _fetch);
-        }
-        // Per the OCI Distribution Spec, a referrer descriptor's artifactType falls back to the
-        // manifest's config.mediaType when the manifest has no top-level artifactType. As a result
-        // the descriptor may carry the empty-config type ("application/vnd.oci.empty.v1+json")
-        // rather than the bundle type (observed with GHCR). This is a spec-valid fallback, so resolve
-        // the real type by inspecting the sub-manifest's own artifactType / layer mediaType.
-        const subResp = await _fetch(`${api}/manifests/${m.digest}`, {
-          headers: {
-            ...headers,
-            Accept: "application/vnd.oci.image.manifest.v1+json",
-          },
-        });
-        if (!subResp.ok) continue;
-        const sub = await subResp.json!();
-        if (sub.artifactType !== BUNDLE_MEDIA_TYPE) continue;
-        const layer = (sub.layers ?? []).find(
-          (l: OciDescriptor) => l.mediaType === BUNDLE_MEDIA_TYPE,
-        );
-        if (!layer) continue;
-        return fetchBundleBlob(api, layer.digest, headers, _fetch);
-      }
-      throw noBundleFound(digest);
-    }
-
-    // Legacy format: the bundle is stored directly as a layer in the manifest.
-    const layer = (tagManifest.layers ?? []).find(
-      (l: OciDescriptor) => l.mediaType === BUNDLE_MEDIA_TYPE,
-    );
-    if (!layer) throw noBundleFound(digest);
-    return fetchBundleBlob(api, layer.digest, headers, _fetch);
-  });
-}
-
-/**
- * Pull the Sigstore Bundle from the OCI registry.
- * Tries the OCI 1.1 Referrers API first; falls back to the sha256-<hex> tag scheme.
- *
- * Throws VerifyImageError(NOT_FOUND) when no bundle exists for this digest.
- * Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
- */
-export async function fetchBundle(
-  registry: string,
-  repo: string,
-  digest: string,
-  token: string,
-  _fetch: FetchLike = fetch,
-): Promise<unknown> {
-  const api = `https://${registry}/v2/${repo}`;
-  const headers = { Authorization: `Bearer ${token}` };
-
-  const fromReferrers = await bundleFromReferrers(api, digest, headers, _fetch);
-  if (fromReferrers) return fromReferrers.bundle;
-  return bundleFromFallbackTag(api, digest, headers, _fetch);
-}
-
-// Fetch an OCI image manifest by digest, then fetch the bundle blob from its first
-// layer with mediaType === BUNDLE_MEDIA_TYPE.
-async function fetchBundleFromManifestDigest(
-  api: string,
-  manifestDigest: string,
-  headers: Record<string, string>,
-  _fetch: FetchLike = fetch,
-): Promise<unknown> {
-  return withRegistryErrors("fetching bundle manifest", async () => {
-    const resp = await _fetch(`${api}/manifests/${manifestDigest}`, {
-      headers: { ...headers, Accept: "application/vnd.oci.image.manifest.v1+json" },
-    });
-    assertRegistryOk(resp, "bundle manifest", "TRANSIENT");
-    const manifest = await resp.json!();
-    const layer = (manifest.layers ?? []).find(
-      (l: OciDescriptor) => l.mediaType === BUNDLE_MEDIA_TYPE,
-    );
-    if (!layer) {
-      throw new VerifyImageError("No Sigstore bundle layer found in bundle manifest", "NOT_FOUND");
-    }
-    return fetchBundleBlob(api, layer.digest, headers, _fetch);
-  });
-}
-
-async function fetchBundleBlob(
-  api: string,
-  blobDigest: string,
-  headers: Record<string, string>,
-  _fetch: FetchLike = fetch,
-): Promise<unknown> {
-  return withRegistryErrors("fetching bundle blob", async () => {
-    const resp = await _fetch(`${api}/blobs/${blobDigest}`, { headers });
-    assertRegistryOk(resp, "bundle blob", "NOT_FOUND");
-    return resp.json!();
   });
 }

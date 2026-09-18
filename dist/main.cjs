@@ -554,7 +554,7 @@ var VerifyImageError = class extends Error {
 }, ProvenanceError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/provenance/oci-registry.ts
-const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json", MANIFEST_MEDIA_TYPES = ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"], INDEX_MEDIA_TYPES = ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"];
+const MANIFEST_MEDIA_TYPES = ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"], INDEX_MEDIA_TYPES = ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"];
 async function withRegistryErrors(what, fn) {
 	try {
 		return await fn();
@@ -567,55 +567,47 @@ function assertRegistryOk(resp, subject, onFailure) {
 	if (resp.status === 401 || resp.status === 403) throw new VerifyImageError(`Registry denied access to ${subject}: HTTP ${resp.status}. For private repositories, ensure the runner is authenticated to the registry.`, "TRANSIENT");
 	if (!resp.ok) throw new VerifyImageError(`Failed to fetch ${subject}: HTTP ${resp.status}`, onFailure);
 }
-function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileSync) {
-	try {
-		let configDir = _env.DOCKER_CONFIG ?? node_path.default.join(node_os.default.homedir(), ".docker"), config = JSON.parse(_readFileSync(node_path.default.join(configDir, "config.json"), "utf8"));
-		for (let [key, value] of Object.entries(config.auths ?? {})) if (key.replace(/^https?:\/\//, "").replace(/\/$/, "") === "ghcr.io" && typeof value.auth == "string" && value.auth) return value.auth;
-		return null;
-	} catch {
-		return null;
-	}
+function registryClient(registry, repo, token, _fetch) {
+	let api = `https://${registry}/v2/${repo}`, authorization = `Bearer ${token}`, request = (path, init = {}) => _fetch(`${api}${path}`, {
+		method: init.method,
+		headers: init.accept ? {
+			Authorization: authorization,
+			Accept: init.accept
+		} : { Authorization: authorization }
+	});
+	return {
+		request,
+		getJson: (path, what, opts = {}) => withRegistryErrors(`fetching ${what}`, async () => {
+			let resp = await request(path, { accept: opts.accept });
+			if (resp.status === 404 && opts.absentOn404 !== !1) throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
+			return assertRegistryOk(resp, what, opts.onFailure ?? "TRANSIENT"), await resp.json();
+		})
+	};
 }
 async function fetchManifestDigest(registry, repo, tag, token, _fetch = fetch) {
-	let url = `https://${registry}/v2/${repo}/manifests/${tag}`, headers = {
-		Authorization: `Bearer ${token}`,
-		Accept: INDEX_MEDIA_TYPES.join(", ")
-	};
-	return withRegistryErrors(`fetching manifest digest for ${registry}/${repo}:${tag}`, async () => {
-		let resp = await _fetch(url, {
+	let client = registryClient(registry, repo, token, _fetch), image = `${registry}/${repo}:${tag}`;
+	return withRegistryErrors(`fetching manifest digest for ${image}`, async () => {
+		let resp = await client.request(`/manifests/${tag}`, {
 			method: "HEAD",
-			headers
+			accept: INDEX_MEDIA_TYPES.join(", ")
 		});
-		if (resp.status === 404) throw new VerifyImageError(`Docker image not found: ${registry}/${repo}:${tag}. Make sure the action ref corresponds to a published release.`, "NOT_FOUND");
-		assertRegistryOk(resp, `manifest for ${registry}/${repo}:${tag}`, "TRANSIENT");
+		if (resp.status === 404) throw new VerifyImageError(`Docker image not found: ${image}. Make sure the action ref corresponds to a published release.`, "NOT_FOUND");
+		assertRegistryOk(resp, `manifest for ${image}`, "TRANSIENT");
 		let digest = resp.headers.get("Docker-Content-Digest");
-		if (!digest) throw new VerifyImageError(`No digest in manifest response for ${registry}/${repo}:${tag}`, "TRANSIENT");
+		if (!digest) throw new VerifyImageError(`No digest in manifest response for ${image}`, "TRANSIENT");
 		return digest;
 	});
 }
 async function fetchImageConfigLabels(registry, repo, digest, token, _fetch = fetch) {
-	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, image = `${registry}/${repo}@${digest}`, accept = [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", "), root = await fetchRegistryJson(`${api}/manifests/${digest}`, {
-		...headers,
-		Accept: accept
-	}, `manifest for ${image}`, _fetch), manifest = root;
+	let client = registryClient(registry, repo, token, _fetch), image = `${registry}/${repo}@${digest}`, root = await client.getJson(`/manifests/${digest}`, `manifest for ${image}`, { accept: [...INDEX_MEDIA_TYPES, ...MANIFEST_MEDIA_TYPES].join(", ") }), manifest = root;
 	if (Array.isArray(root.manifests)) {
 		let platform = root.manifests.find((m) => m.platform?.os && m.platform.os !== "unknown");
 		if (!platform) throw new VerifyImageError(`No platform manifest in image index ${image}`, "NOT_FOUND");
-		manifest = await fetchRegistryJson(`${api}/manifests/${platform.digest}`, {
-			...headers,
-			Accept: MANIFEST_MEDIA_TYPES.join(", ")
-		}, `platform manifest for ${image}`, _fetch);
+		manifest = await client.getJson(`/manifests/${platform.digest}`, `platform manifest for ${image}`, { accept: MANIFEST_MEDIA_TYPES.join(", ") });
 	}
 	let configDigest = manifest.config?.digest;
 	if (!configDigest) throw new VerifyImageError(`No image config in manifest for ${image}`, "NOT_FOUND");
-	return (await fetchRegistryJson(`${api}/blobs/${configDigest}`, headers, `image config for ${image}`, _fetch)).config?.Labels ?? {};
-}
-async function fetchRegistryJson(url, headers, what, _fetch) {
-	return withRegistryErrors(`fetching ${what}`, async () => {
-		let resp = await _fetch(url, { headers });
-		if (resp.status === 404) throw new VerifyImageError(`Not found: ${what}`, "NOT_FOUND");
-		return assertRegistryOk(resp, what, "TRANSIENT"), await resp.json();
-	});
+	return (await client.getJson(`/blobs/${configDigest}`, `image config for ${image}`)).config?.Labels ?? {};
 }
 async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
 	let url = `https://${registry}/token?scope=repository:${repo}:pull&service=${registry}`;
@@ -626,69 +618,73 @@ async function fetchRegistryToken(registry, repo, basicAuth, _fetch = fetch) {
 		throw new VerifyImageError(basicAuth ? `Registry authentication failed: HTTP ${resp.status}. The credentials in Docker config may be expired — run \`docker login ${registry}\` again.` : `Failed to get registry token: HTTP ${resp.status}. The package may be private. Run \`docker login ${registry}\` (or use docker/login-action with 'packages: read') before this action.`, "TOKEN_ERROR");
 	});
 }
+//#endregion
+//#region src/core/lib/provenance/oci-bundle.ts
+const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json", IMAGE_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json";
+async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
+	let client = registryClient(registry, repo, token, _fetch), fromReferrers = await bundleFromReferrers(client, digest);
+	return fromReferrers ? fromReferrers.bundle : bundleFromFallbackTag(client, digest);
+}
 function noBundleFound(digest) {
 	return new VerifyImageError(`No Sigstore bundle found for digest ${digest}. The image may not have been signed with --new-bundle-format.`, "NOT_FOUND");
 }
-async function bundleFromReferrers(api, digest, headers, _fetch) {
+async function bundleFromReferrers(client, digest) {
 	return withRegistryErrors("fetching referrers", async () => {
-		let resp = await _fetch(`${api}/referrers/${digest}?artifactType=application%2Fvnd.dev.sigstore.bundle.v0.3%2Bjson`, { headers });
+		let resp = await client.request(`/referrers/${digest}?artifactType=application%2Fvnd.dev.sigstore.bundle.v0.3%2Bjson`);
 		if (resp.status >= 500) throw new VerifyImageError(`Transient error from referrers API: HTTP ${resp.status}`, "TRANSIENT");
 		if (!resp.ok) return;
 		let manifest = ((await resp.json()).manifests ?? []).find((m) => m.artifactType === BUNDLE_MEDIA_TYPE);
-		if (manifest) return { bundle: await fetchBundleFromManifestDigest(api, manifest.digest, headers, _fetch) };
+		if (manifest) return { bundle: await bundleFromManifest(client, manifest.digest) };
 	});
 }
-async function bundleFromFallbackTag(api, digest, headers, _fetch) {
+async function bundleFromFallbackTag(client, digest) {
 	return withRegistryErrors("fetching fallback tag", async () => {
-		let resp = await _fetch(`${api}/manifests/${digest.replace(":", "-")}`, { headers: {
-			...headers,
-			Accept: ["application/vnd.oci.image.index.v1+json", "application/vnd.oci.image.manifest.v1+json"].join(", ")
-		} });
+		let resp = await client.request(`/manifests/${digest.replace(":", "-")}`, { accept: ["application/vnd.oci.image.index.v1+json", IMAGE_MANIFEST_MEDIA_TYPE].join(", ") });
 		if (resp.status === 404 || resp.status === 400) throw noBundleFound(digest);
 		assertRegistryOk(resp, "fallback tag", "NOT_FOUND");
 		let tagManifest = await resp.json();
 		if (Array.isArray(tagManifest.manifests)) {
 			for (let m of tagManifest.manifests) {
-				if (m.mediaType !== "application/vnd.oci.image.manifest.v1+json") continue;
-				if (m.artifactType === BUNDLE_MEDIA_TYPE) return fetchBundleFromManifestDigest(api, m.digest, headers, _fetch);
-				let subResp = await _fetch(`${api}/manifests/${m.digest}`, { headers: {
-					...headers,
-					Accept: "application/vnd.oci.image.manifest.v1+json"
-				} });
+				if (m.mediaType !== IMAGE_MANIFEST_MEDIA_TYPE) continue;
+				if (m.artifactType === BUNDLE_MEDIA_TYPE) return bundleFromManifest(client, m.digest);
+				let subResp = await client.request(`/manifests/${m.digest}`, { accept: IMAGE_MANIFEST_MEDIA_TYPE });
 				if (!subResp.ok) continue;
 				let sub = await subResp.json();
 				if (sub.artifactType !== BUNDLE_MEDIA_TYPE) continue;
 				let layer = (sub.layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
-				if (layer) return fetchBundleBlob(api, layer.digest, headers, _fetch);
+				if (layer) return bundleBlob(client, layer.digest);
 			}
 			throw noBundleFound(digest);
 		}
 		let layer = (tagManifest.layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
 		if (!layer) throw noBundleFound(digest);
-		return fetchBundleBlob(api, layer.digest, headers, _fetch);
+		return bundleBlob(client, layer.digest);
 	});
 }
-async function fetchBundle(registry, repo, digest, token, _fetch = fetch) {
-	let api = `https://${registry}/v2/${repo}`, headers = { Authorization: `Bearer ${token}` }, fromReferrers = await bundleFromReferrers(api, digest, headers, _fetch);
-	return fromReferrers ? fromReferrers.bundle : bundleFromFallbackTag(api, digest, headers, _fetch);
+async function bundleFromManifest(client, manifestDigest) {
+	let layer = ((await client.getJson(`/manifests/${manifestDigest}`, "bundle manifest", {
+		accept: IMAGE_MANIFEST_MEDIA_TYPE,
+		absentOn404: !1
+	})).layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
+	if (!layer) throw new VerifyImageError("No Sigstore bundle layer found in bundle manifest", "NOT_FOUND");
+	return bundleBlob(client, layer.digest);
 }
-async function fetchBundleFromManifestDigest(api, manifestDigest, headers, _fetch = fetch) {
-	return withRegistryErrors("fetching bundle manifest", async () => {
-		let resp = await _fetch(`${api}/manifests/${manifestDigest}`, { headers: {
-			...headers,
-			Accept: "application/vnd.oci.image.manifest.v1+json"
-		} });
-		assertRegistryOk(resp, "bundle manifest", "TRANSIENT");
-		let layer = ((await resp.json()).layers ?? []).find((l) => l.mediaType === BUNDLE_MEDIA_TYPE);
-		if (!layer) throw new VerifyImageError("No Sigstore bundle layer found in bundle manifest", "NOT_FOUND");
-		return fetchBundleBlob(api, layer.digest, headers, _fetch);
+function bundleBlob(client, blobDigest) {
+	return client.getJson(`/blobs/${blobDigest}`, "bundle blob", {
+		onFailure: "NOT_FOUND",
+		absentOn404: !1
 	});
 }
-async function fetchBundleBlob(api, blobDigest, headers, _fetch = fetch) {
-	return withRegistryErrors("fetching bundle blob", async () => {
-		let resp = await _fetch(`${api}/blobs/${blobDigest}`, { headers });
-		return assertRegistryOk(resp, "bundle blob", "NOT_FOUND"), resp.json();
-	});
+//#endregion
+//#region src/core/lib/provenance/docker-credentials.ts
+function readGhcrBasicAuth(_env = process.env, _readFileSync = node_fs.readFileSync) {
+	try {
+		let configDir = _env.DOCKER_CONFIG ?? node_path.default.join(node_os.default.homedir(), ".docker"), config = JSON.parse(_readFileSync(node_path.default.join(configDir, "config.json"), "utf8"));
+		for (let [key, value] of Object.entries(config.auths ?? {})) if (key.replace(/^https?:\/\//, "").replace(/\/$/, "") === "ghcr.io" && typeof value.auth == "string" && value.auth) return value.auth;
+		return null;
+	} catch {
+		return null;
+	}
 }
 //#endregion
 //#region node_modules/.pnpm/@sigstore+protobuf-specs@0.5.1/node_modules/@sigstore/protobuf-specs/dist/__generated__/envelope.js
