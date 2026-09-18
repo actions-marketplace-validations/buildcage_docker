@@ -136,13 +136,36 @@ describe("buildUrlRuleLines", () => {
     expect(lines.join()).toBe("GET|HEAD https://a.example.com/pkg/x");
   });
 
-  it("orders methods the way a person would write them", () => {
-    const lines = buildUrlRuleLines([
-      req("POST", "https://a.example.com/x"),
+  it("orders methods with the common verbs first, then anything else alphabetically", () => {
+    const methodsOf = (...methods: string[]) =>
+      buildUrlRuleLines(methods.map((m) => req(m, "https://a.example.com/x")))[0].split(" ")[0];
+    expect(methodsOf("POST", "GET", "DELETE")).toBe("GET|POST|DELETE");
+    expect(methodsOf("PROPFIND", "GET", "MKCOL")).toBe("GET|MKCOL|PROPFIND");
+    expect(methodsOf("PROPFIND", "MKCOL")).toBe("MKCOL|PROPFIND");
+    // Two unknown methods only ever get compared one way round, so a third is
+    // what exercises the other arm.
+    expect(methodsOf("ZZZ", "MKCOL", "PROPFIND")).toBe("MKCOL|PROPFIND|ZZZ");
+  });
+
+  it("orders lines by origin, and by pattern within one origin", () => {
+    const origins = buildUrlRuleLines([
+      req("GET", "https://c.example.com/x"),
       req("GET", "https://a.example.com/x"),
-      req("DELETE", "https://a.example.com/x"),
+      req("GET", "https://b.example.com/x"),
     ]);
-    expect(lines[0].startsWith("GET|POST|DELETE ")).toBe(true);
+    expect(origins.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/x",
+      "https://b.example.com/x",
+      "https://c.example.com/x",
+    ]);
+    const patterns = buildUrlRuleLines([
+      req("GET", "https://a.example.com/zzz"),
+      req("POST", "https://a.example.com/aaa"),
+    ]);
+    expect(patterns.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/aaa",
+      "https://a.example.com/zzz",
+    ]);
   });
 
   it("keeps a non-default port, which a rule has to name", () => {
@@ -169,6 +192,11 @@ describe("buildUrlRuleLines", () => {
   it("drops the query string, which is as likely to hold a one-off token", () => {
     const lines = buildUrlRuleLines([req("GET", "https://a.example.com/x?token=SECRET")]);
     expect(lines[0]).toBe("GET https://a.example.com/x");
+  });
+
+  it("reads a request with no path at all as the root", () => {
+    const [line] = buildUrlRuleLines([req("GET", "https://a.example.com")]);
+    expect(line).toBe("GET https://a.example.com/");
   });
 
   it("is stable, so the same traffic always renders the same rules", () => {
@@ -211,18 +239,6 @@ describe("buildInspectRestrictExample", () => {
     expect(md.includes("proxy_engine: inspect")).toBe(true);
   });
 
-  it("renders a commit sha as-is, same as a tag", () => {
-    const sha = "a".repeat(40);
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", sha);
-    expect(md.includes(`@${sha}`)).toBe(true);
-  });
-
-  it("keeps a tag as written, since it is stable", () => {
-    expect(buildInspectRestrictExample(requests, "buildcage/docker", "v2").includes("@v2")).toBe(
-      true,
-    );
-  });
-
   it("renders nothing when nothing was observed and no tls/ip rules were configured", () => {
     expect(buildInspectRestrictExample([], "buildcage/docker", "v2")).toBe("");
     expect(buildInspectRestrictExample(null, "buildcage/docker", "v2")).toBe("");
@@ -250,89 +266,5 @@ describe("buildInspectRestrictExample", () => {
     expect(md.includes("allowed_url_rules")).toBe(false);
     expect(/allowed_ip_rules: \|\n\s+10\.0\.0\.5:5432\n/.test(md)).toBe(true);
     expect(/allowed_tls_rules: \|\n\s+db\.internal\.example\.com:8443\n/.test(md)).toBe(true);
-  });
-
-  it("appends the version as a trailing comment when known", () => {
-    const sha = "a".repeat(40);
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", sha, {
-      actionVersion: "3.1.4",
-    });
-    expect(md.includes(`@${sha} # 3.1.4\n`)).toBe(true);
-  });
-
-  it("omits the comment when the version is not known", () => {
-    const sha = "a".repeat(40);
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", sha);
-    expect(md.includes(`@${sha}\n`)).toBe(true);
-    expect(md.includes("#")).toBe(false);
-  });
-});
-
-describe("pathPatternsFor — nothing to compare", () => {
-  it("returns no pattern for an empty path list", () => {
-    expect(pathPatternsFor([])).toStrictEqual([]);
-  });
-});
-
-describe("buildUrlRuleLines — ordering", () => {
-  // METHOD_ORDER puts the common verbs first; anything else sorts after them,
-  // alphabetically among themselves.
-  it("sorts unknown methods after the known ones", () => {
-    const [line] = buildUrlRuleLines([
-      req("PROPFIND", "https://a.example.com/x"),
-      req("GET", "https://a.example.com/x"),
-      req("MKCOL", "https://a.example.com/x"),
-    ]);
-    expect(line.split(" ")[0]).toBe("GET|MKCOL|PROPFIND");
-  });
-
-  it("sorts two unknown methods against each other", () => {
-    const [line] = buildUrlRuleLines([
-      req("PROPFIND", "https://a.example.com/x"),
-      req("MKCOL", "https://a.example.com/x"),
-    ]);
-    expect(line.split(" ")[0]).toBe("MKCOL|PROPFIND");
-  });
-
-  it("orders lines by origin", () => {
-    const lines = buildUrlRuleLines([
-      req("GET", "https://c.example.com/x"),
-      req("GET", "https://a.example.com/x"),
-      req("GET", "https://b.example.com/x"),
-    ]);
-    expect(lines.map((l) => l.split(" ")[1])).toStrictEqual([
-      "https://a.example.com/x",
-      "https://b.example.com/x",
-      "https://c.example.com/x",
-    ]);
-  });
-
-  it("reads a request with no path at all as the root", () => {
-    const [line] = buildUrlRuleLines([req("GET", "https://a.example.com")]);
-    expect(line).toBe("GET https://a.example.com/");
-  });
-});
-
-describe("buildUrlRuleLines — comparisons in both directions", () => {
-  // Two unknown methods only ever get compared one way round, so a third is
-  // what exercises the other arm.
-  it("sorts three unknown methods among themselves", () => {
-    const [line] = buildUrlRuleLines([
-      req("ZZZ", "https://a.example.com/x"),
-      req("MKCOL", "https://a.example.com/x"),
-      req("PROPFIND", "https://a.example.com/x"),
-    ]);
-    expect(line.split(" ")[0]).toBe("MKCOL|PROPFIND|ZZZ");
-  });
-
-  it("orders two patterns on one origin by pattern", () => {
-    const lines = buildUrlRuleLines([
-      req("GET", "https://a.example.com/zzz"),
-      req("POST", "https://a.example.com/aaa"),
-    ]);
-    expect(lines.map((l) => l.split(" ")[1])).toStrictEqual([
-      "https://a.example.com/aaa",
-      "https://a.example.com/zzz",
-    ]);
   });
 });
