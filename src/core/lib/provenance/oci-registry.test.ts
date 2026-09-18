@@ -106,7 +106,7 @@ describe("fetchRegistryToken", () => {
   const call = (basicAuth: string | null, _fetch: FetchLike) =>
     fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, _fetch);
 
-  // ── basicAuth=null (未ログイン) ─────────────────────────────────────────
+  // ── basicAuth=null (not logged in) ─────────────────────────────────────
 
   it("returns anonymous token when no Docker credentials and registry responds 200", async () => {
     let callCount = 0;
@@ -145,7 +145,7 @@ describe("fetchRegistryToken", () => {
     await expectVerifyError(call(null, networkFailure), "TRANSIENT");
   });
 
-  // ── basicAuth あり (docker login 済み) ────────────────────────────────
+  // ── basicAuth set (after docker login) ─────────────────────────────────
 
   it("uses Basic auth directly (no anonymous attempt) when Docker credentials are available", async () => {
     const basicAuth = Buffer.from("actor:ghp_token").toString("base64");
