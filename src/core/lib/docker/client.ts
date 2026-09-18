@@ -13,7 +13,12 @@ export function parseContainerIds(psOutput: string): string[] {
     .filter(Boolean);
 }
 
-export type RunCommand = (args: string[]) => string;
+/**
+ * `docker <args>` with stdout captured: the seam every module that reads a
+ * docker command's output injects. `env` is for the calls that compose one;
+ * a default that has nothing to compose leaves the process environment alone.
+ */
+export type RunDocker = (args: string[], env?: NodeJS.ProcessEnv) => string;
 export type SpawnCommand = (args: string[]) => ChildProcess;
 
 // 64MB, up from Node's 1MB default — `buildctl debug logs --progress=rawjson`
@@ -126,7 +131,7 @@ export interface Docker {
 /** `run`/`spawnDocker` are injectable so tests can assert on argv instead of
  *  mocking node:child_process directly. */
 export function createDocker(
-  run: RunCommand = defaultRunCommand,
+  run: RunDocker = defaultRunCommand,
   spawnDocker: SpawnCommand = defaultSpawnCommand,
 ): Docker {
   return {
