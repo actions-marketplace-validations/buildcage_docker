@@ -1,7 +1,10 @@
 /**
- * Unit tests for core/lib/oci-registry.ts
+ * Unit tests for the registry reads: oci-registry.ts, the bundle lookup in
+ * oci-bundle.ts and the credential read in docker-credentials.ts. They share
+ * one file because they share the stub below.
  *
- * Tests use injectable _exec / _fetch arguments to avoid real network/docker calls.
+ * Tests use injectable _fetch / readFileSync arguments to avoid real network
+ * and filesystem access.
  *
  * Run with: vp test run core/lib/provenance/oci-registry.test.ts
  */
@@ -10,12 +13,12 @@ import { describe, it, expect, assert } from "vitest";
 import {
   fetchManifestDigest,
   fetchRegistryToken,
-  fetchBundle,
   fetchImageConfigLabels,
-  readGhcrBasicAuth,
   type FetchLike,
   type FetchLikeResponse,
 } from "./oci-registry.ts";
+import { fetchBundle } from "./oci-bundle.ts";
+import { readGhcrBasicAuth } from "./docker-credentials.ts";
 import { VerifyImageError } from "./errors.ts";
 
 const BUNDLE_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";

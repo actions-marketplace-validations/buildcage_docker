@@ -9,13 +9,9 @@
  *   - Unverifiable ref (branch / local ./setup) → returns null.
  */
 
-import {
-  fetchManifestDigest,
-  fetchRegistryToken,
-  fetchBundle,
-  fetchImageConfigLabels,
-  readGhcrBasicAuth,
-} from "./oci-registry.ts";
+import { fetchManifestDigest, fetchRegistryToken, fetchImageConfigLabels } from "./oci-registry.ts";
+import { fetchBundle } from "./oci-bundle.ts";
+import { readGhcrBasicAuth } from "./docker-credentials.ts";
 import { verifyBundle } from "./sigstore.ts";
 import type { DsseBundle } from "./signed-digest.ts";
 import { imageTagFromRef } from "./image-tag.ts";
