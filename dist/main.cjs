@@ -546,12 +546,7 @@ function buildComposeEnv({ builderName, proxyMode, proxyEngine, imageRef, httpsR
 }
 //#endregion
 //#region src/core/lib/provenance/errors.ts
-var VerifyImageError = class extends Error {
-	code;
-	constructor(message, code) {
-		super(message), this.name = "VerifyImageError", this.code = code;
-	}
-}, ProvenanceError = class extends ActionError {};
+var VerifyImageError = class extends ActionError {}, ProvenanceError = class extends ActionError {};
 //#endregion
 //#region src/core/lib/provenance/oci-registry.ts
 const MANIFEST_MEDIA_TYPES = ["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"], INDEX_MEDIA_TYPES = ["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"];
