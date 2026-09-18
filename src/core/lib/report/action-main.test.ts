@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,22 +6,6 @@ import { join } from "node:path";
 import { runReportAction, type ReportActionSpec } from "./action-main.ts";
 import type { Docker } from "#core/lib/docker/client.ts";
 import type { GenReportParameters, InspectReportData, UniversalReportData } from "./types.ts";
-
-// writeStepSummary reads process.env.GITHUB_STEP_SUMMARY itself, and falls
-// back to stdout only when it is unset. On a real runner it is set, so without
-// this the rendered markdown would go to the summary file and these assertions
-// would read an empty stdout.
-let previousSummaryPath: string | undefined;
-
-beforeEach(() => {
-  previousSummaryPath = process.env.GITHUB_STEP_SUMMARY;
-  delete process.env.GITHUB_STEP_SUMMARY;
-});
-
-afterEach(() => {
-  if (previousSummaryPath === undefined) delete process.env.GITHUB_STEP_SUMMARY;
-  else process.env.GITHUB_STEP_SUMMARY = previousSummaryPath;
-});
 
 function fakeDocker(overrides: Partial<Docker> = {}): Docker {
   return {
