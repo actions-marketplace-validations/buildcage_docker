@@ -1,7 +1,9 @@
+/** Declared as properties, not methods, so a caller can pass one on its own:
+ *  nothing here reads `this`. */
 export interface Annotation {
-  notice(message: string): void;
-  warning(message: string): void;
-  error(message: string): void;
+  notice: (message: string) => void;
+  warning: (message: string) => void;
+  error: (message: string) => void;
 }
 
 /**

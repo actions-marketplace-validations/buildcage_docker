@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { readBuilderName, readEngineInputs, readRuleInputs } from "./inputs.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
@@ -26,20 +26,31 @@ describe("readBuilderName", () => {
 });
 
 describe("readEngineInputs", () => {
+  const silent = () => {};
+
   it("defaults to universal when unset", () => {
-    expect(readEngineInputs(inputs())).toStrictEqual({ proxyEngine: "universal" });
+    expect(readEngineInputs(silent, inputs())).toStrictEqual({ proxyEngine: "universal" });
   });
 
   it("passes the input through resolveProxyEngine", () => {
-    expect(readEngineInputs(inputs({ proxy_engine: "inspect" }))).toStrictEqual({
+    expect(readEngineInputs(silent, inputs({ proxy_engine: "inspect" }))).toStrictEqual({
       proxyEngine: "inspect",
     });
   });
 
   it("rejects an unknown engine", () => {
-    expect(() => readEngineInputs(inputs({ proxy_engine: "nope" }))).toThrow(
+    expect(() => readEngineInputs(silent, inputs({ proxy_engine: "nope" }))).toThrow(
       /Invalid proxy_engine/,
     );
+  });
+
+  it("hands the deprecated alias's notice to the caller", () => {
+    const notice = vi.fn();
+
+    expect(readEngineInputs(notice, inputs({ proxy_engine: "transparent" }))).toStrictEqual({
+      proxyEngine: "universal",
+    });
+    expect(notice).toHaveBeenCalledOnce();
   });
 });
 

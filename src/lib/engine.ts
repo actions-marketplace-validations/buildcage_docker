@@ -1,4 +1,3 @@
-import { annotate } from "#core/lib/actions/annotation.ts";
 import { SetupError } from "./errors.ts";
 
 /**
@@ -23,11 +22,14 @@ export type ProxyEngine = (typeof ENGINES)[number];
 // downstream ever has to know it existed.
 const ENGINE_ALIASES: Record<string, ProxyEngine> = { transparent: "universal" };
 
-export function resolveProxyEngine(input: string | undefined): ProxyEngine {
+export function resolveProxyEngine(
+  input: string | undefined,
+  notice: (message: string) => void,
+): ProxyEngine {
   const trimmed = input?.trim() || "universal";
   const alias = ENGINE_ALIASES[trimmed];
   if (alias) {
-    annotate.notice(
+    notice(
       "proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.",
     );
   }

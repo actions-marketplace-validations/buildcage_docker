@@ -1,6 +1,6 @@
 import { buildComposeDownArgs } from "#core/lib/docker/args.ts";
 import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
-import { readBuilderName } from "./inputs.ts";
+import { readBuilderName, type GetInput } from "./inputs.ts";
 
 export interface PostCleanupPlan {
   args: string[];
@@ -13,14 +13,16 @@ export interface PostCleanupPlan {
  * round-tripping it through GITHUB_STATE.
  *
  * `projectNameOverride` is gated to this repo's own CI/dev testing by the
- * caller, which is where that gate stays visible.
+ * caller, which is where that gate stays visible. Omitting `getInput` leaves
+ * readBuilderName to read the real one.
  */
 export function planPostCleanup(
   composeFile: string,
   projectNameOverride: string | undefined,
   env: NodeJS.ProcessEnv,
+  getInput?: GetInput,
 ): PostCleanupPlan {
-  const builderName = readBuilderName();
+  const builderName = readBuilderName(getInput);
   const projectName = resolveProjectName(builderName, projectNameOverride);
   return {
     args: buildComposeDownArgs({ composeFile, projectName }),

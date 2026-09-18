@@ -192,8 +192,8 @@ function readBuilderName(getInput$1 = getInput) {
 }
 //#endregion
 //#region src/lib/post-cleanup.ts
-function planPostCleanup(composeFile, projectNameOverride, env) {
-	let builderName = readBuilderName();
+function planPostCleanup(composeFile, projectNameOverride, env, getInput) {
+	let builderName = readBuilderName(getInput);
 	return {
 		args: buildComposeDownArgs({
 			composeFile,

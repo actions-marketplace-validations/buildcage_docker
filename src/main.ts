@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const actionRef = env.GITHUB_ACTION_REF ?? "";
   const actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "";
 
-  const { proxyEngine } = readEngineInputs();
+  const { proxyEngine } = readEngineInputs(annotate.notice);
   console.log(`Proxy engine: ${proxyEngine}`);
 
   const localOverride = LOCAL_IMAGE_OVERRIDE_ENABLED
@@ -81,9 +81,7 @@ async function main(): Promise<void> {
 
   const { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } =
     readRuleInputs();
-  checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, (message) =>
-    annotate.warning(message),
-  );
+  checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, annotate.warning);
 
   withLogGroup("buildcage: Configured ACL Rules", () => {
     logRules("HTTPS", httpsRules);

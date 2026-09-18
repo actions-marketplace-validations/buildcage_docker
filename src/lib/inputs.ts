@@ -30,8 +30,13 @@ export interface EngineInputs {
   proxyEngine: ProxyEngine;
 }
 
-export function readEngineInputs(getInput: GetInput = core.getInput): EngineInputs {
-  return { proxyEngine: resolveProxyEngine(getInput("proxy_engine")) };
+/** `notice` carries the deprecated-alias message out to the entry point, which
+ *  is the only layer that decides how anything is printed. */
+export function readEngineInputs(
+  notice: (message: string) => void,
+  getInput: GetInput = core.getInput,
+): EngineInputs {
+  return { proxyEngine: resolveProxyEngine(getInput("proxy_engine"), notice) };
 }
 
 export interface ParsedRuleInputs {
