@@ -1,10 +1,20 @@
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
-import { parseMethods, convertUrlRule, buildUrlRules } from "./url-rules.ts";
+import { DEFAULT_PORT, parseMethods, convertUrlRule, buildUrlRules } from "./url-rules.ts";
 
-// Matches how squid evaluates: the rule regex against the effective URL.
+// Matches how haproxy evaluates a rule: the authority and the path against
+// their own expressions, never the URL as a whole.
 // Rules under test are method-agnostic unless the case is about methods.
 function matches(urlPattern: string, url: string): boolean {
-  return new RegExp(convertUrlRule(`GET ${urlPattern}`).regex).test(url);
+  const rule = convertUrlRule(`GET ${urlPattern}`);
+  const parts = /^(https?):\/\/([^/]+)(\/.*)?$/.exec(url);
+  if (!parts) throw new Error(`not a URL: ${url}`);
+  const scheme = parts[1] as "https" | "http";
+  const authority = parts[2].includes(":") ? parts[2] : `${parts[2]}:${DEFAULT_PORT[scheme]}`;
+  return (
+    scheme === rule.scheme &&
+    new RegExp(rule.authorityRegex).test(authority) &&
+    new RegExp(rule.pathRegex).test(parts[3] ?? "/")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +87,7 @@ describe("convertUrlRule paths", () => {
     expect(matches("https://example.com/public/*", "https://example.com/PUBLIC/x")).toBe(false);
   });
 
-  // The traversal guard lives in the generated squid.conf, not here: `*`
+  // The traversal guard lives in the generated haproxy config, not here: `*`
   // alone cannot cross a separator, but a segment that IS `..` matches it.
   it("* alone does not stop a `..` segment — hence the global guard", () => {
     expect(matches("https://example.com/pkg/*", "https://example.com/pkg/..")).toBe(true);
@@ -89,9 +99,10 @@ describe("convertUrlRule paths", () => {
 // ---------------------------------------------------------------------------
 describe("convertUrlRule regex escape hatch", () => {
   it("passes the remainder through untouched", () => {
-    expect(convertUrlRule("GET ~^https://example\\.com/x$").regex).toBe(
-      "^https://example\\.com/x$",
-    );
+    // A wildcard rule would escape the "." and expand the "*".
+    const r = convertUrlRule("GET ~^https://ex.*\\.com/x.*$");
+    expect(r.authorityRegex).toBe("^ex.*\\.com$");
+    expect(r.pathRegex).toBe("^/x.*$");
   });
 
   it("rejects an invalid regex", () => {

@@ -427,7 +427,6 @@ function compileUrl(url, rule) {
 		let { hostRegex, authorityRegex, pathRegex } = splitRawRegexUrl(regex, rule);
 		return {
 			scheme: "https",
-			regex,
 			authorityRegex,
 			pathRegex,
 			hostRegex,
@@ -437,12 +436,11 @@ function compileUrl(url, rule) {
 	let { scheme, authority, path } = splitUrl(url, rule), colonIndex = authority.lastIndexOf(":"), hasPort = colonIndex !== -1 && !authority.slice(colonIndex + 1).includes("]"), host = hasPort ? authority.slice(0, colonIndex) : authority, port = hasPort ? authority.slice(colonIndex + 1) : "";
 	if (host === "") throw Error(`Invalid URL in rule "${rule}": missing host`);
 	if (port !== "" && !/^(?:\d+|\*)$/.test(port)) throw Error(`Invalid port in rule "${rule}": "${port}"`);
-	let combined = wildcardToRegexPartial(`${host}:${port === "" ? DEFAULT_PORT[scheme] : port}`), hostRegex = combined.slice(0, combined.lastIndexOf(":")), portRegex = port === "" || port === DEFAULT_PORT[scheme] ? `(:${DEFAULT_PORT[scheme]})?` : port === "*" ? "(:[0-9]+)?" : `:${port}`, pathRegex = path === "" ? "(/.*)?" : pathToRegexPartial(path), authorityRegex = `^${hostRegex}:${port === "*" ? "[0-9]+" : port === "" ? DEFAULT_PORT[scheme] : port}$`;
+	let combined = wildcardToRegexPartial(`${host}:${port === "" ? DEFAULT_PORT[scheme] : port}`), hostRegex = combined.slice(0, combined.lastIndexOf(":")), pathRegex = path === "" ? "^/" : `^${pathToRegexPartial(path)}$`;
 	return {
 		scheme,
-		regex: `^${scheme}://${hostRegex}${portRegex}${pathRegex}$`,
-		authorityRegex,
-		pathRegex: path === "" ? "^/" : `^${pathRegex}$`,
+		authorityRegex: `^${hostRegex}:${port === "*" ? "[0-9]+" : port === "" ? DEFAULT_PORT[scheme] : port}$`,
+		pathRegex,
 		hostRegex,
 		isRegex: !1
 	};
@@ -452,11 +450,10 @@ function convertUrlRule(rule) {
 	if (!separator) throw Error(`Invalid rule "${trimmed}": expected a method and a URL, e.g. "GET https://example.com/x"`);
 	let methodSpec = trimmed.slice(0, separator.index), url = trimmed.slice(separator.index + separator[0].length).trim();
 	if (/\s/.test(url)) throw Error(`Invalid rule "${trimmed}": URL must not contain whitespace`);
-	let methods = parseMethods(methodSpec, trimmed), { scheme, regex, authorityRegex, pathRegex, hostRegex, isRegex } = compileUrl(url, trimmed);
+	let methods = parseMethods(methodSpec, trimmed), { scheme, authorityRegex, pathRegex, hostRegex, isRegex } = compileUrl(url, trimmed);
 	return {
 		methods,
 		scheme,
-		regex,
 		authorityRegex,
 		pathRegex,
 		hostRegex,
