@@ -86,11 +86,8 @@ describe("wildcardToRegexPartial", () => {
     expect(wildcardToRegexPartial("a.example.com:*")).toBe("a\\.example\\.com:\\d+");
   });
 
-  it("rejects a pattern with no port", () => {
+  it("rejects a port that is missing or non-numeric", () => {
     expect(() => wildcardToRegexPartial("a.example.com")).toThrow();
-  });
-
-  it("rejects a non-numeric port", () => {
     expect(() => wildcardToRegexPartial("a.example.com:80x")).toThrow();
   });
 });
