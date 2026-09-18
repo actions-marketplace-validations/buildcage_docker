@@ -1,4 +1,4 @@
-import { DEFAULT_PORT, splitHostPort } from "./authority.ts";
+import { parseObservedUrl } from "./authority.ts";
 
 export interface ParsedIdentifier {
   scheme: string;
@@ -15,9 +15,8 @@ export interface ParsedIdentifier {
  * sources, but this guards against unexpected input.
  */
 export function parseIdentifier(identifier: string): ParsedIdentifier | null {
-  const m = identifier.match(/^(https?):\/\/([^/]+)/);
-  if (!m) return null;
-  const [, scheme, hostPort] = m;
-  const { host, port } = splitHostPort(hostPort);
-  return { scheme, host, port: port ?? DEFAULT_PORT[scheme] };
+  const parsed = parseObservedUrl(identifier);
+  if (!parsed) return null;
+  const { scheme, host, port } = parsed;
+  return { scheme, host, port };
 }

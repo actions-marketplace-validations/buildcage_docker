@@ -18,7 +18,7 @@
 
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
-import { DEFAULT_PORT, splitHostPort } from "#core/lib/log/authority.ts";
+import { DEFAULT_PORT, parseObservedUrl } from "#core/lib/log/authority.ts";
 
 /** Conventional ordering, so a rule reads the way a person would write it. */
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
@@ -35,16 +35,15 @@ interface ParsedRequest {
 
 function parseRequest(request: TrafficEvent): ParsedRequest | null {
   if (request.url === undefined || request.method === undefined) return null;
-  const match = /^(https?):\/\/([^/?#]+)([^?#]*)/.exec(request.url);
-  if (!match) return null;
-  const [, scheme, authority, rawPath] = match;
+  const parsed = parseObservedUrl(request.url);
+  if (!parsed) return null;
+  const { scheme, host, port, path } = parsed;
 
   // Drop a port the scheme already implies, so the common case reads plainly.
-  const { host, port } = splitHostPort(authority);
   const origin =
-    port && port === DEFAULT_PORT[scheme] ? `${scheme}://${host}` : `${scheme}://${authority}`;
+    port === DEFAULT_PORT[scheme] ? `${scheme}://${host}` : `${scheme}://${host}:${port}`;
 
-  return { origin, method: request.method, path: rawPath || "/" };
+  return { origin, method: request.method, path };
 }
 
 /** The segments every path shares, from the left. */

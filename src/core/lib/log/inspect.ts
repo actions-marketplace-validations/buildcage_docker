@@ -39,7 +39,7 @@
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
-import { splitHostPort } from "./authority.ts";
+import { parseObservedUrl } from "./authority.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
@@ -122,13 +122,9 @@ function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
   return isAudit ? "audit" : "allow";
 }
 
-const URL_AUTHORITY = /^https?:\/\/([^/?#]+)/;
-
 /** The host half of an absolute URL's authority, without its port. */
 function hostOf(url: string): string {
-  const match = URL_AUTHORITY.exec(url);
-  if (!match) return url;
-  return splitHostPort(match[1]).host;
+  return parseObservedUrl(url)?.host ?? url;
 }
 
 /** Parse one proxy-log line, or null if it is not one of ours. */
