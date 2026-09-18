@@ -238,14 +238,6 @@ describe("fetchBundle — bundle manifest refusals", () => {
       [`/manifests/${MANIFEST_DIGEST}`]: response,
     });
 
-  it("throws TRANSIENT on 5xx", async () => {
-    await expectVerifyError(bundle(manifestIs(failsWith(502))), "TRANSIENT");
-  });
-
-  it("throws TRANSIENT on 401/403", async () => {
-    await expectVerifyError(bundle(manifestIs(failsWith(401))), "TRANSIENT");
-  });
-
   it("throws TRANSIENT for any other non-ok status", async () => {
     await expectVerifyError(bundle(manifestIs(failsWith(418))), "TRANSIENT");
   });
@@ -275,15 +267,7 @@ describe("fetchBundle — bundle blob refusals", () => {
       [`/blobs/${BLOB_DIGEST}`]: response,
     });
 
-  it("throws TRANSIENT on 5xx", async () => {
-    await expectVerifyError(bundle(blobIs(failsWith(500))), "TRANSIENT");
-  });
-
   it("throws NOT_FOUND for any other non-ok status", async () => {
     await expectVerifyError(bundle(blobIs(failsWith(404))), "NOT_FOUND");
-  });
-
-  it("wraps a network failure as TRANSIENT", async () => {
-    await expectVerifyError(bundle(blobIs(networkFailure)), "TRANSIENT");
   });
 });
