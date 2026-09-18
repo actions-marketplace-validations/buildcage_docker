@@ -156,6 +156,15 @@ describe("port validation", () => {
       /Invalid port in rule/,
     );
   });
+
+  // The rule was split at its last colon, so anything before it belongs to a
+  // name, and no name can hold one.
+  it("refuses a colon left in the host half", () => {
+    expect(() => compileRuleSet({ httpsRules: ["a:b.example.com:443"] })).toThrow(
+      /Invalid host in rule/,
+    );
+    expect(() => compileRuleSet({ tlsRules: ["[::1]:443"] })).toThrow(/Invalid host in rule/);
+  });
 });
 
 reportResults();
