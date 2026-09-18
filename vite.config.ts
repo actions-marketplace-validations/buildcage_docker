@@ -15,9 +15,35 @@ const fixtures = ["**/__fixtures__/**"];
 // destroy the diff against upstream, which is how this file gets reviewed.
 const vendored = ["docker/seccomp/builder.json"];
 
+// Allowed to name the always-on `annotate`; everything else takes the sink as an argument
+// (see src/core/lib/actions/annotation.ts).
+const annotateCallers = [
+  "src/lib/setup-step.ts",
+  "report/src/main.ts",
+  "src/core/lib/actions/fatal.ts",
+  "src/core/lib/actions/annotation.test.ts",
+];
+
 export default defineConfig({
   lint: {
     ignorePatterns: generatedOutputs,
+    rules: {
+      // A regex, not a group glob: a glob matches the specifier as written, so it would
+      // miss the relative "./annotation.ts" that fatal.ts imports through.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "annotation\\.ts$",
+              importNames: ["annotate"],
+              message: "Take an Annotation, or the annotate method, as an argument instead.",
+            },
+          ],
+        },
+      ],
+    },
+    overrides: [{ files: annotateCallers, rules: { "no-restricted-imports": "off" } }],
     options: {
       // typescript already at v7 (typescript-go), so tsgolint's type-aware
       // rules apply directly. `pnpm typecheck` (tsc) stays the authoritative
