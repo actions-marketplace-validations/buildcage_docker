@@ -41,7 +41,8 @@ export function createAnnotation(enabled: boolean): Annotation {
  * wherever that body was extracted to — and `fatal.ts` may name it. The modules
  * they call don't choose where a message goes: they take the sink as an
  * argument, an `Annotation` for what the caller can suppress and one of
- * `annotate`'s methods for what it can't.
+ * `annotate`'s methods for what it can't. `vite.config.ts` lists the files the
+ * lint rule lets past.
  *
  * Exists so the `::notice::`/`::warning::`/`::error::` spelling lives in this
  * file alone, rather than being written out at each call site.
