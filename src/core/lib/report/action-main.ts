@@ -22,6 +22,7 @@ import { buildReportParameters } from "./parameters.ts";
 import { emitBlockedOutcome } from "./outcome/emit.ts";
 import { buildTrafficRecords, writeTrafficFile } from "./outcome/traffic-output.ts";
 import { renderReportMarkdown } from "./render/render-report-markdown.ts";
+import { truncateForStepSummary } from "./render/truncate-communication-details.ts";
 import type { GenReportParameters, ReportData } from "./types.ts";
 
 /** Used when the script is run outside the action, as the tests and the
@@ -108,7 +109,10 @@ export async function runReportAction(
   // written, so a truncated Communication details section can say whether the
   // full list is available as an artifact.
   const trafficFile = spec.writesTrafficFile ? env.BUILDCAGE_TRAFFIC_FILE : undefined;
-  await writeStepSummary(markdown, trafficFile !== undefined);
+  await writeStepSummary(
+    truncateForStepSummary(markdown, trafficFile !== undefined),
+    env.GITHUB_STEP_SUMMARY,
+  );
 
   if (trafficFile && report.engine === "inspect") {
     writeTrafficFile(trafficFile, buildTrafficRecords(report.timeline, report.startedAt));
