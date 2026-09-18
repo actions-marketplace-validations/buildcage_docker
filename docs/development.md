@@ -293,12 +293,13 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 ├── src/                      # Source (ESM): verify image provenance, resolve image ref, compose up
 │   ├── lib/                  # Setup action's own small helpers (errors.ts)
 │   └── core/                 # Code shared across actions
-│       ├── lib/               # All shared library code, consolidated: acl/ (rule parsing) is
-│       │                     # dual-consumed by Node and QuickJS; test/test-shim.ts is a portable
-│       │                     # node:test-alike shim used by *.test.ts across the whole tree
-│       │                     # (Node and QuickJS alike). Everything else is Node-only, used by the
-│       │                     # setup and report actions' Node runtime and report-action.node.ts,
-│       │                     # never by the QuickJS scripts: log/, report/ (including the
+│       ├── lib/               # All shared library code, consolidated: acl/ (rule parsing and the
+│       │                     # proxy config generators) is dual-consumed by Node and QuickJS;
+│       │                     # test/test-shim.ts is a portable node:test-alike shim used by
+│       │                     # *.test.ts across the whole tree (Node and QuickJS alike).
+│       │                     # Everything else is Node-only, used by the setup and report actions'
+│       │                     # Node runtime and report-action.node.ts, never by the QuickJS
+│       │                     # scripts: log/, report/ (including the
 │       │                     # report-action.node.ts skeleton every engine's own script runs),
 │       │                     # docker/, provenance/ (Sigstore, OCI registry lookups, image ref
 │       │                     # resolution, local-image test-hook override), actions/
@@ -355,7 +356,7 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
   request by its first bytes, so one `bind` line handles both without the config declaring per-port
   whether it's plaintext or TLS. Two HAProxy features carry the rest of the enforcement:
   `normalize-uri` (an upstream directive still marked experimental, gated behind
-  `expose-experimental-directives` in `src/core/lib/acl/haproxy-config.ts`) resolves `..` in the
+  `expose-experimental-directives` in `src/core/lib/acl/haproxy-sections.ts`) resolves `..` in the
   path before ACLs see it, and `do-resolve` + `set-dst` resolve the requested name and rewrite the
   connection's destination to it, run only after the ACL check for that request has already passed.
 

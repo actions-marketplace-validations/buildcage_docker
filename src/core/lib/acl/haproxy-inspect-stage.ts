@@ -1,0 +1,109 @@
+import { HOST_IS_ADDRESS, type CompiledRule } from "./haproxy-rules.ts";
+import { HOST_ONLY } from "./haproxy-matchers.ts";
+import { deniesEverything, ruleBlock } from "./haproxy-rule-block.ts";
+import { internalDstAcl, type InternalDstOptions } from "./haproxy-internal-dst.ts";
+
+/** One inspected frontend; the pair differs only in these. */
+export interface InspectStageSpec {
+  name: string;
+  /** The loopback port detect's backend hands this scheme to. */
+  port: number;
+  /** Appended to the bind line; only the TLS stage terminates TLS. */
+  bindExtra: string;
+  scheme: "https" | "http";
+  rules: CompiledRule[];
+  backend: string;
+}
+
+/** What both frontends share, all of it decided by the options. */
+export interface InspectStageContext extends InternalDstOptions {
+  mode: "restrict" | "audit";
+  hasResolver: boolean;
+}
+
+/**
+ * A frontend that terminates the connection, normalises the request, lets the
+ * rules decide, and only then resolves the Host and connects there.
+ */
+export function inspectStage(
+  { name, port, bindExtra, scheme, rules, backend }: InspectStageSpec,
+  ctx: InspectStageContext,
+): string[] {
+  const { mode, hasResolver } = ctx;
+  const l: string[] = [];
+  l.push(
+    `frontend ${name}`,
+    `    bind 127.0.0.1:${port} accept-proxy${bindExtra}`,
+    "    mode http",
+    // Host is attacker-controlled too, but keeps its own ":port" (unlike
+    // SNI), so it can't be reduced to a hostname charset. Single-quoted as
+    // a whole so the word parser leaves the embedded " alone for regsub's
+    // own (config manual: "Quoting and escaping") argument quoting to handle.
+    `    http-request capture 'req.hdr(host),regsub("[\\s\\"[:cntrl:]]",_,g)' len 100`,
+    "",
+    "    # Decode before stripping `..`: `.` is unreserved, so `%2e%2e` is not",
+    "    # a dot-dot segment until decoded, and stripping first would miss it.",
+    "    http-request normalize-uri percent-decode-unreserved",
+    "    http-request normalize-uri path-strip-dotdot",
+    "",
+    "    # pathq, not %HU: %HU is the target as sent (a path over HTTP/1.1, an",
+    "    # absolute URI over HTTP/2), and pathq is not readable at log time.",
+    "    # Set after normalisation, so the log shows the path the rules matched.",
+    // Same idea as the Host capture above, minus \s: a raw space can't
+    // reach a path (HTTP's own request-line parsing rejects it first).
+    `    http-request set-var(txn.pathq) 'pathq,regsub("[\\"[:cntrl:]]",_,g)'`,
+    "",
+    "    # `%2f` and `%5c` survive decoding (both reserved) yet an origin may",
+    "    # read `..%2f` / `..%5c` as a segment, and a raw backslash is not a",
+    "    # valid path char at all. None is stripped, so each is refused. A lone",
+    "    # encoded separator stays legal (e.g. npm's `/@scope%2fpackage`).",
+    "    # `\\\\` is one literal backslash: HAProxy's parser takes the pair as one.",
+    "    http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|%2f|%5c) }",
+    "    http-request deny deny_status 403 if { path -m sub \\\\ }",
+    // %ts tells a refusal from an origin's own 403 or 503, reason says which
+    // refusal. Both sit ahead of the URL, the one field that could cut the line.
+    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
+    "",
+  );
+  // The rules decide first, on the request alone (host, path, method): none
+  // of them depend on where the name resolves. Only a request they already
+  // allow reaches the do-resolve below, so a name a request would be denied
+  // for never triggers a real DNS query -- do-resolve is the only place a
+  // real query leaves this proxy, and it must never run ahead of a deny.
+  l.push(...ruleBlock(rules, mode, scheme));
+  // Skipped entirely when the block above denies unconditionally: HAProxy
+  // would never reach these rules, and warns that they are NOOP.
+  if (hasResolver && !deniesEverything(rules, mode)) {
+    l.push(
+      "    # Connect where WE resolve the Host, discarding the client's address,",
+      "    # so a forged Host or doctored /etc/hosts cannot choose the target.",
+      "    # host_only drops the port a header carries, which is not part of the",
+      "    # name. An address is taken as-is: no resolver can answer one, and the",
+      "    # rules above already decided, so nothing is loosened.",
+      `    acl host_is_address req.hdr(host),${HOST_ONLY} -m reg ${HOST_IS_ADDRESS}`,
+      `    http-request set-var(txn.dst) req.hdr(host),${HOST_ONLY} if host_is_address`,
+      `    http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,${HOST_ONLY} ` +
+        "unless host_is_address",
+      "    # A fresh attempt, not a replay: nothing cached the failure.",
+      `    http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,${HOST_ONLY} ` +
+        "unless host_is_address or { var(txn.dst) -m found }",
+      "    http-request set-var(txn.reason) str(dns-failed) unless { var(txn.dst) -m found }",
+      "    http-request deny deny_status 502 unless { var(txn.dst) -m found }",
+      "",
+      "    # Set before the internal-destination check below, not after: %[dst] in",
+      "    # the log-format is this, and a refusal must show the address that",
+      "    # tripped it, not whatever the client's own (fake, unresolved) address",
+      "    # was -- CoreDNS never hands out a real one, see coredns-config.ts.",
+      "    http-request set-dst var(txn.dst)",
+      "",
+      "    # A resolved destination may not be internal; see INTERNAL_RANGES. An",
+      "    # address named in a rule is exempt.",
+      ...internalDstAcl("dst_internal", ctx),
+      "    http-request set-var(txn.reason) str(internal-address) if dst_internal !host_is_address",
+      "    http-request deny deny_status 403 if dst_internal !host_is_address",
+      "",
+    );
+  }
+  l.push(`    default_backend ${backend}`, "");
+  return l;
+}
