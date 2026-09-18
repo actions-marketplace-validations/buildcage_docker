@@ -45,9 +45,10 @@ export interface CorednsConfigOptions {
 export interface GeneratedCorednsConfig {
   config: string;
   /**
-   * Always empty today: every rule this module reads has a derivable host, or
-   * buildUrlRules already rejected it before this ran. Kept for symmetry with
-   * generateHaproxyConfig, whose warnings can still arise from IP rules.
+   * Always empty: every rule this module reads has a derivable host, or
+   * buildUrlRules rejected it before this ran. Present so a caller can merge it
+   * with generateHaproxyConfig's warnings, which IP rules can still fill, and
+   * report both the same way.
    */
   warnings: string[];
 }

@@ -26,8 +26,6 @@ import { PREAMBLE, resolversSection, originBackends } from "./haproxy-sections.t
 import { detectFrontend } from "./haproxy-detect-frontend.ts";
 import { inspectStage } from "./haproxy-inspect-stage.ts";
 
-export { escapeForHaproxy } from "./haproxy-matchers.ts";
-
 export interface HaproxyConfigOptions extends RuleInputs {
   /** `audit` records without enforcing, so nothing may be refused. */
   mode?: "restrict" | "audit";

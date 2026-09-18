@@ -20,7 +20,6 @@ import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
 import { DEFAULT_PORT, splitHostPort } from "#core/lib/log/authority.ts";
 
-/** Ports a URL rule may leave unwritten, because the scheme implies them. */
 /** Conventional ordering, so a rule reads the way a person would write it. */
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 

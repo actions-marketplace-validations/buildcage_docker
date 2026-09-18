@@ -1,5 +1,5 @@
 /**
- * URL rule compiler for the squid-based proxy engine.
+ * URL rule compiler for the `inspect` engine.
  *
  * A rule is a method list followed by a URL pattern:
  *
@@ -22,16 +22,15 @@
  * A wildcard may sit among literal text, in a path segment as in a domain
  * label; see partial-wildcard.ts for why that matters.
  *
- * A `~` prefix on the URL passes the remainder through as a raw regex. Every
- * generated regex sticks to syntax valid in both JavaScript and POSIX ERE,
- * because squid matches with regcomp(3): no `(?:` groups and no `\\d`. A `~`
- * rule is the user's own, so it must be written in POSIX ERE too.
+ * A `~` prefix on the URL passes the remainder through as a raw regex. Nothing
+ * here is matched as one full-URL expression either way: haproxy matches the
+ * authority and the path as two separate ACLs (see haproxy-rule-block.ts), and
+ * the host half alone becomes the resolver's allowlist (see coredns-config.ts).
  *
  * Path traversal is NOT handled here. `*` cannot cross a `/`, but a segment
- * that IS `..` still matches it, and `**` crosses freely — so the generated
- * squid.conf carries one global guard rejecting `..` path segments. Squid
- * decodes %-escapes before matching, so that guard catches the encoded forms
- * too; see the squid config generator.
+ * that IS `..` still matches it, and `**` crosses freely, so haproxy decodes
+ * and strips `..` from the path before any rule sees it; see
+ * haproxy-inspect-stage.ts.
  */
 
 import {
@@ -50,8 +49,6 @@ export interface UrlRule {
   methods: string[] | null;
   /** "http" or "https". */
   scheme: string;
-  /** Regex matching the full URL, without anchors. */
-  regex: string;
   /**
    * Host-only regex (no port), which the resolver's allowlist is built from:
    * a DNS query carries no port to match against. For a `~` rule, this is
@@ -59,11 +56,7 @@ export interface UrlRule {
    * splitRawRegexUrl.
    */
   authorityRegex: string;
-  /**
-   * Regex matching the path alone, anchored at the start. A proxy that
-   * matches the host and the path with separate expressions uses this
-   * rather than `regex`.
-   */
+  /** Regex matching the path alone, anchored at the start. */
   pathRegex: string;
   /**
    * For a `~` rule: the host half's own regex, port included verbatim if the
@@ -99,7 +92,7 @@ export function parseMethods(spec: string, rule: string): string[] | null {
       throw new Error(`Invalid method "${token}" in rule "${rule}"`);
     }
   }
-  // De-duplicate so the generated squid ACL has no repeats.
+  // De-duplicate so the generated ACL has no repeats.
   return [...new Set(tokens.map((t) => t.toUpperCase()))];
 }
 
@@ -215,12 +208,8 @@ function splitRawRegexUrl(
 }
 
 /**
- * Compile the URL half of a rule to a regex matching the URL squid sees.
- *
- * The port is optional in the pattern: when omitted, or when it is the
- * scheme's default, the generated regex accepts both the bare host and the
- * host with an explicit default port, because clients and proxies disagree
- * about whether to spell it out.
+ * Compile the URL half of a rule into the regexes the proxy matches with: the
+ * authority, always carrying an explicit port, and the path.
  *
  * A pattern with no path matches any path on that host, which keeps a URL
  * rule without a path equivalent to the host rule it looks like.
@@ -232,7 +221,6 @@ function compileUrl(
   rule: string,
 ): {
   scheme: string;
-  regex: string;
   authorityRegex: string;
   pathRegex: string;
   hostRegex: string;
@@ -248,7 +236,7 @@ function compileUrl(
     // A raw regex governs its own scheme; callers that bucket by scheme treat
     // it as https, the stricter of the two.
     const { hostRegex, authorityRegex, pathRegex } = splitRawRegexUrl(regex, rule);
-    return { scheme: "https", regex, authorityRegex, pathRegex, hostRegex, isRegex: true };
+    return { scheme: "https", authorityRegex, pathRegex, hostRegex, isRegex: true };
   }
 
   const { scheme, authority, path } = splitUrl(url, rule);
@@ -269,30 +257,16 @@ function compileUrl(
   // `<hostRegex>:<portRegex>`.
   const combined = wildcardToRegexPartial(`${host}:${port === "" ? DEFAULT_PORT[scheme] : port}`);
   const hostRegex = combined.slice(0, combined.lastIndexOf(":"));
-  const portRegex =
-    port === "" || port === DEFAULT_PORT[scheme]
-      ? `(:${DEFAULT_PORT[scheme]})?`
-      : port === "*"
-        ? "(:[0-9]+)?"
-        : `:${port}`;
 
   // No path in the pattern means "any path on this host".
-  const pathRegex = path === "" ? "(/.*)?" : pathToRegexPartial(path);
+  const pathRegex = path === "" ? "^/" : `^${pathToRegexPartial(path)}$`;
 
   // The authority always carries an explicit port, even where the URL may omit
   // it.
   const authorityPort = port === "*" ? "[0-9]+" : port === "" ? DEFAULT_PORT[scheme] : port;
   const authorityRegex = `^${hostRegex}:${authorityPort}$`;
 
-  return {
-    scheme,
-    regex: `^${scheme}://${hostRegex}${portRegex}${pathRegex}$`,
-    authorityRegex,
-    // A rule with no path allows any, which is what the URL regex says too.
-    pathRegex: path === "" ? "^/" : `^${pathRegex}$`,
-    hostRegex, // unused: a wildcard rule's host and port are matched separately.
-    isRegex: false,
-  };
+  return { scheme, authorityRegex, pathRegex, hostRegex, isRegex: false };
 }
 
 /**
@@ -317,8 +291,8 @@ export function convertUrlRule(rule: string): UrlRule {
   }
 
   const methods = parseMethods(methodSpec, trimmed);
-  const { scheme, regex, authorityRegex, pathRegex, hostRegex, isRegex } = compileUrl(url, trimmed);
-  return { methods, scheme, regex, authorityRegex, pathRegex, hostRegex, isRegex, raw: trimmed };
+  const { scheme, authorityRegex, pathRegex, hostRegex, isRegex } = compileUrl(url, trimmed);
+  return { methods, scheme, authorityRegex, pathRegex, hostRegex, isRegex, raw: trimmed };
 }
 
 /**
