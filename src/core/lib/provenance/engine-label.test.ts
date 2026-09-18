@@ -46,15 +46,13 @@ describe("checkImageEngine", () => {
   it("rejects the universal image served for an inspect tag", () => {
     const err = expectRejected("3.1.0", "inspect");
     expect(err.message).toContain("not published for proxy engine inspect");
+    // Another engine's image is refused on the same path.
+    expectRejected("3.1.0-explicit", "inspect");
   });
 
   it("rejects an engine image served for a universal tag", () => {
     expectRejected("3.1.0-inspect", "universal");
     expectRejected("3.1.0-rc1-inspect", "universal");
-  });
-
-  it("rejects one engine's image served for another engine's tag", () => {
-    expectRejected("3.1.0-explicit", "inspect");
   });
 
   it("rejects a suffix the action does not offer, rather than reading it as universal", () => {
