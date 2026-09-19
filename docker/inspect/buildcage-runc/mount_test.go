@@ -130,12 +130,21 @@ func TestContainerPathOfResolvesThroughSymlinks(t *testing.T) {
 	})
 }
 
-func TestContainerPathOfRefusesTheRoot(t *testing.T) {
-	if got := containerPathOf("/rootfs", "/rootfs"); got != "/" {
-		t.Errorf("containerPathOf at the rootfs itself = %q, want %q", got, "/")
+func TestContainerPathOfRefusesAnythingButAPathInsideTheRootfs(t *testing.T) {
+	const rootfs = "/run/bundle/rootfs"
+	cases := map[string]string{
+		"the rootfs itself":       rootfs,
+		"somewhere else entirely": "/somewhere/else",
+		// Sharing a prefix with the rootfs is not being inside it; a bare
+		// HasPrefix would hand back "-old/etc/ssl/certs" as a container path.
+		"a sibling the rootfs name is a prefix of": rootfs + "-old/etc/ssl/certs",
 	}
-	if got := containerPathOf("/rootfs", "/somewhere/else"); got != "/" {
-		t.Errorf("containerPathOf outside the rootfs = %q, want %q", got, "/")
+	for name, resolved := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := containerPathOf(rootfs, resolved); got != "/" {
+				t.Errorf("containerPathOf(%q, %q) = %q, want %q", rootfs, resolved, got, "/")
+			}
+		})
 	}
 }
 

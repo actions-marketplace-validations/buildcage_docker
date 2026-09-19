@@ -34,7 +34,10 @@ var systemCertFiles = []string{
 	"/etc/ssl/cert.pem",
 }
 
-var errEscapesRoot = errors.New("path escapes the rootfs")
+var (
+	errEscapesRoot     = errors.New("path escapes the rootfs")
+	errTooManySymlinks = errors.New("too many symlinks")
+)
 
 // errNotRegular means appendCA/removeCA found something other than a plain
 // file at the target. The wrapper runs unsandboxed on the host, so opening
@@ -85,7 +88,7 @@ func resolveInRoot(rootfs, path string) (string, error) {
 
 		hops++
 		if hops > 32 {
-			return "", errors.New("too many symlinks")
+			return "", errTooManySymlinks
 		}
 		target, err := os.Readlink(next)
 		if err != nil {
@@ -268,7 +271,7 @@ func shiftDown(f *os.File, from, to, size int64) error {
 // (/etc/pki/ca-trust/extracted/pem/), and binding over the symlink's
 // directory would shadow the wrong place.
 func containerPathOf(rootfs, resolved string) string {
-	if !strings.HasPrefix(resolved, rootfs) {
+	if !withinRoot(rootfs, resolved) {
 		return "/"
 	}
 	if rel := strings.TrimPrefix(resolved, rootfs); rel != "" {
