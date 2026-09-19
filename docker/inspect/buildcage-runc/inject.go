@@ -52,6 +52,83 @@ var caVariables = []struct {
 	{"SSL_CERT_FILE", pointAtSystemStore},
 }
 
+// caPlan is what the variable pass settled on: the files the CA has to be
+// appended to, the variables to add to the process spec, and the proxy-CA-only
+// file it wrote, if any variable needed one.
+type caPlan struct {
+	targets      map[string]bool
+	env          map[string]string
+	createdOwnCA string
+}
+
+// planCATrust walks caVariables and decides, per variable, whether the CA goes
+// into the file it already names, whether to point it at the system store, or
+// whether to give it a file holding only this CA. See the unsetBehaviour
+// comment above for why each variable falls where it does.
+func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
+	// Every bundle the CA has to go into, keyed by resolved path so a file
+	// named by two variables is only written once.
+	plan := caPlan{targets: map[string]bool{}, env: map[string]string{}}
+	if store.found {
+		plan.targets[store.hostPath] = true
+	}
+
+	// setOwnCA points variableName at ownCAPath, writing it once and sharing
+	// it across every variable that falls back to it.
+	setOwnCA := func(variableName string) {
+		resolved, err := resolveInRoot(s.rootfs, ownCAPath)
+		if err != nil {
+			logf("cannot place %s: %v", ownCAPath, err)
+			return
+		}
+		// More than one variable can take this path, and all of them share
+		// the file: only the first to get here writes it.
+		if plan.createdOwnCA == "" {
+			if _, err := os.Stat(resolved); err == nil {
+				logf("%s already exists; not setting %s", ownCAPath, variableName)
+				return
+			}
+			if err := os.WriteFile(resolved, ca, 0o644); err != nil {
+				logf("cannot write %s: %v", ownCAPath, err)
+				return
+			}
+			plan.createdOwnCA = resolved
+		}
+		plan.env[variableName] = ownCAPath
+	}
+
+	for _, variable := range caVariables {
+		if value, set := s.env[variable.name]; set && value != "" {
+			// Already pointed somewhere: add to that file rather than
+			// redirecting the variable, which would discard whatever the
+			// author put there.
+			resolved, err := resolveInRoot(s.rootfs, value)
+			if err != nil {
+				logf("%s=%s could not be resolved inside the rootfs (%v); leaving it alone",
+					variable.name, value, err)
+				continue
+			}
+			plan.targets[resolved] = true
+			continue
+		}
+		switch variable.whenUnset {
+		case leaveUnset:
+			if !store.found {
+				setOwnCA(variable.name)
+			}
+		case pointAtSystemStore:
+			if store.found {
+				plan.env[variable.name] = store.containerPath
+			} else {
+				setOwnCA(variable.name)
+			}
+		case pointAtOwnCA:
+			setOwnCA(variable.name)
+		}
+	}
+	return plan
+}
+
 // inject makes the step trust the proxy's CA and returns a function that
 // finishes the injection once the step has exited: diffing each mirrored
 // directory against its pre-step state and writing back only what changed.
@@ -71,71 +148,10 @@ func inject(bundle string, ca []byte) (func() error, error) {
 		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
 	}
 
-	// Every bundle the CA has to go into, keyed by resolved path so a file
-	// named by two variables is only written once.
-	targets := map[string]bool{}
-	if store.found {
-		targets[store.hostPath] = true
-	}
-	newEnv := map[string]string{}
-	createdOwnCA := ""
-
-	// setOwnCA points variableName at ownCAPath, writing it once and sharing
-	// it across every variable that falls back to it.
-	setOwnCA := func(variableName string) {
-		resolved, err := resolveInRoot(s.rootfs, ownCAPath)
-		if err != nil {
-			logf("cannot place %s: %v", ownCAPath, err)
-			return
-		}
-		// More than one variable can take this path, and all of them share
-		// the file: only the first to get here writes it.
-		if createdOwnCA == "" {
-			if _, err := os.Stat(resolved); err == nil {
-				logf("%s already exists; not setting %s", ownCAPath, variableName)
-				return
-			}
-			if err := os.WriteFile(resolved, ca, 0o644); err != nil {
-				logf("cannot write %s: %v", ownCAPath, err)
-				return
-			}
-			createdOwnCA = resolved
-		}
-		newEnv[variableName] = ownCAPath
-	}
-
-	for _, variable := range caVariables {
-		if value, set := s.env[variable.name]; set && value != "" {
-			// Already pointed somewhere: add to that file rather than
-			// redirecting the variable, which would discard whatever the
-			// author put there.
-			resolved, err := resolveInRoot(s.rootfs, value)
-			if err != nil {
-				logf("%s=%s could not be resolved inside the rootfs (%v); leaving it alone",
-					variable.name, value, err)
-				continue
-			}
-			targets[resolved] = true
-			continue
-		}
-		switch variable.whenUnset {
-		case leaveUnset:
-			if !store.found {
-				setOwnCA(variable.name)
-			}
-		case pointAtSystemStore:
-			if store.found {
-				newEnv[variable.name] = store.containerPath
-			} else {
-				setOwnCA(variable.name)
-			}
-		case pointAtOwnCA:
-			setOwnCA(variable.name)
-		}
-	}
+	plan := planCATrust(s, ca, store)
 
 	var binds []*dirBind
-	for hostDir, files := range groupTargetsByDir(targets) {
+	for hostDir, files := range groupTargetsByDir(plan.targets) {
 		containerDir := containerPathOf(s.rootfs, hostDir)
 		if containerDir == "/" {
 			logf("refusing to bind the container root; skipping CA injection for %v", files)
@@ -172,7 +188,7 @@ func inject(bundle string, ca []byte) (func() error, error) {
 		binds = append(binds, b)
 	}
 
-	s.setEnv(newEnv)
+	s.setEnv(plan.env)
 	if err := s.save(); err != nil {
 		logf("cannot update the process spec: %v", err)
 	}
@@ -188,9 +204,9 @@ func inject(bundle string, ca []byte) (func() error, error) {
 			}
 			b.cleanup()
 		}
-		if createdOwnCA != "" {
-			if err := os.Remove(createdOwnCA); err != nil && !os.IsNotExist(err) {
-				logf("cannot remove %s: %v", createdOwnCA, err)
+		if plan.createdOwnCA != "" {
+			if err := os.Remove(plan.createdOwnCA); err != nil && !os.IsNotExist(err) {
+				logf("cannot remove %s: %v", plan.createdOwnCA, err)
 			}
 		}
 		return firstErr
