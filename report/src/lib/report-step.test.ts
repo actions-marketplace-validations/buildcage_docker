@@ -31,7 +31,7 @@ const deps = mocks as unknown as ReportStepDeps;
 
 const SCRATCH = "/tmp/buildcage-report-abc123";
 const CONTAINER = "container-abc123";
-/** `buildcage-` + the first 12 hex of sha256("buildcage") — the same name
+/** `buildcage-` + the first 12 hex of sha256("buildcage"): the same name
  *  setup derives from its own builder_name input. */
 const PROJECT_NAME = "buildcage-eeb358f947ee";
 

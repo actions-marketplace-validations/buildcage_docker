@@ -3,7 +3,7 @@
 # trusts whatever the OS provides. Debian's own slim image ships with none
 # until ca-certificates is installed, which the first RUN step below does.
 # That step itself gets no CA from the wrapper, because there is no store yet
-# for it to add to — but the real Debian archive is plain HTTP by default, so
+# for it to add to, but the real Debian archive is plain HTTP by default, so
 # nothing here needs one: apt authenticates packages by the archive's GPG key
 # (already present via debian-archive-keyring), never by TLS.
 #
@@ -46,8 +46,8 @@ RUN echo "=== [apt over the injected CA] ===" && \
 # The one request whose outcome depends on the mode: restrict refuses it at the
 # proxy, audit records it and lets it reach the origin. Both modes run this same
 # Dockerfile, so without it the two runs would assert nothing the other doesn't.
-# apt's own exit code is not the subject here -- either way it gets a body it
-# cannot parse -- so the assertions read the proxy log instead.
+# apt's own exit code is not the subject here: either way it gets a body it
+# cannot parse, so the assertions read the proxy log instead.
 RUN echo "=== [apt outside the rules] ===" && \
     echo "deb [trusted=yes] https://allowed.example.com/private/debian ./" \
       > /etc/apt/sources.list.d/inspect-outside.list && \

@@ -14,7 +14,7 @@ import (
 // doesn't; the production image installs GNU rsync via apk).
 //
 // The probe goes through runRsync rather than around it, so the default that
-// spawns rsync is exercised wherever the tests run -- on a machine without one
+// spawns rsync is exercised wherever the tests run: on a machine without one
 // it is the call whose failure decides to skip.
 func TestRealRsyncMirrorsAndWritesBack(t *testing.T) {
 	if out, err := runRsync([]string{"--version"}); err != nil || strings.Contains(string(out), "openrsync") {

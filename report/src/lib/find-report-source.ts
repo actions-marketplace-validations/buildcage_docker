@@ -6,7 +6,7 @@ import { ReportError } from "./errors.ts";
 /**
  * Locates the report-source container purely via Docker metadata: the
  * Compose project this builder_name derives to, plus buildcage's own label.
- * Anything other than exactly one match is an error rather than a guess --
+ * Anything other than exactly one match is an error rather than a guess:
  * reporting on the wrong container would report on the wrong build.
  */
 export function findReportSourceContainer(

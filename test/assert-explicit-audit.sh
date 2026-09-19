@@ -35,7 +35,7 @@ fi
 echo ""
 
 # Step-counter brackets are escaped in the rendered markdown (see
-# communication-details.ts's escapeMarkdown) — "* \[3/8\] RUN ...".
+# communication-details.ts's escapeMarkdown): "* \[3/8\] RUN ...".
 echo "[report action] per-command communication detail (rendered markdown):"
 if grep -qF "Communication details" <<< "$REPORT_MARKDOWN" \
   && grep -qF "Allowed Urls" <<< "$REPORT_MARKDOWN" \

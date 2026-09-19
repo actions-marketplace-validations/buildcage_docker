@@ -99,8 +99,8 @@ test_unit_go: ## Run buildcage-runc's and covfilter's unit tests
 # statement fail the run instead of sinking into a percentage nobody reads.
 #
 # It is also the only number that holds across Go releases. cmd/cover splits a
-# function into blocks differently between them -- the same source reports 98.1%
-# under 1.26.5 and 98.2% under 1.27.1 -- but at 100 every statement is either
+# function into blocks differently between them (the same source reports 98.1%
+# under 1.26.5 and 98.2% under 1.27.1), but at 100 every statement is either
 # reached or marked, whichever toolchain counted them.
 RUNC_COVERAGE := coverage/buildcage-runc.cov
 RUNC_COVERAGE_THRESHOLD := 100
@@ -134,7 +134,7 @@ test_unit_qjs: ## Run unit tests in Docker
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# setup_buildkit_{engine}_{mode} — start the builder only
+# setup_buildkit_{engine}_{mode}: start the builder only
 # ---------------------------------------------------------------------------
 
 .PHONY: setup_buildkit_universal_audit
@@ -229,7 +229,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 	@node report/src/main.ts
 
 # ---------------------------------------------------------------------------
-# test_integration_buildkit_{engine}_{mode} — setup + build + verify + clean
+# test_integration_buildkit_{engine}_{mode}: setup + build + verify + clean
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
@@ -410,7 +410,7 @@ test_integration_buildkit_universal_known_blocked: ## Check known_blocked_rules 
 
 # Brings the builder up on its own, with no build running and no fixture
 # network, so buildcage0 never exists: this is the one target that says where
-# the listeners are *not* reachable from, rather than that a build reached them.
+# the listeners are unreachable from, rather than that a build reached them.
 .PHONY: test_integration_buildkit_listener_scope
 test_integration_buildkit_listener_scope: ## Check :10024/:53 are unreachable outside buildcage0, for both engines
 	@echo "Running listener-scope tests..."
@@ -434,7 +434,7 @@ test_integration_buildkit_multiarch: ## Check the builder's default and cross-pl
 	@$(MAKE) clean_buildkit
 
 # ---------------------------------------------------------------------------
-# example_{engine}_{mode} — smoke test against a plain Dockerfile
+# example_{engine}_{mode}: smoke test against a plain Dockerfile
 # ---------------------------------------------------------------------------
 
 .PHONY: example_universal_audit

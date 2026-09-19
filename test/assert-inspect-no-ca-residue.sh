@@ -16,7 +16,7 @@ echo "=== No CA Residue In The Built Image ($IMAGE) ==="
 echo ""
 
 # The standalone file NODE_EXTRA_CA_CERTS/DENO_CERT were pointed at, only
-# created when the image had none of its own -- removed again once the step
+# created when the image had none of its own, removed again once the step
 # that needed it ends.
 if docker run --rm "$IMAGE" sh -c 'test -e /etc/buildcage-ca.pem'; then
   fail "/etc/buildcage-ca.pem is present in the built image"
@@ -39,8 +39,8 @@ else
 fi
 
 # Belt and suspenders: the CA-trust variables inject.go sets only ever reach
-# the transient RUN-step process spec, never the image config BuildKit writes
-# -- confirmed here against a real built image rather than just the claim.
+# the transient RUN-step process spec, never the image config BuildKit writes.
+# Confirmed here against a real built image rather than just the claim.
 LEAKED_ENV=$(docker inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' \
   | grep -E '^(NODE_EXTRA_CA_CERTS|DENO_CERT|REQUESTS_CA_BUNDLE|PIP_CERT|SSL_CERT_FILE)=' || true)
 if [ -n "$LEAKED_ENV" ]; then

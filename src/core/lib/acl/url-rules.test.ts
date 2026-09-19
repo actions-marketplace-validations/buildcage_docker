@@ -165,7 +165,7 @@ describe("convertUrlRule regex escape hatch", () => {
   });
 
   it("keeps the host half's own port pattern for enforcement, but drops it for the resolver", () => {
-    // hostRegex (matched against the connection, with and without a port --
+    // hostRegex (matched against the connection, with and without a port;
     // see haproxy-config.ts) keeps whatever the user wrote; authorityRegex
     // (the resolver's allowlist, which has no notion of a port) never does.
     const r = convertUrlRule("GET ~^https://a\\.com:8443/x$");

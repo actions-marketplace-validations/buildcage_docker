@@ -45,7 +45,7 @@ frontend outbound_proxy
     tcp-request inspect-delay 5s
 
     # Default variables
-    # txn.decision defaults to BLOCKED — any reject/deny leaves it unchanged,
+    # txn.decision defaults to BLOCKED: any reject/deny leaves it unchanged,
     # so only connections that pass all checks are overwritten to ALLOWED/AUDIT.
     tcp-request content set-var(txn.decision) str(BLOCKED)
     tcp-request content set-var(txn.reason) str(-)
@@ -66,11 +66,11 @@ frontend outbound_proxy
 
     # TLS variable extraction
     # A trailing dot denotes the same DNS name, so it must not affect matching,
-    # resolution or logging -- strip it once here, upstream of every other use.
+    # resolution or logging, so strip it once here, upstream of every other use.
     tcp-request content set-var(txn.sni) req_ssl_sni,regsub(\.$,) if is_tls
     tcp-request content set-var-fmt(txn.sni_port) %[var(txn.sni)]:%[dst_port] if is_tls
     # The SNI is attacker-chosen raw bytes, and HAProxy copies a %[var()] into
-    # log-format verbatim -- +E would only escape " \ ], never LF. So the copy
+    # log-format verbatim, and +E would only escape " \ ], never LF. So the copy
     # that reaches the log is reduced to a hostname charset here; the ACL below
     # still matches the untouched txn.sni_port.
     tcp-request content set-var(txn.sni_log) var(txn.sni),regsub([^A-Za-z0-9._-],_,g) if is_tls has_sni

@@ -96,7 +96,7 @@ assert_log_not_contains() {
 
 assert_no_forged_log_lines() {
   local decision_logs
-  # Restrict to actual decision lines ("buildcage [...]") -- the plausibility
+  # Restrict to actual decision lines ("buildcage [...]"): the plausibility
   # startup line ("buildcage haproxy starting", see s6-rc.d/haproxy/run) has
   # no bracket after "buildcage " and would otherwise false-positive below.
   decision_logs=$(grep 'buildcage \[' <<< "$LOGS" || true)

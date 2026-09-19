@@ -3,7 +3,7 @@
  * Baked into the image, copied out of it (not out of the running container)
  * by the `report` action on every run, and run with `node report-action.js
  * <container-id>`. Runs on the runner, not inside the container, reaching in
- * via core/lib/docker/client.ts — so `report` itself never needs to know this
+ * via core/lib/docker/client.ts, so `report` itself never needs to know this
  * engine's log path or env var names.
  *
  * Everything but this engine's log path is core/lib/report/action-main.ts.

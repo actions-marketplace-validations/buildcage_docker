@@ -50,7 +50,7 @@ LABEL org.opencontainers.image.title="buildcage" \
       org.opencontainers.image.licenses="MIT AND GPL-2.0-or-later" \
       org.opencontainers.image.source="https://github.com/buildcage/docker" \
       io.github.buildcage.report-source="true"
-# report finds this container by this label — must match src/core/lib/docker/report-source.ts.
+# report finds this container by this label; must match src/core/lib/docker/report-source.ts.
 
 RUN apk add --no-cache \
       s6-overlay \
@@ -101,11 +101,10 @@ RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
 # Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a self-contained
-# bundle — no separate /opt/buildcage/shared/ copy is needed, unlike before TypeScript
-# migration.
+# bundle, so no separate /opt/buildcage/shared/ copy is needed.
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
-# report-action.js — the runner-side report generator `docker cp`'d out by
+# report-action.js is the runner-side report generator `docker cp`'d out by
 # the report action itself (never staged elsewhere); see its own header
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/universal/scripts/report-action.js /opt/buildcage/scripts/report-action.js

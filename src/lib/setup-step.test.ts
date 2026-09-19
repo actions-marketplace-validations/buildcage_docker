@@ -38,7 +38,7 @@ const ENV = {
   GITHUB_ACTION_REPOSITORY: "buildcage/docker",
 };
 
-/** `buildcage-` + the first 12 hex of sha256("buildcage") — the same name
+/** `buildcage-` + the first 12 hex of sha256("buildcage"): the same name
  *  report derives from its own builder_name input. */
 const PROJECT_NAME = "buildcage-eeb358f947ee";
 

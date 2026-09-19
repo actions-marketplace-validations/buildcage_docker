@@ -8,7 +8,7 @@
 // validates its upstream TLS connection with Go's default certificate
 // verification and has no flag or config to relax that (verified against
 // util/network/proxyprovider/provider_linux.go's newProxyTransport(), which
-// sets no TLSClientConfig at all) — so a self-signed integration-test server
+// sets no TLSClientConfig at all), so a self-signed integration-test server
 // cert can only be trusted by giving buildkitd's own process a CA bundle
 // that includes it.
 package main
@@ -20,7 +20,7 @@ import (
 
 // buildkitdEnv (testhooks build only) returns buildkitd's child-process
 // environment with an additional trusted CA merged in when
-// BUILDKIT_PROXY_EXTRA_CA_FILE is set (compose.test-explicit.yaml only — never set in
+// BUILDKIT_PROXY_EXTRA_CA_FILE is set (compose.test-explicit.yaml only, never set in
 // production). The real system CAs are always included alongside it, so
 // this never weakens trust for anything else.
 func buildkitdEnv() ([]string, error) {

@@ -70,7 +70,7 @@ LABEL org.opencontainers.image.title="buildcage (inspect proxy engine)" \
       org.opencontainers.image.licenses="MIT AND Apache-2.0 AND GPL-2.0-or-later AND ISC" \
       org.opencontainers.image.source="https://github.com/buildcage/docker" \
       io.github.buildcage.report-source="true"
-# report finds this container by this label — must match src/core/lib/docker/report-source.ts.
+# report finds this container by this label; must match src/core/lib/docker/report-source.ts.
 
 RUN apk add --no-cache \
       s6-overlay \
@@ -126,7 +126,7 @@ COPY docker/inspect/files/cni.conflist   /etc/buildkit/cni.conflist
 # Generated at startup from the rule inputs, both by the same run.
 COPY --from=scripts-build /build/dist/qjs/docker/inspect/scripts/gen-configs.js /opt/buildcage/scripts/gen-configs.js
 
-# report-action.js — the runner-side report generator `docker cp`'d out by
+# report-action.js is the runner-side report generator `docker cp`'d out by
 # the report action itself (never staged elsewhere); see its own header
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/inspect/scripts/report-action.js /opt/buildcage/scripts/report-action.js

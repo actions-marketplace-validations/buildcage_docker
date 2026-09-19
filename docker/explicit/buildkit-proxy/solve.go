@@ -43,15 +43,15 @@ func (s *solveServer) Solve(ctx context.Context, req *controlapi.SolveRequest) (
 // has the final say for every http(s) source: whatever the client's rules
 // decided for the same identifier is overwritten by buildcage's own verdict.
 // For any other scheme (docker-image://, git://, etc.) buildcage's rules
-// never match at all, so the client's rules apply unmodified — buildcage
+// never match at all, so the client's rules apply unmodified: buildcage
 // only ever governs what it was configured to govern.
 //
 // CONVERT rules need no special handling despite being able to short-circuit
-// a single evaluation pass: Engine.Evaluate re-evaluates the *entire* merged
+// a single evaluation pass: Engine.Evaluate re-evaluates the entire merged
 // document from the top after every mutation (up to 20 times, erroring
 // closed beyond that), so buildcage's trailing rules always get a chance to
-// vet whatever identifier a client conversion converges on before it's used
-// — confirmed both for LLB source resolution (solver/llbsolver) and for the
+// vet whatever identifier a client conversion converges on before it's used,
+// confirmed both for LLB source resolution (solver/llbsolver) and for the
 // exec-proxy's own runtime HTTP(S) checks (util/network/proxyprovider's
 // proxyHandler.check, which calls the same Engine.Evaluate).
 func mergePolicy(client, buildcage *sourcepolicypb.Policy) *sourcepolicypb.Policy {

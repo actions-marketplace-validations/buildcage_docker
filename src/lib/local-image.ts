@@ -9,9 +9,9 @@ import type { LocalImageOverride } from "../core/lib/provenance/local-image-over
  * (test_action in .github/workflows/test-e2e.yml, and verify-image in
  * docker-publish.yml, where the image is not signed yet), never by a consumer
  * of a published action. rolldown's replacePlugin substitutes
- * BUILDCAGE_BUILD_TEST_HOOKS with the *build's* env, so without that flag the
+ * BUILDCAGE_BUILD_TEST_HOOKS with the build's own env, so without that flag the
  * condition is constant-false and the dynamic import below is tree-shaken out
- * of dist entirely — see rolldown.config.js. The unit_test CI job also greps
+ * of dist entirely; see rolldown.config.js. The unit_test CI job also greps
  * the built output as a backstop.
  */
 export async function readLocalImageOverride(

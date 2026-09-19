@@ -20,7 +20,7 @@ export interface ComposeEnvOptions {
  * workflow step left in the job environment can reach it.
  *
  * `hostAddresses` is an injectable seam for testing without reading the
- * runner's own interfaces -- not a caller-facing precondition.
+ * runner's own interfaces, not a caller-facing precondition.
  */
 export function buildComposeEnv(
   {

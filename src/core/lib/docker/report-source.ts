@@ -10,7 +10,7 @@ export const REPORT_ACTION_SCRIPT_PATH = "/opt/buildcage/scripts/report-action.j
  * Fallback for `builder_name` outside the Actions runtime, where
  * `core.getInput` sees nothing; action.yml's own `default: 'buildcage'`
  * covers the normal case. Part of the contract because setup, report and post
- * each read the input separately and have to derive the same project name --
+ * each read the input separately and have to derive the same project name:
  * a value that differed between them would leave report looking for a
  * container setup never named.
  */

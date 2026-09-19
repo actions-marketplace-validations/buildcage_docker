@@ -1,13 +1,13 @@
 import { defineConfig } from "vite-plus";
 
 // Committed build artifacts (verified against source by the "Check dist is
-// up to date" CI step) — never lint/format generated output.
+// up to date" CI step); never lint or format generated output.
 const generatedOutputs = ["dist/**", "report/dist/**"];
 
 // Recorded/golden fixtures: some (e.g. core/lib/log/__fixtures__/*.json) are
 // parsed line-by-line to mimic buildctl's real NDJSON-ish log output, so
 // pretty-printing them breaks that line structure and fails the tests that
-// read them. Fixtures are captured data, not authored code — never reformat
+// read them. Fixtures are captured data, not authored code: never reformat
 // any of them, even ones that happen to be safe today.
 const fixtures = ["**/__fixtures__/**"];
 

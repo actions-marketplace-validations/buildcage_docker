@@ -18,7 +18,7 @@ describe("readBuilderName", () => {
   });
 
   // action.yml's own default supplies "buildcage" in a real run, so an empty
-  // string only happens outside the Actions runtime -- where the fallback has
+  // string only happens outside the Actions runtime, where the fallback has
   // to produce the same name the other two steps derive.
   it("treats an empty input as unset rather than as a builder named ''", () => {
     expect(readBuilderName(inputs({ builder_name: "" }))).toBe(DEFAULT_BUILDER_NAME);

@@ -9,7 +9,7 @@ import (
 )
 
 // newBundleNoStore lays out a bundle with no CA store at all under
-// rootfs/etc/ssl/certs — the node:*-slim shape: no OS trust store, only
+// rootfs/etc/ssl/certs, the node:*-slim shape: no OS trust store, only
 // Node's own bundled roots, which findSystemStore cannot find.
 func newBundleNoStore(t *testing.T, env []string) (bundle, rootfs string) {
 	t.Helper()
@@ -314,7 +314,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 // every variable just because the system store is missing: all six fall back
 // to the same proxy-CA-only file. This is the corepack/node:22-slim and
 // apt-install-then-curl/debian:bookworm-slim failure modes under the inspect
-// engine — see docs/inspect-engine.md's "No system CA store" for what this
+// engine; see docs/inspect-engine.md's "No system CA store" for what this
 // fallback does and does not cover (ordinary MITM'd traffic works; a
 // passthrough connection's real certificate still does not verify).
 func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) {
@@ -523,8 +523,8 @@ func TestInjectCarriesOnWhenItCannotWriteItsOwnCAFile(t *testing.T) {
 	useTempLog(t)
 	useFakeRsync(t)
 	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
-	// The path resolves -- /etc is a real directory and the file is simply not
-	// there yet -- but nothing can be created in it.
+	// The path resolves, /etc being a real directory and the file simply not
+	// there yet, but nothing can be created in it.
 	mustMakeReadOnly(t, filepath.Join(rootfs, "etc"))
 
 	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))

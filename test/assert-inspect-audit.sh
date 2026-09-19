@@ -115,7 +115,7 @@ echo ""
 
 echo "[report] the traffic artifact:"
 # writeTrafficFile only runs when BUILDCAGE_TRAFFIC_FILE is set, which
-# report/src/main.ts normally does itself from upload_traffic_artifact -- set
+# report/src/main.ts normally does itself from upload_traffic_artifact; set
 # it directly here to reach the same path without a real GitHub Actions
 # runtime to upload through.
 BUILDER_CID=$(docker compose ps -q builder)

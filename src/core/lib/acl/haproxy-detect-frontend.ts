@@ -89,8 +89,8 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
       l.push("");
       for (const host of tlsHosts) {
         // Ports scope a tls rule (see haproxy-rules.ts): without
-        // the port ACL here too, an SNI matching a port-scoped rule on a
-        // *different* port would still set txn.tlsrule, triggering an early
+        // the port ACL here too, an SNI matching a port-scoped rule on some
+        // other port would still set txn.tlsrule, triggering an early
         // do-resolve/set-dst that overwrites the connection's destination
         // before the inspected path ever sees it, even though txn.pass
         // (gated on sni+port together) correctly never fires for it.
