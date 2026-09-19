@@ -11,19 +11,24 @@ describe("annotateKnownBlocked", () => {
     ...overrides,
   });
 
-  it("marks all rows as not expected when no rules are given", () => {
-    const result = annotateKnownBlocked([row()], []);
-    expect(result[0].expected).toBe(false);
+  it("marks a row as not expected when no rules are given, leaving its fields alone", () => {
+    const [result] = annotateKnownBlocked([row()], []);
+    expect(result.expected).toBe(false);
+    expect(result.host).toBe("evil.example.com");
+    expect(result.port).toBe("443");
+    expect(result.ruleType).toBe("HTTPS");
+    expect(result.reason).toBe("not in allowlist");
+    expect(result.count).toBe(3);
   });
 
-  it("marks a row as expected on an exact host:port match", () => {
-    const result = annotateKnownBlocked([row()], ["evil.example.com:443"]);
-    expect(result[0].expected).toBe(true);
-  });
-
-  it("marks a row as expected on a wildcard match", () => {
-    const result = annotateKnownBlocked([row()], ["*.example.com:443"]);
-    expect(result[0].expected).toBe(true);
+  it("marks a row as expected whichever rule syntax matched it", () => {
+    for (const rule of [
+      "evil.example.com:443",
+      "*.example.com:443",
+      "~^evil\\.example\\.com:443$",
+    ]) {
+      expect(annotateKnownBlocked([row()], [rule])[0].expected, rule).toBe(true);
+    }
   });
 
   it("matches a refused name with a rule that names no port", () => {
@@ -41,23 +46,9 @@ describe("annotateKnownBlocked", () => {
     expect(annotateKnownBlocked([row()], ["evil.example.com"])[0].expected).toBe(true);
   });
 
-  it("marks a row as expected on a ~regex match", () => {
-    const result = annotateKnownBlocked([row()], ["~^evil\\.example\\.com:443$"]);
-    expect(result[0].expected).toBe(true);
-  });
-
   it("does not match when the port differs", () => {
     const result = annotateKnownBlocked([row({ port: "80" })], ["evil.example.com:443"]);
     expect(result[0].expected).toBe(false);
-  });
-
-  it("preserves the original row fields", () => {
-    const result = annotateKnownBlocked([row()], []);
-    expect(result[0].host).toBe("evil.example.com");
-    expect(result[0].port).toBe("443");
-    expect(result[0].ruleType).toBe("HTTPS");
-    expect(result[0].reason).toBe("not in allowlist");
-    expect(result[0].count).toBe(3);
   });
 
   it("names the rule that matched, with its port completed", () => {
@@ -111,21 +102,6 @@ describe("aggregateAllowedHosts", () => {
     expect(aggregateAllowedHosts(builds)).toStrictEqual([]);
   });
 
-  it("returns an empty array for no builds at all", () => {
-    expect(aggregateAllowedHosts([])).toStrictEqual([]);
-  });
-
-  it("resolves host/port the same way as core/lib/log/parse-identifier.ts's parseIdentifier", () => {
-    const builds = [
-      [{ entries: [{ method: "GET", url: "http://allowed.example.com:8080/path" }] }],
-    ];
-    expect(aggregateAllowedHosts(builds)).toStrictEqual([
-      { host: "allowed.example.com", port: "8080", ruleType: "HTTP", reason: "-", count: 1 },
-    ]);
-  });
-});
-
-describe("aggregateAllowedHosts — identifiers the parser cannot read", () => {
   it("skips a source entry that is not a URL it recognises", () => {
     const builds = [
       [
@@ -138,5 +114,18 @@ describe("aggregateAllowedHosts — identifiers the parser cannot read", () => {
       ],
     ];
     expect(aggregateAllowedHosts(builds).map((e) => e.host)).toStrictEqual(["a.example.com"]);
+  });
+
+  it("returns an empty array for no builds at all", () => {
+    expect(aggregateAllowedHosts([])).toStrictEqual([]);
+  });
+
+  it("resolves host/port the same way as core/lib/log/parse-identifier.ts's parseIdentifier", () => {
+    const builds = [
+      [{ entries: [{ method: "GET", url: "http://allowed.example.com:8080/path" }] }],
+    ];
+    expect(aggregateAllowedHosts(builds)).toStrictEqual([
+      { host: "allowed.example.com", port: "8080", ruleType: "HTTP", reason: "-", count: 1 },
+    ]);
   });
 });
