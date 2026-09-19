@@ -2,10 +2,11 @@
 #
 # The audit-then-restrict round trip, which is what the inspect engine is for.
 #
-# Phase 1 runs a build under `audit` and takes the `allowed_url_rules` the
-# report generated from what it saw. Phase 2 restarts under `restrict` with
-# exactly those rules, changing nothing, and runs a build that repeats every
-# request plus a few the first build never made.
+# Phase 1 runs a build under `audit`, asserts what audit is supposed to have
+# recorded, and takes the `allowed_url_rules` the report generated from what it
+# saw. Phase 2 restarts under `restrict` with exactly those rules, changing
+# nothing, and runs a build that repeats every request plus a few the first
+# build never made.
 #
 # Both halves matter. Rules that break the build they were learned from make
 # the workflow useless; rules that permit everything make it pointless.
@@ -46,9 +47,13 @@ build() {
 }
 
 echo ""
-echo "=== Phase 1: learn the rules from an audit run ==="
+echo "=== Phase 1: check the audit run and learn the rules from it ==="
 start audit "$BASE_COMPOSE"
 build test/Dockerfile.inspect-audit
+
+# The only build of Dockerfile.inspect-audit in the suite, so the audit-mode
+# assertions run against it here rather than on a second build of their own.
+./test/assert-inspect-audit.sh
 
 RULES=$(
   COMPOSE_FILE="$BASE_COMPOSE" GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 |
