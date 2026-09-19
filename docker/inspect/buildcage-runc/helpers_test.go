@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -149,4 +150,51 @@ func failRsyncOn(t *testing.T, n int) {
 		return orig(args)
 	}
 	t.Cleanup(func() { runRsync = orig })
+}
+
+// useFakeRunc puts a shell script where run looks for buildkit-runc, so a test
+// can choose what the wrapped process does and what it exits with. The script
+// is handed runc's own arguments and is free to ignore them.
+func useFakeRunc(t *testing.T, script string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "runc")
+	mustWriteFile(t, path, "#!/bin/sh\n"+script+"\n")
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := realRunc
+	realRunc = path
+	t.Cleanup(func() { realRunc = old })
+}
+
+// useTempCAFile gives setupInjection a CA to find, so a test can reach the
+// injection half of run.
+func useTempCAFile(t *testing.T, ca string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	mustWriteFile(t, path, ca)
+	old := caFile
+	caFile = path
+	t.Cleanup(func() { caFile = old })
+}
+
+// captureStderr redirects os.Stderr, which is both what dumpOwnLog writes to
+// and what run hands the wrapped process. The returned function restores it
+// and reads back what was written.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = old })
+	return func() string {
+		os.Stderr = old
+		w.Close()
+		out, _ := io.ReadAll(r)
+		r.Close()
+		return string(out)
+	}
 }

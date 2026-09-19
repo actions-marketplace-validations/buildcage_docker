@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,5 +108,66 @@ func TestParseArgs(t *testing.T) {
 				t.Errorf("parseArgs(%v) = %q,%q want %q,%q", c.args, sub, bundle, c.sub, c.bundle)
 			}
 		})
+	}
+}
+
+// BuildKit reads the step's result from runc's exit code, so the wrapper has
+// to hand back exactly what the real runc exited with.
+func TestRunReturnsTheWrappedExitCode(t *testing.T) {
+	useTempLog(t)
+	for _, want := range []int{0, 1, 7, 137} {
+		t.Run(fmt.Sprintf("exit %d", want), func(t *testing.T) {
+			useFakeRunc(t, fmt.Sprintf("exit %d", want))
+			if got := run([]string{"state", "id"}); got != want {
+				t.Errorf("run exited %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+// A runc that cannot be started is the wrapper's own failure, not the step's,
+// and has to say so in the log rather than passing for a clean step.
+func TestRunReportsARuncItCannotStart(t *testing.T) {
+	useTempLog(t)
+	realRuncWas := realRunc
+	realRunc = filepath.Join(t.TempDir(), "not-there")
+	t.Cleanup(func() { realRunc = realRuncWas })
+
+	if got := run([]string{"state", "id"}); got != 1 {
+		t.Errorf("run exited %d, want 1", got)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot run") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// A write-back that fails leaves the store half-written, so a step that
+// otherwise succeeded must not be allowed to pass: BuildKit would commit the
+// snapshot. The wrapper's own log has to reach the build log too, since
+// nothing else collects it from the builder container.
+func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, "BUILDCAGE-CA")
+	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
+
+	// The step regenerates the store, which is what makes finish write back.
+	t.Setenv("SCRATCH_ROOT", scratchRoot)
+	// sh does not glob a redirection target, so the loop resolves it first.
+	useFakeRunc(t, `for f in "$SCRATCH_ROOT"/*/ca-certificates.crt; do echo REGENERATED > "$f"; done`)
+	// 1 is prepare's mirror and 2 is the write-back's dry run, so 3 is the apply.
+	failRsyncOn(t, 3)
+
+	readStderr := captureStderr(t)
+	code := run([]string{"run", "--bundle", bundle, "id"})
+	stderr := readStderr()
+
+	if code != 1 {
+		t.Errorf("run exited %d, want 1: a failed write-back has to fail the step", code)
+	}
+	if !strings.Contains(stderr, "CA write-back failed") {
+		t.Errorf("the failure did not reach stderr:\n%s", stderr)
 	}
 }
