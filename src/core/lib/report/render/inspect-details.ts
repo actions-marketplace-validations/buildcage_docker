@@ -7,7 +7,7 @@ import { wrapCommunicationDetails } from "./communication-section.ts";
  * empty. One timeline, allowed and refused interleaved. A name lookup is kept
  * only while it is its own sole trace, and dropped once a connection to the
  * same name shows up too. A discovery lookup is always its own sole trace,
- * since nothing connects to `_service._proto.<host>`, so it always shows.
+ * since nothing connects to `_service._proto.<host>`, and so always shows.
  *
  * A URL keeps its query, except for the parameters named in
  * CREDENTIAL_PARAMS, whose values are replaced.

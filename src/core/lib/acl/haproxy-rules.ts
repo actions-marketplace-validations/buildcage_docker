@@ -26,8 +26,8 @@ export const HOST_IS_ADDRESS = `^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`;
  * mirror is legitimate. An address named directly in a rule is exempt.
  *
  * A resolution produces an IPv4 address only, enforced by `dns-accept-family
- * ipv4` in the generated global section. ::1/fe80::/10 are kept anyway, at
- * zero cost, for if that changes; fc00::/7 is deliberately absent rather than
+ * ipv4` in the generated global section. ::1 and fe80::/10 are kept anyway, at
+ * zero cost, in case that changes; fc00::/7 is deliberately absent rather than
  * kept the same way, since (unlike loopback/link-local) it is never-public but
  * not never-legitimate.
  *
@@ -317,7 +317,7 @@ export function compileRuleSet(inputs: RuleInputs): CompiledRuleSet {
   };
 }
 
-/** The names above, in the order the rules were given and without repeats. */
+/** Every name the rules allow, in input order and without repeats; see CompiledRuleSet.resolverHosts. */
 function resolverHosts(inputs: RuleInputs): string[] {
   const hosts: string[] = [];
   const add = (regex: string) => {

@@ -4,7 +4,7 @@
  */
 
 /**
- * What a rule permitted, or would have permitted had one been enforced.
+ * What a rule decided, or would have decided had one been enforced.
  *
  * `discovery` is none of those: no rule decided it and none could. Folding it
  * into `block` would put a row in the report no rule could take away, and fail
@@ -69,7 +69,7 @@ export function connectedHosts(timeline: TrafficEvent[]): ConnectedHosts {
  *
  * A refused lookup takes a refused connection to cover it. An allowed request
  * for a name the resolver refused would mean the two disagreed about that host,
- * which is worth a reader seeing rather than collapsing away.
+ * which a reader should see rather than have collapsed away.
  *
  * A discovery lookup is never redundant: it asks about `_service._proto.<host>`,
  * which nothing connects to, and its query type is the point of the row.

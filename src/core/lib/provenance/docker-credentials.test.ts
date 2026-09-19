@@ -2,8 +2,6 @@
  * Unit tests for the credential read in docker-credentials.ts.
  *
  * Tests use an injectable readFileSync to avoid real filesystem access.
- *
- * Run with: vp test run core/lib/provenance/docker-credentials.test.ts
  */
 import { describe, it, expect } from "vitest";
 

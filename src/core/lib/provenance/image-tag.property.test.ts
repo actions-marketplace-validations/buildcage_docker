@@ -1,8 +1,3 @@
-/**
- * Property-based tests for core/lib/provenance/image-tag.ts
- *
- * Run with: vp test run core/lib/provenance/image-tag.property.test.ts
- */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 

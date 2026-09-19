@@ -1,8 +1,3 @@
-/**
- * Unit tests for core/lib/provenance/verify-policy.ts
- *
- * Run with: vp test run core/lib/provenance/verify-policy.test.ts
- */
 import { describe, it, expect } from "vitest";
 
 import { buildVerifyOptions } from "./verify-policy.ts";

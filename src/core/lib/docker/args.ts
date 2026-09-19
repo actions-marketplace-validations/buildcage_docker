@@ -13,8 +13,8 @@ export function buildDockerCpArgs({
 }
 
 /**
- * Build the `docker compose ... up`/`down` argv, shared by setup and run's
- * main/post steps.
+ * Build the `docker compose ... up`/`down` argv, shared by an action's main
+ * and post steps.
  *
  * `-p projectName` is required on both so that fully concurrent steps in
  * the same job (see GitHub Actions' `background`/`wait`/`parallel` step

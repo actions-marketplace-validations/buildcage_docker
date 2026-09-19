@@ -3,13 +3,13 @@ const requestLineDetailPattern = /^-\s+(\S+)\s+(\S+?)(?:\s+->\s+(\d+))?$/;
 
 /**
  * Scan arbitrary text for a "proxy network requests:" block and return its
- * raw entries, in order, with no host/port resolution or aggregation. Used
- * by vertex.ts's parseVertexAllowedLog(), applied to a single RUN
+ * raw entries, in order, with no host/port resolution or aggregation. Used by
+ * parseVertexAllowedLog() in vertex.ts, applied to a single RUN
  * vertex's own isolated stderr (decoded from `buildctl debug logs
  * --progress=rawjson`), for both the per-command breakdown and the
  * host-aggregated allowed table.
- *
  */
+
 export interface AllowedRequest {
   method: string;
   url: string;

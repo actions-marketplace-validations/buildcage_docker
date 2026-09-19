@@ -22,9 +22,6 @@ export interface RenderHostTableOptions {
   showExpected?: boolean;
 }
 
-/**
- * Render aggregated host rows as a GitHub-flavored markdown table.
- */
 export function renderHostTable(
   rows: HostTableRow[],
   { showReason = false, showExpected = false }: RenderHostTableOptions = {},

@@ -9,7 +9,6 @@ ARG CNI_SHA256_ARM64=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375
 ARG HAPROXY_ALPINE_BRANCH=3.24
 ARG HAPROXY_BRANCH=3.4
 
-# Prepare dependencies
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS deps
 ARG CNI_VERSION
 ARG CNI_SHA256_AMD64
@@ -94,8 +93,8 @@ COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a self-contained
-# bundle, so no separate /opt/buildcage/shared/ copy is needed.
+# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a
+# self-contained bundle.
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
 # report-action.js is the runner-side report generator `docker cp`'d out by

@@ -9,33 +9,13 @@
  *   <timestamp>  [INFO] buildcage dns service-denied name=<name>. type=<qtype>
  *   buildcage haproxy starting <ms>
  *
- * The discovery line is a lookup no rule decided: a `_service._proto.<host>`
- * name is answered NODATA whatever the rules say. It becomes an event, never
- * an allowed or blocked one.
- *
- * The service-denied line is a refusal like any other, kept apart so the report
- * can name the remedy: the host below the name, never the name itself. Which
- * names are service names is decided in the Corefile alone, so nothing here
- * recognizes the shape.
- *
  * `buildcage dns reverse name=<name>.` is deliberately not on that list: no
  * rule can name a reverse zone, so an event for it would be a report row no
  * rule could ever take away. It stays in the resolver log alone.
  *
- * <ms> is milliseconds since the epoch (HAProxy's date(0,ms), or qjs's
- * Date.now() for the startup line, printed before HAProxy itself is even
- * running); TrafficEvent's own time is in seconds, so parsing divides it
- * back down.
- *
  * The passthrough line is the only record of undecrypted traffic; the dns line
  * the only record of a refused name, which never reaches the proxy. Any other
  * line is HAProxy's or CoreDNS's own output and is skipped.
- *
- * The URL and the SNI are last because the build chooses their length: a cut
- * line costs their tail, not the decision. Nothing should cut one, since both
- * the configured line length and s6-log's split are above the longest request
- * haproxy accepts, so `unparsed` counts what arrives unreadable rather than
- * skipping it.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
@@ -44,25 +24,37 @@ import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
+// The URL and the SNI come last because the build chooses their length: a
+// cut line costs their tail, not the decision. Nothing should cut one, since
+// both the configured line length and s6-log's split are above the longest
+// request haproxy accepts, so `unparsed` counts what arrives unreadable
+// rather than skipping it.
 // The trailing field stays \S+ rather than .+: two lines joined by a
-// half-written write would otherwise parse as one event instead of counting.
+// half-written write would otherwise parse as one event instead of counting
+// as unparsed.
 const REQUEST =
   /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (\S+)$/;
 const PASSTHROUGH =
   /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
+// A `_service._proto.<host>` name is answered NODATA whatever the rules say,
+// so no rule decided it.
 const DNS_DISCOVERY = /^(\S+ \S+)\s+.*buildcage dns discovery name=(\S+?)\.? type=(\S+)$/;
+// Kept apart from a plain denial so the report can name the host below the
+// name as the remedy. Only the Corefile decides which names are service names.
 const DNS_SERVICE_DENIED = /^(\S+ \S+)\s+.*buildcage dns service-denied name=(\S+?)\.? type=(\S+)$/;
 /** Echoed before CoreDNS starts, so it is always the log's first line (see
- *  inspect/files/s6-rc.d/coredns/run). s6-log stamps this log, hence the
- *  suffix test. */
+ *  docker/inspect/files/s6-rc.d/coredns/run). s6-log stamps this log, hence
+ *  the suffix test. */
 const DNS_START_MARKER = "buildcage coredns starting";
 
 /** What every line the proxy writes for us opens with. HAProxy's own
  *  [NOTICE]/[WARNING] output never does. */
 const LINE_PREFIX = "buildcage ";
 
-/** The startup marker, capturing the millisecond epoch it was printed with. */
+/** The startup marker, capturing the millisecond epoch it was printed with.
+ *  qjs's Date.now() prints it, before HAProxy itself is even running; every
+ *  other line's <ms> comes from HAProxy's date(0,ms). */
 const START = new RegExp(`^${PROXY_START_MARKER} (\\d+)$`);
 
 /** The resolver log's timestamp, in seconds since the epoch. */
@@ -134,6 +126,7 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   if (request) {
     const refused = isRefusal(request[6]);
     const event: TrafficEvent = {
+      // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: request[2] as "http" | "https",
@@ -185,9 +178,9 @@ export interface InspectDnsLogScan {
 /** What one pass over the proxy log yields. */
 export interface InspectLogScan {
   events: TrafficEvent[];
-  /** Seconds since the epoch the proxy itself started, matching
-   *  TrafficEvent.time's unit. Undefined exactly when hasProxyStarted would
-   *  be false: the marker line never showed up at all. */
+  /** Seconds since the epoch at which the proxy itself started, matching
+   *  TrafficEvent.time's unit. Undefined when no marker line carried a
+   *  stamp, which includes the bare marker a failed qjs leaves behind. */
   startedAt: number | undefined;
   /** True iff the log opens with the startup marker. Stricter than
    *  `startedAt`: a restart writes a second marker, which would otherwise

@@ -186,8 +186,8 @@ export function endsAnchored(regex: string): boolean {
  * Both engines match a `~` rule as a search rather than a full match
  * (HAProxy's `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443`
  * would also admit `evil-example.com:4430`. A URL rule's author cannot write
- * the anchors themselves, their `^` going to the scheme and their `$` to the
- * path, and a host rule is treated the same way.
+ * the anchors themselves: the host half's `^` goes to the scheme and its `$`
+ * to the path, and a host rule is treated the same way.
  *
  * Concatenation suffices because checkRawRegexHalf has already refused a
  * top-level `|`, the one construct it would bind to only half of.

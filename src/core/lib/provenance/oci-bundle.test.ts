@@ -3,8 +3,6 @@
  * sha256-<hex> fallback tag, and every way each of them can decline.
  *
  * Tests use an injectable _fetch to avoid real network access.
- *
- * Run with: vp test run core/lib/provenance/oci-bundle.test.ts
  */
 import { describe, it, expect } from "vitest";
 

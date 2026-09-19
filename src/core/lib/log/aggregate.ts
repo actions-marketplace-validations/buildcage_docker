@@ -18,8 +18,8 @@ function compareAggregated(a: AggregatedEntry, b: AggregatedEntry): number {
 }
 
 /**
- * Aggregate log entries by (host, port, ruleType, reason) with counts, sorted
- * descending.
+ * Aggregate log entries by (host, port, ruleType, reason) with counts, ordered
+ * by count descending, then host and port ascending.
  */
 export function aggregate(filtered: LogEntry[]): AggregatedEntry[] {
   const map: Record<string, number> = {};

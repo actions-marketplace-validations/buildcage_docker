@@ -57,8 +57,7 @@ export interface ParsedRuleInputs {
  * URL and TLS rules are compiled here even on the engines that ignore them,
  * purely so a typo fails at setup rather than silently inside the container.
  *
- * The statement order is the order a malformed-rule error surfaces in, so it
- * is deliberate rather than incidental.
+ * The statement order decides which malformed-rule error surfaces first.
  *
  * @throws {InvalidRulesError} if any rule is malformed
  */

@@ -67,9 +67,8 @@ fi
 echo ""
 
 echo "[report] the restrict-mode example built from what was observed:"
-# The whole point of audit is that these rules can be pasted into a restrict
-# run, so they are checked against what the build actually did rather than
-# only for being present.
+# These rules are meant to be pasted into a restrict run, so they are checked
+# against what the build actually did rather than only for being present.
 RULES=$(
   awk '/```yaml/ { capture=1; next }
        capture && /```/ { exit }

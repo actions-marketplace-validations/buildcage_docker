@@ -21,7 +21,7 @@ services:
       default:
       test-net:
 
-  # Test HTTP server (with self-signed certificate)
+  # Test HTTP server (with a self-signed certificate)
   test-server:
     build: test/test-server
     cap_add:

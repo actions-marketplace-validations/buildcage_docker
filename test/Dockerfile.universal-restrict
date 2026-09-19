@@ -186,7 +186,8 @@ RUN echo "=== [HTTP keep-alive - blocked then allowed] ===" && \
 # fixture origin's own self-signed one, and rejecting it is the expected
 # outcome: an engine that had re-signed the traffic would have handed npm one
 # its own store could verify. Getting as far as the certificate is the other
-# half; a refused connection never does. The origin is not a registry, so
+# half; a refused connection never gets that far. The origin is not a
+# registry, so
 # nothing past the handshake would have worked either way. It gets a host of
 # its own (the wildcard rule covers it) so that no other case's expected
 # request count depends on how many requests npm decides to make.

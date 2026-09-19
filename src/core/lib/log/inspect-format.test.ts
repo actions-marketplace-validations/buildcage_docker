@@ -14,7 +14,7 @@ const OPTIONS = {
   proxyAddress: "172.20.0.1",
 };
 
-/** Long enough that the rendered line passes haproxy's own 1024-byte default. */
+/** Long enough that the rendered line runs past haproxy's own 1024-byte default. */
 const PATH = `/pkg.tgz?token=${"a".repeat(1200)}`;
 
 /** One representative value per log-format token. A token with no value here
@@ -120,7 +120,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("origin-no-response");
   });
 
-  it("names a passthrough refusal the same way, having no status at all", async () => {
+  it("names a passthrough refusal the same way, though it has no status at all", async () => {
     const line = render(PASSTHROUGH, { "%ts": "PR", "%B": "0" }, { reason: "internal-address" });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("block");
