@@ -26,33 +26,35 @@ const VERTEX_B = {
   entries: [{ method: "GET", url: "https://allowed.example.com/", status: 200 }],
 };
 
-const ALLOWED_A =
-  "* **✅ Allowed Urls**\n\n" +
+const ALLOWED_HEADER = "* **✅ Allowed Urls**\n\n";
+
+/** A vertex item at the indent a lone build renders it at. */
+const ITEM_A =
   "   * RUN echo no-network-here && mkdir -p /tmp/work\n\n" +
   "      (22:08:41Z · duration 0.143s)\n\n" +
   "      ```\n" +
   "      (no communication)\n" +
   "      ```\n\n";
 
-const ALLOWED_B =
-  "* **✅ Allowed Urls**\n\n" +
+const ITEM_B =
   "   * RUN echo step-A && wget -q -O /dev/null --timeout=5 https://allowed.example.com/ && echo A-done\n\n" +
   "      (22:08:41Z · duration 0.081s)\n\n" +
   "      ```\n" +
   "      - GET https://allowed.example.com/ -> 200\n" +
   "      ```\n\n";
 
-describe("renderCommunicationDetails", () => {
-  it("empty arrays → empty string", () => {
-    expect(renderCommunicationDetails([], [])).toBe("");
-  });
+const ALLOWED_A = ALLOWED_HEADER + ITEM_A;
+const ALLOWED_B = ALLOWED_HEADER + ITEM_B;
 
-  it("null/undefined → empty string", () => {
+const DENIED_ONE = [{ url: "https://blocked.example.com/", timestamp: "2026-07-05T22:08:41Z" }];
+const BLOCKED_ONE = "* **🚫 Blocked Urls**\n\n   - (22:08:41Z) https://blocked.example.com/\n\n";
+
+describe("renderCommunicationDetails", () => {
+  it("renders nothing when neither side has anything to show", () => {
+    expect(renderCommunicationDetails([], [])).toBe("");
     expect(renderCommunicationDetails(null, null)).toBe("");
     expect(renderCommunicationDetails(undefined, undefined)).toBe("");
-  });
-
-  it("a build containing only an all-empty vertex list is treated as no builds", () => {
+    // A build whose vertex list is empty counts as no build at all.
     expect(renderCommunicationDetails([[]], [])).toBe("");
   });
 
@@ -77,21 +79,7 @@ describe("renderCommunicationDetails", () => {
   it("renders multiple vertices within one build under one 'Allowed Urls' item, no build item", () => {
     const md = renderCommunicationDetails([[VERTEX_A, VERTEX_B]], []);
     expect(md.includes("Build")).toBe(false);
-    expect(md).toBe(
-      wrap(
-        "* **✅ Allowed Urls**\n\n" +
-          "   * RUN echo no-network-here && mkdir -p /tmp/work\n\n" +
-          "      (22:08:41Z · duration 0.143s)\n\n" +
-          "      ```\n" +
-          "      (no communication)\n" +
-          "      ```\n\n" +
-          "   * RUN echo step-A && wget -q -O /dev/null --timeout=5 https://allowed.example.com/ && echo A-done\n\n" +
-          "      (22:08:41Z · duration 0.081s)\n\n" +
-          "      ```\n" +
-          "      - GET https://allowed.example.com/ -> 200\n" +
-          "      ```\n\n",
-      ),
-    );
+    expect(md).toBe(wrap(ALLOWED_HEADER + ITEM_A + ITEM_B));
   });
 
   it("adds a 'Build N' item per build, one level deeper, only when there is more than one build", () => {
@@ -106,12 +94,7 @@ describe("renderCommunicationDetails", () => {
   });
 
   it("renders the Blocked Urls section with whole-second timestamps, no vertex attribution", () => {
-    const deniedTimeline = [
-      { url: "https://blocked.example.com/", timestamp: "2026-07-05T22:08:41Z" },
-    ];
-    expect(renderCommunicationDetails([], deniedTimeline)).toBe(
-      wrap("* **🚫 Blocked Urls**\n\n   - (22:08:41Z) https://blocked.example.com/\n\n"),
-    );
+    expect(renderCommunicationDetails([], DENIED_ONE)).toBe(wrap(BLOCKED_ONE));
   });
 
   it("renders multiple Blocked Urls entries in the order given", () => {
@@ -127,50 +110,18 @@ describe("renderCommunicationDetails", () => {
   });
 
   it("renders Allowed Urls before Blocked Urls", () => {
-    const deniedTimeline = [
-      { url: "https://blocked.example.com/", timestamp: "2026-07-05T22:08:41Z" },
-    ];
-    expect(renderCommunicationDetails([[VERTEX_B]], deniedTimeline)).toBe(
-      wrap(
-        ALLOWED_B + "* **🚫 Blocked Urls**\n\n   - (22:08:41Z) https://blocked.example.com/\n\n",
-      ),
+    expect(renderCommunicationDetails([[VERTEX_B]], DENIED_ONE)).toBe(
+      wrap(ALLOWED_B + BLOCKED_ONE),
     );
-  });
-
-  it("renders only Blocked Urls when builds is empty but deniedTimeline is not", () => {
-    const deniedTimeline = [
-      { url: "https://blocked.example.com/", timestamp: "2026-07-05T22:08:41Z" },
-    ];
-    expect(renderCommunicationDetails([], deniedTimeline)).toBe(
-      wrap("* **🚫 Blocked Urls**\n\n   - (22:08:41Z) https://blocked.example.com/\n\n"),
-    );
-  });
-
-  it("renders only Allowed Urls when deniedTimeline is empty but builds is not", () => {
-    expect(renderCommunicationDetails([[VERTEX_B]], [])).toBe(wrap(ALLOWED_B));
   });
 
   describe("markdown escaping", () => {
-    it("escapes '[' ']' in a command, including a '[N/M]' step-counter prefix, so it can't be misread as link syntax", () => {
-      const vertex = {
-        ...VERTEX_A,
-        command: '[2/2] RUN echo "=== [HTTPS - allowed] ==="',
-        entries: [],
-      };
+    it("escapes every character that could alter rendering, in a command", () => {
+      // One of each: the '[N/M]' step-counter prefix and a bracketed label
+      // (link syntax), emphasis, a code span, raw HTML, and a backslash.
+      const vertex = { ...VERTEX_A, command: "[2/2] RUN *a* _b_ `c` <d> \\e", entries: [] };
       const md = renderCommunicationDetails([[vertex]], []);
-      expect(md).toMatch(/\* \\\[2\/2\\\] RUN echo "=== \\\[HTTPS - allowed\\\] ==="\n/);
-    });
-
-    it("escapes '*' and '_' in a command so they can't be misread as emphasis", () => {
-      const vertex = { ...VERTEX_A, command: "RUN echo *hi* && echo _bye_", entries: [] };
-      const md = renderCommunicationDetails([[vertex]], []);
-      expect(md).toMatch(/\* RUN echo \\\*hi\\\* && echo \\_bye\\_\n/);
-    });
-
-    it("escapes backticks and backslashes in a command", () => {
-      const vertex = { ...VERTEX_A, command: "RUN echo `whoami` && echo C:\\\\path", entries: [] };
-      const md = renderCommunicationDetails([[vertex]], []);
-      expect(md).toMatch(/echo \\`whoami\\` && echo C:\\\\\\\\path/);
+      expect(md).toContain("   * \\[2/2\\] RUN \\*a\\* \\_b\\_ \\`c\\` \\<d\\> \\\\e\n\n");
     });
 
     it("escapes special characters in an allowed request's URL inside the code block", () => {
@@ -198,13 +149,18 @@ describe("renderCommunicationDetails", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// wrapLogGroup skips emitting a ::group:: at all when handed "" -- the
-// property that actually matters here, not the tag shape of a non-empty one.
-// ---------------------------------------------------------------------------
 describe("renderCommunicationDetailsBody", () => {
+  // The job log renders <details>/<summary> as literal text, so this variant
+  // exists to leave them off; report-action.node.ts hands its result to
+  // wrapLogGroup, which emits no ::group:: at all when handed "".
   it("renders nothing at all when there is nothing to show", () => {
     expect(renderCommunicationDetailsBody([], [])).toBe("");
     expect(renderCommunicationDetailsBody(null, null)).toBe("");
+  });
+
+  it("is the same content with no <details> wrapper around it", () => {
+    const body = renderCommunicationDetailsBody([[VERTEX_B]], DENIED_ONE);
+    expect(body).toBe(ALLOWED_B + BLOCKED_ONE);
+    expect(renderCommunicationDetails([[VERTEX_B]], DENIED_ONE)).toBe(wrap(body));
   });
 });

@@ -194,6 +194,24 @@ describe("renderInspectDetails", () => {
     );
     expect(only.includes("DNS a.com -> resolved")).toBe(true);
   });
+
+  it('falls back to a bare "blocked" when a refusal names no reason', () => {
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "block",
+          protocol: "https",
+          host: "a.example.com",
+          port: 443,
+          method: "GET",
+          url: "https://a.example.com/pkg",
+        },
+      ],
+      t,
+    );
+    expect(rendered).toMatch(/blocked/);
+  });
 });
 
 describe("renderInspectDetails credential parameters", () => {
@@ -233,6 +251,10 @@ describe("renderInspectDetails credential parameters", () => {
   it("leaves a URL with no query of its own alone", () => {
     expect(subjectOf("https://h/token/key")).toBe("GET https://h/token/key");
   });
+
+  it("redacts the query of a URL that also carries a fragment", () => {
+    expect(subjectOf("https://h/x?token=secret#frag")).toBe("GET https://h/x?token=***#frag");
+  });
 });
 
 describe("renderInspectDetails elapsed time", () => {
@@ -259,35 +281,5 @@ describe("renderInspectDetails elapsed time", () => {
     );
     expect(md.includes("00:00.000:")).toBe(false);
     expect(md.includes("Z:")).toBe(true);
-  });
-});
-
-describe("renderInspectDetails — URL and outcome edges", () => {
-  const at = (overrides: Partial<TrafficEvent>): TrafficEvent =>
-    ({
-      time: t,
-      action: "allow",
-      protocol: "https",
-      host: "a.example.com",
-      port: 443,
-      method: "GET",
-      url: "https://a.example.com/pkg",
-      status: 200,
-      bytes: 1,
-      ...overrides,
-    }) as TrafficEvent;
-
-  it("redacts the query of a URL that also carries a fragment", () => {
-    const rendered = renderInspectDetails(
-      [at({ url: "https://a.example.com/x?token=secret#frag" })],
-      t,
-    );
-    expect(rendered).not.toMatch(/secret/);
-    expect(rendered).toMatch(/#frag/);
-  });
-
-  it('falls back to a bare "blocked" when a refusal names no reason', () => {
-    const rendered = renderInspectDetails([at({ action: "block", reason: undefined })], t);
-    expect(rendered).toMatch(/blocked/);
   });
 });
