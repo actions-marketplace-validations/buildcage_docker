@@ -195,3 +195,67 @@ func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
 		t.Errorf("the failure did not reach stderr:\n%s", stderr)
 	}
 }
+
+// The CA is put in place by the proxy before any step runs. Without it there is
+// nothing to trust and nothing to undo, so the step runs untouched rather than
+// being held up.
+func TestRunWithoutACAToInject(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
+	caFileWas := caFile
+	caFile = filepath.Join(t.TempDir(), "not-there.pem")
+	t.Cleanup(func() { caFile = caFileWas })
+	useFakeRunc(t, "exit 0")
+
+	if code := run([]string{"run", "--bundle", bundle, "id"}); code != 0 {
+		t.Errorf("run exited %d, want 0", code)
+	}
+	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
+		t.Errorf("expected no injection, got %v", mounts)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "no CA at") {
+		t.Errorf("the reason is not in the log:\n%s", out.String())
+	}
+}
+
+// Injection failing outright is the same story: the step is still the build's,
+// and holding it back would turn a wrapper problem into a build failure.
+func TestRunWhenInjectionFailsOutright(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, "BUILDCAGE-CA")
+	useFakeRunc(t, "exit 0")
+
+	// A bundle with no config.json, which inject refuses.
+	if code := run([]string{"run", "--bundle", t.TempDir(), "id"}); code != 0 {
+		t.Errorf("run exited %d, want 0", code)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "injection failed") {
+		t.Errorf("the reason is not in the log:\n%s", out.String())
+	}
+}
+
+// A runc that will not start leaves the injection in place, so it is undone
+// before the wrapper exits rather than left over the step's rootfs.
+func TestRunUndoesInjectionWhenRuncWillNotStart(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, "BUILDCAGE-CA")
+	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
+	realRuncWas := realRunc
+	realRunc = filepath.Join(t.TempDir(), "not-there")
+	t.Cleanup(func() { realRunc = realRuncWas })
+
+	if code := run([]string{"run", "--bundle", bundle, "id"}); code != 1 {
+		t.Errorf("run exited %d, want 1", code)
+	}
+	ownCA := filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))
+	if _, err := os.Stat(ownCA); !os.IsNotExist(err) {
+		t.Errorf("the own-CA file was left behind: %v", err)
+	}
+}
