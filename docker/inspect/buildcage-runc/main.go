@@ -190,8 +190,8 @@ func forwardSignals(cmd *exec.Cmd) (stop func()) {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 	go func() {
 		// Untested by design: reaching this means sending the test process a real
-		// signal and racing cmd.Wait for it. What it does -- forward and carry on
-		// -- is one line, and a flaky test would say less about it than the line.
+		// signal and racing cmd.Wait for it. What it does, forward and carry on, is
+		// one line, and a flaky test would say less about it than the line.
 		//coverage:ignore start
 		for s := range signals {
 			_ = cmd.Process.Signal(s)

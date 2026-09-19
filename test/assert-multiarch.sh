@@ -1,6 +1,6 @@
 #!/bin/bash
 # Verifies a build through the builder lands on the host's own architecture
-# when the client names no platform, and on the named one when it does — the
+# when the client names no platform, and on the named one when it does: the
 # builder runs BuildKit itself, so a broken platform hand-off would silently
 # produce an image for the wrong architecture rather than fail.
 set -euo pipefail

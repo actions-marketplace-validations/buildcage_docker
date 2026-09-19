@@ -181,7 +181,7 @@ RUN echo "=== [Host rule] ===" && \
 # literal sub.wildcard.example.com rule above, so this is covered solely by
 # the path-restricted URL rule. The DNS resolver cannot see the path, so if it
 # ever resolved this name for real, the path restriction a rule author wrote
-# would give no protection at the DNS layer -- only the log (checked in
+# would give no protection at the DNS layer: only the log (checked in
 # assert-inspect-restrict.sh) proves the name was never actually looked up.
 RUN echo "=== [Wildcard host, path outside the rule] ===" && \
     CODE=$($C https://attacker.wildcard.example.com/private/secret) && \
@@ -372,7 +372,7 @@ RUN echo "=== [Regex IP rule] ===" && \
     echo "$OUT" && \
     case "$OUT" in ROOT\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# Same address, a port only the URL rule's :80 default would cover -- proves
+# Same address, a port only the URL rule's :80 default would cover, which proves
 # the ~regex ip rule's own literal port (9080) is enforced, not "any port".
 RUN echo "=== [Regex IP rule - other port not covered] ===" && \
     CODE=$($C http://10.200.0.100:8080/anything) && \

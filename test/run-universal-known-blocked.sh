@@ -35,8 +35,8 @@ ONE_HOST="blocked.example.com:443"
 REPORT_EXIT=0
 REPORT_OUTPUT=""
 
-# Written to a real file, not left unset: the report emits its annotation --
-# the message each phase is judged on -- only when it has a summary to write.
+# Written to a real file, not left unset: the report emits its annotation,
+# the message each phase is judged on, only when it has a summary to write.
 SUMMARY=$(mktemp -t buildcage-known-blocked-XXXXXX.md)
 trap 'rm -f "$SUMMARY"' EXIT
 

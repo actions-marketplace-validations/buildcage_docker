@@ -2,7 +2,7 @@
 # Verifies that a client-supplied static SourcePolicy is merged with
 # buildcage's own policy rather than rejected, and that the merge cannot be
 # used to escalate access beyond what buildcage's own allowed_https_rules
-# permit — buildcage's own rules are always placed last in the merged
+# permit: buildcage's own rules are always placed last in the merged
 # document, so its own DENY-all-then-ALLOW-listed-domains block always has
 # the final say for every http(s) source (see solve.go's mergePolicy doc
 # comment).
@@ -10,7 +10,7 @@
 # docker/build-push-action doesn't expose a source-policy input directly, but
 # `docker buildx build` (the CLI it wraps) reads the
 # EXPERIMENTAL_BUILDKIT_SOURCE_POLICY env var and sets it as the request's
-# static SourcePolicy field unconditionally — confirmed in docker/buildx's
+# static SourcePolicy field unconditionally, confirmed in docker/buildx's
 # commands/build.go, which calls build.ReadSourcePolicy() regardless of any
 # other flag. This lets the real client tool exercise the merge path
 # directly, instead of reaching into the container via buildctl.
@@ -42,7 +42,7 @@ if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-escalate.json" \
   fail "build unexpectedly succeeded — client's ALLOW escalated access beyond buildcage's own policy:"
   sed 's/^/    /' "$WORKDIR/escalate-build.log"
 # The build must fail because the RUN step's wget was blocked, not for an
-# unrelated infrastructure reason (e.g. a builder-name mismatch) — otherwise
+# unrelated infrastructure reason (e.g. a builder-name mismatch), since otherwise
 # this assertion would trivially "pass" no matter why the build failed.
 elif ! grep -qE "RUN wget|executor failed running" "$WORKDIR/escalate-build.log"; then
   fail "build failed for an unrelated reason (not the RUN step):"

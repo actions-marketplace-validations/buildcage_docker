@@ -3,13 +3,14 @@ import type { ProxyEngine } from "./engine.ts";
 
 /**
  * Only `inspect` terminates TLS, so it's the only engine that can see an HTTP
- * method or a path — `allowed_url_rules` and `allowed_tls_rules` are no-ops on
- * `universal` / `explicit`. Called once at setup, before the container starts,
- * so a mismatch is caught immediately instead of silently not enforcing.
+ * method or a path, which makes `allowed_url_rules` and `allowed_tls_rules`
+ * no-ops on `universal` / `explicit`. Called once at setup, before the
+ * container starts, so a mismatch is caught immediately instead of silently
+ * not enforcing.
  *
  * In `restrict` mode this is an error: a rule that looks like it protects the
  * build but can't actually be enforced is worse than no rule at all. In
- * `audit` mode nothing is enforced anyway, so it's a warning — the build
+ * `audit` mode nothing is enforced anyway, so it's a warning: the build
  * still runs, with these rules ignored.
  */
 export function checkUrlAndTlsRuleSupport(

@@ -38,7 +38,7 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       # Matrix legs sharing one output name would clobber each other (last
-      # completed leg wins) — each leg instead writes to a step-output key
+      # completed leg wins), so each leg instead writes to a step-output key
       # suffixed with its own matrix.engine value, so both never collide
       # and both survive into this job's own (statically-declared) outputs.
       digest-universal: ${{ steps.digest.outputs['universal'] }}

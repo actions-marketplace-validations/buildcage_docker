@@ -104,7 +104,7 @@ func TestSolveIgnoresSourcePolicySession(t *testing.T) {
 	}
 
 	// A dynamic/session-based policy (e.g. docker/buildx's Rego feature) must
-	// NOT be treated as a conflict — only a static SourcePolicy is merged.
+	// not be treated as a conflict: only a static SourcePolicy is merged.
 	req := &controlapi.SolveRequest{Ref: "build-ref-3", SourcePolicySession: "session-id-abc"}
 	if _, err := s.Solve(context.Background(), req); err != nil {
 		t.Fatalf("Solve: unexpected error for SourcePolicySession-only request: %v", err)

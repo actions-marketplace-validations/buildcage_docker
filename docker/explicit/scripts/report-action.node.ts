@@ -3,7 +3,7 @@
  * Baked into the image, copied out of it (not out of the running container)
  * by the `report` action on every run, and run with `node report-action.js
  * <container-id>`. Runs on the runner, not inside the container, reaching in
- * via core/lib/docker/client.ts — including `buildctl` itself, run inside the
+ * via core/lib/docker/client.ts, including `buildctl` itself, run inside the
  * container via `docker exec` rather than needing buildctl reachable from the
  * runner.
  *
@@ -21,7 +21,7 @@ import { parseVertexAllowedLog, type VertexAllowedEntry } from "#core/lib/log/ve
 
 const LOG_FILE = "/var/log/buildkitd/current";
 
-/** Every build since the container started, not just the latest — a
+/** Every build since the container started, not just the latest: a
  *  workflow may run several before calling report once. Best-effort: a
  *  buildctl failure here leaves the per-command breakdown empty. */
 function collectBuilds(docker: Docker, containerId: string): VertexAllowedEntry[][] {

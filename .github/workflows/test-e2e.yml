@@ -52,7 +52,7 @@ jobs:
 
   # Exercises the real setup/report actions end-to-end (uses: ./,
   # uses: ./report) against an image built from this branch, no registry
-  # involved — see docs/development.md#local-development.
+  # involved; see docs/development.md#local-development.
   test_action:
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
@@ -70,12 +70,12 @@ jobs:
             build_engine: explicit
           - proxy_engine: inspect
             build_engine: inspect
-          # `transparent` is universal's old name, kept working permanently
-          # as an alias (see resolveProxyEngine's ENGINE_ALIASES). No image
-          # is published under that name any more, so build_engine still
-          # resolves to the real (universal) Dockerfile -- what this proves
-          # is that the real action's own proxy_engine input still accepts
-          # and correctly normalizes the alias, not that compose.yaml does.
+          # `transparent` is a permanently supported alias for `universal`
+          # (see resolveProxyEngine's ENGINE_ALIASES). No image is published
+          # under that name, so build_engine still resolves to the real
+          # universal Dockerfile: what this proves is that the action's own
+          # proxy_engine input accepts and normalizes the alias, not that
+          # compose.yaml does.
           - proxy_engine: transparent
             build_engine: universal
 
@@ -146,7 +146,7 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           driver: remote
-          # Matches action.yml's default builder_name — update together.
+          # Matches action.yml's default builder_name; update together.
           endpoint: docker-container://buildcage
 
       - name: Create test Dockerfile
@@ -208,12 +208,12 @@ jobs:
           upload_traffic_artifact: ${{ matrix.proxy_engine == 'inspect' }}
           traffic_artifact_retention_days: ${{ matrix.proxy_engine == 'inspect' && '1' || '' }}
 
-      # GITHUB_STEP_SUMMARY is a separate file per step -- a later step can't
-      # read what an earlier one wrote there -- so this instead downloads the
-      # artifact the report step above just uploaded. inspect only: it's the
-      # only engine upload_traffic_artifact does anything for. The Dockerfile's
-      # own wget step swallows its exit code (`|| true`), so this is what would
-      # actually catch example.com silently *not* being refused.
+      # GITHUB_STEP_SUMMARY is a separate file per step, so a later step can't
+      # read what an earlier one wrote there. This downloads the artifact the
+      # report step above just uploaded instead. inspect only: it's the only
+      # engine upload_traffic_artifact does anything for. The Dockerfile's own
+      # wget step swallows its exit code (`|| true`), so this is what would
+      # actually catch example.com silently not being refused.
       - name: Download the traffic artifact
         if: matrix.proxy_engine == 'inspect'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -298,7 +298,7 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           driver: remote
-          # Matches action.yml's default builder_name — update together.
+          # Matches action.yml's default builder_name; update together.
           endpoint: docker-container://buildcage
 
       - name: Create test Dockerfile

@@ -42,7 +42,7 @@ var (
 
 // errNotRegular means appendCA/removeCA found something other than a plain
 // file at the target. The wrapper runs unsandboxed on the host, so opening
-// whatever a step swapped the path for — a symlink, a FIFO — would follow
+// whatever a step swapped the path for (a symlink, a FIFO) would follow
 // attacker-controlled input outside the directory it's meant to stay in.
 var errNotRegular = errors.New("not a regular file")
 
@@ -320,7 +320,7 @@ func containerPathOf(rootfs, resolved string) string {
 
 // systemStore is the container's own CA bundle: where the wrapper reaches it
 // from the host, and the path the container refers to it by. found stays false
-// when the image ships no store at all, which is not fatal — it only changes
+// when the image ships no store at all, which is not fatal: it only changes
 // what the otherwise-unset variables fall back to.
 type systemStore struct {
 	hostPath      string

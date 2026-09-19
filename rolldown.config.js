@@ -5,7 +5,7 @@ import { replacePlugin } from "rolldown/plugins";
 // Applied to src/main.js and report/src/main.js only.
 //
 // replacePlugin() substitutes BUILDCAGE_BUILD_TEST_HOOKS with the value from
-// this build's own env, not the resulting action's runtime env — see
+// this build's own env, not the resulting action's runtime env; see
 // LOCAL_IMAGE_OVERRIDE_ENABLED in src/main.js.
 const mainPlugins = [
   replacePlugin({

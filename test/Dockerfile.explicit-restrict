@@ -5,7 +5,7 @@ FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432
 # in allowed_https_rules, yet the pull succeeds because docker-image:// source
 # identifiers never match buildcage's ^https?://-scoped policy rules.
 
-# DNS check — buildkit-proxy writes /etc/resolv.conf from EXTERNAL_RESOLVER at
+# DNS check: buildkit-proxy writes /etc/resolv.conf from EXTERNAL_RESOLVER at
 # container startup (no dnsmasq in this image).
 RUN echo "=== DNS Configuration ===" && \
     cat /etc/resolv.conf
@@ -96,10 +96,10 @@ RUN echo "=== [Package manager - npm over the injected CA] ===" && \
 # universal-mode network-layer interception, which does not exist in
 # explicit mode: a raw TCP/TLS connection that bypasses HTTP_PROXY never
 # reaches BuildKit's internal proxy at all (it gets "network unreachable"
-# inside the exec's own captive netns) — a known, documented limitation
+# inside the exec's own captive netns), a known, documented limitation
 # (see docs/security.md), not something to assert a specific log line for.
 
-# Network configuration check — the exec's own netns is a captive /30 with no
+# Network configuration check: the exec's own netns is a captive /30 with no
 # default route (BuildKit's --proxy-network model), unlike universal mode's
 # CNI-bridged network. This is expected and not itself an assertion target.
 RUN echo "=== Network Configuration ===" && \

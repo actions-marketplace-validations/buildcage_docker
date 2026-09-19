@@ -1,6 +1,6 @@
 name: Set up vp toolchain
 description: Install vp (Vite+), set up Node, and install dependencies
-# Callers must run actions/checkout before this — a local-path action can't
+# Callers must run actions/checkout before this: a local-path action can't
 # be located at all until the calling job has checked out the repo.
 
 runs:

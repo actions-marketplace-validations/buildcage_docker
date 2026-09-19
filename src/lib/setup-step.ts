@@ -94,7 +94,7 @@ const realDeps: SetupStepDeps = {
 /**
  * Verifies image provenance and resolves the digest-pinned image ref.
  * Throws ProvenanceError("UNVERIFIABLE_REF") if verification can't be
- * performed (branch ref / local ./) — printed by the top-level catch.
+ * performed (branch ref, local ./), printed by the top-level catch.
  */
 async function resolveVerifiedImage(
   { actionRef, actionRepo, proxyEngine }: VerifyImageDigestOptions,

@@ -23,7 +23,7 @@ iptables -P FORWARD DROP
 
 # /proc/net/if_inet6 only exists when the kernel has IPv6 support compiled in
 # and active. If it's absent, no IPv6 traffic can occur at all, so skipping
-# ip6tables is safe. If it's present, ip6tables must succeed -- set -e keeps
+# ip6tables is safe. If it's present, ip6tables must succeed: set -e keeps
 # this fail-closed rather than silently leaving IPv6 unfiltered.
 #
 # No gateway ports here: buildcage0 is IPv4-only, so nothing may reach

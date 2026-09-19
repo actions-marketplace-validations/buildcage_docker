@@ -113,7 +113,7 @@ jobs:
       # source, and both import @actions/core, so node_modules must exist.
       - uses: ./.github/actions/setup-vp
 
-      # These jobs test proxy enforcement, not the report action itself — only
+      # These jobs test proxy enforcement, not the report action itself: only
       # test-e2e.yml's real `uses: ./report` should produce a Job Summary, so
       # the report the target runs prints to stdout instead.
       - name: Run integration tests
@@ -198,7 +198,7 @@ jobs:
           rm -f /tmp/buildcage-byte-exact-inspect.tar /tmp/buildcage-byte-exact-universal.tar
 
   # Separate job from the others: brings the builder up on its own, with no
-  # build running and no fixture network, so buildcage0 never exists -- proving
+  # build running and no fixture network, so buildcage0 never exists, proving
   # :10024/:53 stay unreachable from anywhere else rather than merely reachable
   # from the one interface the jobs above exercise.
   test_listener_scope:

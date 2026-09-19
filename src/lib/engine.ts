@@ -12,14 +12,8 @@ import { SetupError } from "./errors.ts";
 const ENGINES = ["universal", "explicit", "inspect"] as const;
 export type ProxyEngine = (typeof ENGINES)[number];
 
-// `transparent` was this engine's name before `inspect` existed, when it
-// only had to contrast with `explicit` (interception style: network-level
-// vs BuildKit's own proxy-network). Both `transparent` and `inspect`
-// intercept at the network level, so that name stopped distinguishing
-// anything once `inspect` shipped -- `universal` names what actually sets
-// this engine apart instead (no CA trust needed, works with any tool).
-// Kept working permanently as an alias, normalized here so nothing
-// downstream ever has to know it existed.
+// `transparent` is a permanently supported alias for `universal`, normalized
+// here so nothing downstream has to know about it.
 const ENGINE_ALIASES: Record<string, ProxyEngine> = { transparent: "universal" };
 
 export function resolveProxyEngine(

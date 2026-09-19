@@ -532,7 +532,7 @@ func TestCleanupReportsAScratchDirItCannotRemove(t *testing.T) {
 // is half shifted down, and the truncate that would have made it the right
 // length never runs. None of that reaches the build. The error returns before
 // writeBack, so the real store keeps what the step left it, the scratch copy is
-// thrown away with the bind, and the step itself fails -- which is what makes
+// thrown away with the bind, and the step itself fails, which is what makes
 // BuildKit release the snapshot rather than commit it.
 //
 // This is the containment the in-place shift relies on. removeCA is not atomic

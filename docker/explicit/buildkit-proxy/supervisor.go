@@ -6,7 +6,7 @@ package main
 // solve.go, which is this binary's primary purpose.
 //
 // buildkitdEnv (called from startBuildkitd below) is defined in ca_prod.go
-// or ca_testhooks.go depending on the "testhooks" build tag — see that
+// or ca_testhooks.go depending on the "testhooks" build tag; see that
 // file's doc comment for why a second, test-only variant exists at all.
 
 import (
@@ -65,7 +65,7 @@ func remountCgroupRW() error {
 
 // generateSourcePolicy invokes the QuickJS policy generator (which reuses
 // core/shared/lib/rules.ts's wildcard/regex compiler) and writes its
-// stdout — a sourcepolicy.pb.Policy protobuf-JSON document — to outPath.
+// stdout, a sourcepolicy.pb.Policy protobuf-JSON document, to outPath.
 // Fails closed: any error here aborts startup rather than running without a
 // policy.
 func generateSourcePolicy(outPath string) error {

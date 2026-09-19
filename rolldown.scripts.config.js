@@ -65,7 +65,7 @@ export default defineConfig(
         input,
         // "vitest" is only ever reached by test-shim.ts's Node branch (dead at
         // qjs runtime), but its dynamic import()'s specifier is a compile-time
-        // constant, so rolldown resolves and inlines it unless excluded here —
+        // constant, so rolldown resolves and inlines it unless excluded here,
         // dragging in vitest's own devDependencies (e.g. expect-type), which
         // aren't installed for/resolvable under qjs's "neutral" platform.
         external: ["qjs:std", "qjs:os", "vitest"],

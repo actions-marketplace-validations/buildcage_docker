@@ -1,15 +1,14 @@
 import { ActionError } from "#core/lib/errors.ts";
 
 /**
- * SetupError — intentional error in the setup action's own logic. Image
- * provenance failures throw ProvenanceError instead (see
- * core/lib/provenance/errors.ts); invalid ACL rule syntax throws
- * InvalidRulesError instead (see core/lib/acl/rules.ts).
+ * Intentional error in the setup action's own logic. Image provenance failures
+ * throw ProvenanceError instead (see core/lib/provenance/errors.ts); invalid
+ * ACL rule syntax throws InvalidRulesError instead (see core/lib/acl/rules.ts).
  *
  * Codes:
- *   DOCKER_UNAVAILABLE    – docker CLI missing from PATH or a docker command failed
- *   BUILDER_NOT_READY     – the builder container started but never became usable
- *   INVALID_PROXY_ENGINE  – proxy_engine input isn't "universal", "explicit", or "inspect"
+ *   DOCKER_UNAVAILABLE:   docker CLI missing from PATH or a docker command failed
+ *   BUILDER_NOT_READY:    the builder container started but never became usable
+ *   INVALID_PROXY_ENGINE: proxy_engine input isn't "universal", "explicit", or "inspect"
  */
 export type SetupErrorCode = "DOCKER_UNAVAILABLE" | "BUILDER_NOT_READY" | "INVALID_PROXY_ENGINE";
 

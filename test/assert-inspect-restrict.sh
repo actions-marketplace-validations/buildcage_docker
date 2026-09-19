@@ -187,7 +187,7 @@ echo ""
 echo "[DNS] a wildcard-host rule's path restriction does not narrow the DNS-layer decision:"
 # *.wildcard.example.com/public/** is the rule; attacker.wildcard.example.com
 # matches only the host half. CoreDNS cannot see the path, so it logs this
-# name as allowed regardless -- and answers it with the proxy's own address
+# name as allowed regardless, and answers it with the proxy's own address
 # either way (see coredns-config.ts), never resolving it for real. The path
 # restriction is enforced entirely by HAProxy, after this DNS decision, which
 # is why the request itself still gets refused (checked above via the 403).
@@ -372,7 +372,7 @@ echo ""
 
 echo "[report] the traffic artifact:"
 # writeTrafficFile only runs when BUILDCAGE_TRAFFIC_FILE is set, which
-# report/src/main.ts normally does itself from upload_traffic_artifact -- set
+# report/src/main.ts normally does itself from upload_traffic_artifact; set
 # it directly here to reach the same path without a real GitHub Actions
 # runtime to upload through.
 BUILDER_CID=$(docker compose ps -q builder)

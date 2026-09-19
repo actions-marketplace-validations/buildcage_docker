@@ -27,7 +27,7 @@ function pad(n: number, width = 2): string {
 }
 
 /**
- * MM:SS.mmm, widening to HH:MM:SS.mmm only once elapsed reaches an hour --
+ * MM:SS.mmm, widening to HH:MM:SS.mmm only once elapsed reaches an hour, so
  * a build that runs a few minutes never carries a leading "00:" that never
  * changes. Negative input (clock/measurement noise) clamps to zero.
  */

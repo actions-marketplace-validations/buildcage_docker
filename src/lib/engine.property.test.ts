@@ -10,7 +10,7 @@ import { resolveProxyEngine } from "./engine.ts";
 
 const silent = () => {};
 
-describe("resolveProxyEngine – properties", () => {
+describe("resolveProxyEngine: properties", () => {
   it("always returns one of the three canonical engine names, or throws", () => {
     fc.assert(
       fc.property(fc.string({ minLength: 0, maxLength: 20 }), (input) => {
