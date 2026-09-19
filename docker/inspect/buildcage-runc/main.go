@@ -27,14 +27,13 @@ import (
 	"syscall"
 )
 
-const (
+// These are vars, not consts, so tests can point them at files they own
+// instead of the real host paths.
+var (
 	realRunc = "/usr/bin/buildkit-runc"
 	caFile   = "/opt/buildcage/ca.pem"
+	logFile  = "/var/log/buildcage/runc.log"
 )
-
-// logFile is a var, not a const, so tests can point it at a temp file
-// instead of the real host path.
-var logFile = "/var/log/buildcage/runc.log"
 
 // One file carries every step of every build, and BuildKit runs steps
 // concurrently: an offset into it bounds nothing, and a line in it says nothing
