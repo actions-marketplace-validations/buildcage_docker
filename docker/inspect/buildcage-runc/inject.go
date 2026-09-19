@@ -129,12 +129,39 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 	return plan
 }
 
-// inject makes the step trust the proxy's CA and returns a function that
-// finishes the injection once the step has exited: diffing each mirrored
-// directory against its pre-step state and writing back only what changed.
-// A non-nil error from it means the write-back itself failed and the build
-// must not proceed with a possibly half-written layer.
-func inject(bundle string, ca []byte) (func() error, error) {
+// injection is what a completed inject leaves to be undone once the step has
+// exited: the mirrored directories to reconcile, and the proxy-CA-only file to
+// remove if one was written.
+type injection struct {
+	binds        []*dirBind
+	createdOwnCA string
+}
+
+// finish diffs each mirrored directory against its pre-step state and writes
+// back only what changed. A non-nil error means the write-back itself failed
+// and the build must not proceed with a possibly half-written layer.
+func (in *injection) finish() error {
+	var firstErr error
+	for _, b := range in.binds {
+		if err := b.finish(); err != nil {
+			logf("CA write-back failed for %s: %v", b.containerDir, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		b.cleanup()
+	}
+	if in.createdOwnCA != "" {
+		if err := os.Remove(in.createdOwnCA); err != nil && !os.IsNotExist(err) {
+			logf("cannot remove %s: %v", in.createdOwnCA, err)
+		}
+	}
+	return firstErr
+}
+
+// inject makes the step trust the proxy's CA, returning what finishes the
+// injection once the step has exited.
+func inject(bundle string, ca []byte) (*injection, error) {
 	s, err := loadSpec(bundle)
 	if err != nil {
 		return nil, err
@@ -193,22 +220,5 @@ func inject(bundle string, ca []byte) (func() error, error) {
 		logf("cannot update the process spec: %v", err)
 	}
 
-	return func() error {
-		var firstErr error
-		for _, b := range binds {
-			if err := b.finish(); err != nil {
-				logf("CA write-back failed for %s: %v", b.containerDir, err)
-				if firstErr == nil {
-					firstErr = err
-				}
-			}
-			b.cleanup()
-		}
-		if plan.createdOwnCA != "" {
-			if err := os.Remove(plan.createdOwnCA); err != nil && !os.IsNotExist(err) {
-				logf("cannot remove %s: %v", plan.createdOwnCA, err)
-			}
-		}
-		return firstErr
-	}, nil
+	return &injection{binds: binds, createdOwnCA: plan.createdOwnCA}, nil
 }

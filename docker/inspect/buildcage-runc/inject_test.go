@@ -99,7 +99,7 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore()
+	defer restore.finish()
 
 	env := loadEnv(t, bundle)
 
@@ -161,7 +161,7 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore()
+	defer restore.finish()
 
 	env := loadEnv(t, bundle)
 	if env["DENO_CERT"] != "/custom/roots.pem" {
@@ -198,7 +198,7 @@ func TestInjectFinishLeavesAnUntouchedStoreAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restore(); err != nil {
+	if err := restore.finish(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -237,7 +237,7 @@ func TestInjectWritesBackWhenTheStepChangesTheStore(t *testing.T) {
 	}
 	defer func() { runRsync = orig }()
 
-	if err := restore(); err != nil {
+	if err := restore.finish(); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
@@ -279,7 +279,7 @@ func TestInjectWriteBackFailurePropagates(t *testing.T) {
 	}
 	defer func() { runRsync = orig }()
 
-	if err := restore(); err == nil {
+	if err := restore.finish(); err == nil {
 		t.Fatal("expected the write-back failure to propagate")
 	}
 }
@@ -303,7 +303,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 	}
 	mustSymlink(t, outside, target)
 
-	if err := restore(); err != nil {
+	if err := restore.finish(); err != nil {
 		t.Fatalf("restore should skip the unrestorable file, not fail the build: %v", err)
 	}
 
@@ -359,7 +359,7 @@ func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) 
 		t.Fatalf("own CA file = %q", own)
 	}
 
-	restore()
+	restore.finish()
 	if _, err := os.Stat(filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))); !os.IsNotExist(err) {
 		t.Fatalf("own CA file still present after restore: %v", err)
 	}
