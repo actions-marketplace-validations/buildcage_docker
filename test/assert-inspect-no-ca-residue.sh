@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 # Regression guard for the inspect engine's per-RUN-step CA injection
 # (docker/inspect/buildcage-runc/inject.go): the environment it sets lives only
@@ -9,13 +10,6 @@ set -euo pipefail
 # test build produced, not just in theory.
 
 IMAGE="${1:-buildcage-test}"
-FAILURES=0
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
 
 echo ""
 echo "=== No CA Residue In The Built Image ($IMAGE) ==="
@@ -55,10 +49,4 @@ else
   pass "no buildcage CA-trust env var in the image config"
 fi
 
-echo ""
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

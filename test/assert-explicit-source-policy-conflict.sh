@@ -19,9 +19,9 @@
 # assert-explicit-restrict.sh (allowed.example.com/blocked.example.com resolving
 # via test-dns-explicit, per compose.test-explicit.yaml's ALLOWED_HTTPS_RULES).
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 BUILDER_NAME="${BUILDER_NAME:-buildcage-explicit-restrict}"
-FAILURES=0
 
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -38,18 +38,16 @@ printf 'FROM alpine:3.20\nRUN wget -q -O /dev/null --timeout=5 https://blocked.e
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-escalate.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/escalate-build.log" 2>&1; then
-  echo "  FAIL  build unexpectedly succeeded — client's ALLOW escalated access beyond buildcage's own policy:"
+  fail "build unexpectedly succeeded — client's ALLOW escalated access beyond buildcage's own policy:"
   sed 's/^/    /' "$WORKDIR/escalate-build.log"
-  FAILURES=$((FAILURES + 1))
 # The build must fail because the RUN step's wget was blocked, not for an
 # unrelated infrastructure reason (e.g. a builder-name mismatch) — otherwise
 # this assertion would trivially "pass" no matter why the build failed.
 elif ! grep -qE "RUN wget|executor failed running" "$WORKDIR/escalate-build.log"; then
-  echo "  FAIL  build failed for an unrelated reason (not the RUN step):"
+  fail "build failed for an unrelated reason (not the RUN step):"
   sed 's/^/    /' "$WORKDIR/escalate-build.log"
-  FAILURES=$((FAILURES + 1))
 else
-  echo "  PASS  build failed as expected (buildcage's own DENY still wins)"
+  pass "build failed as expected (buildcage's own DENY still wins)"
 fi
 echo ""
 
@@ -58,11 +56,10 @@ printf 'FROM alpine:3.20\nRUN echo hi\n' > "$WORKDIR/Dockerfile"
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-escalate.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/ok-build.log" 2>&1; then
-  echo "  PASS  build succeeded (no longer hard-rejected merely for having a client SourcePolicy)"
+  pass "build succeeded (no longer hard-rejected merely for having a client SourcePolicy)"
 else
-  echo "  FAIL  build unexpectedly failed:"
+  fail "build unexpectedly failed:"
   sed 's/^/    /' "$WORKDIR/ok-build.log"
-  FAILURES=$((FAILURES + 1))
 fi
 echo ""
 
@@ -74,17 +71,10 @@ printf 'FROM alpine:3.20\nRUN wget -q -O /dev/null --timeout=10 https://allowed.
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-redundant.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/allowed-build.log" 2>&1; then
-  echo "  PASS  build succeeded"
+  pass "build succeeded"
 else
-  echo "  FAIL  build unexpectedly failed:"
+  fail "build unexpectedly failed:"
   sed 's/^/    /' "$WORKDIR/allowed-build.log"
-  FAILURES=$((FAILURES + 1))
 fi
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

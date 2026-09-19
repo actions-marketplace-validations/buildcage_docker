@@ -13,6 +13,7 @@
 # container's own environment and each phase therefore needs its own builder:
 # naming both blocked hosts must let the step pass, naming one of them must not.
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 cd "$(dirname "$0")/.."
 
@@ -31,7 +32,6 @@ COMPOSE="compose.yaml:compose.test-universal.yaml"
 BOTH_HOSTS="blocked.example.com:443 deep.sub.wildcard.example.com:443"
 ONE_HOST="blocked.example.com:443"
 
-FAILURES=0
 REPORT_EXIT=0
 REPORT_OUTPUT=""
 
@@ -63,22 +63,20 @@ report_output() {
 assert_exit() {
   local label="$1" expected="$2"
   if [ "$REPORT_EXIT" = "$expected" ]; then
-    echo "  PASS  $label (exit $REPORT_EXIT)"
+    pass "$label (exit $REPORT_EXIT)"
   else
-    echo "  FAIL  $label -- exit $REPORT_EXIT, expected $expected:"
+    fail "$label -- exit $REPORT_EXIT, expected $expected:"
     report_output
-    FAILURES=$((FAILURES + 1))
   fi
 }
 
 assert_message() {
   local text="$1"
   if grep -qF "$text" <<< "$REPORT_OUTPUT"; then
-    echo "  PASS  the annotation says \"$text\""
+    pass "the annotation says \"$text\""
   else
-    echo "  FAIL  the annotation does not say \"$text\":"
+    fail "the annotation does not say \"$text\":"
     report_output
-    FAILURES=$((FAILURES + 1))
   fi
 }
 
@@ -100,11 +98,5 @@ echo ""
 echo "[one unmatched] known_blocked_rules must not excuse the rest:"
 assert_exit "the report failed the step" 1
 assert_message "1 of 2 distinct blocked host(s) unmatched by known_blocked_rules"
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

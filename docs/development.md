@@ -96,6 +96,9 @@ make test_integration_buildkit_inspect_roundtrip
 make test_integration_buildkit_universal_known_blocked
 # Builds for the host's architecture and for the other one
 make test_integration_buildkit_multiarch
+# Brings the builder up alone, with no build running, and probes :10024/:53
+# from the compose network and from the host -- both engines
+make test_integration_buildkit_listener_scope
 ```
 
 CI runs these same targets, one job per target (`.github/workflows/test-integration.yml`), so
@@ -341,7 +344,9 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │                             # at image build time)
 ├── test/                     # Dockerfile.*/assert-*.sh per {engine}-{mode} combination, plus the
 │                             # fixture containers: test-server and test-dns per engine, and
-│                             # test-server-impostor / test-udp-echo for the inspect assertions
+│                             # test-server-impostor / test-udp-echo for the inspect assertions.
+│                             # helpers.sh carries what every assert script shares (pass/fail,
+│                             # the result line, the builder's logs and the log matchers)
 ├── compose.test-*.yaml       # Test override config, one per engine
 ├── report/                   # GitHub Actions report action
 │   ├── action.yml            # Action entry (node24 → dist/main.cjs)

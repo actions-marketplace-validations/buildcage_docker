@@ -21,6 +21,8 @@ QJS_TEST_IMAGE ?= buildcage-qjs-test$(BUILDCAGE_WORKTREE_SUFFIX)
 BYTE_EXACT_INSPECT := buildcage-byte-exact-inspect$(BUILDCAGE_WORKTREE_SUFFIX)
 BYTE_EXACT_UNIVERSAL := buildcage-byte-exact-universal$(BUILDCAGE_WORKTREE_SUFFIX)
 SCRATCH_PREFIX ?= /tmp/buildcage$(BUILDCAGE_WORKTREE_SUFFIX)
+# Read by test/assert-listener-scope.sh, which names a Compose project of its own.
+export BUILDCAGE_WORKTREE_SUFFIX
 # The development machines are arm64, so every build through the builder asks
 # for that unless the caller says otherwise; CI's amd64 runners name their own
 # architecture rather than have BuildKit emulate one.
@@ -205,7 +207,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
 .PHONY: test_integration_buildkit_universal_audit
 test_integration_buildkit_universal_audit: ## Run universal-engine audit mode tests
@@ -381,6 +383,14 @@ test_integration_buildkit_universal_known_blocked: ## Check known_blocked_rules 
 	@echo "Running universal-engine known_blocked_rules tests..."
 	@./test/run-universal-known-blocked.sh
 	@$(MAKE) clean_buildkit
+
+# Brings the builder up on its own, with no build running and no fixture
+# network, so buildcage0 never exists: this is the one target that says where
+# the listeners are *not* reachable from, rather than that a build reached them.
+.PHONY: test_integration_buildkit_listener_scope
+test_integration_buildkit_listener_scope: ## Check :10024/:53 are unreachable outside buildcage0, for both engines
+	@echo "Running listener-scope tests..."
+	@./test/assert-listener-scope.sh
 
 .PHONY: test_integration_buildkit_multiarch
 test_integration_buildkit_multiarch: ## Check the builder's default and cross-platform builds
