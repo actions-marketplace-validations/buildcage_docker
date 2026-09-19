@@ -20,18 +20,11 @@ import type {
 } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { expectMatchesGolden } from "#core/lib/test/golden.node.ts";
+import { expectedRows, reportParams } from "#core/lib/test/report-data.node.ts";
 
-function params(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: ["a.example.com:443"],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    allowedTlsRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
+/** Every golden document describes a run with one allowed rule. */
+const params = (overrides: Partial<GenReportParameters> = {}) =>
+  reportParams({ allowedHttpsRules: ["a.example.com:443"], ...overrides });
 
 const passed = [
   { host: "a.example.com", port: "443", ruleType: "HTTPS", reason: "-", count: 3 },
@@ -46,29 +39,6 @@ const blocked = [
     reason: "https-not-allowed",
     count: 2,
     expected: false,
-  },
-];
-
-// Two hosts one known_blocked_rule covers, so the Expected column and the
-// folded row both render.
-const expectedRows = [
-  {
-    host: "a.sury.org",
-    port: "443",
-    ruleType: "HTTPS",
-    reason: "https-not-allowed",
-    count: 1,
-    expected: true,
-    expectedBy: "*.sury.org:*",
-  },
-  {
-    host: "b.sury.org",
-    port: "443",
-    ruleType: "HTTPS",
-    reason: "https-not-allowed",
-    count: 1,
-    expected: true,
-    expectedBy: "*.sury.org:*",
   },
 ];
 

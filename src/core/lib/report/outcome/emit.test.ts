@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { emitBlockedOutcome } from "./emit.ts";
 import { annotateKnownBlocked } from "../build/aggregate.ts";
-import type { ReportDataCommon, GenReportParameters } from "../types.ts";
+import type { ReportDataCommon } from "../types.ts";
+import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 let prevExitCode: number | string | null | undefined;
 
@@ -15,21 +16,9 @@ afterEach(() => {
   process.exitCode = prevExitCode;
 });
 
-function parameters(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: [],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    allowedTlsRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
-
 function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
   return {
-    parameters: parameters(),
+    parameters: reportParams(),
     passed: [],
     blocked: [],
     blockedCount: 0,
@@ -69,7 +58,7 @@ describe("emitBlockedOutcome", () => {
   it("emits ::notice:: (not ::error::) when console output is enabled and outcome level is notice", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const r = report({
-      parameters: parameters({ mode: "audit" }),
+      parameters: reportParams({ mode: "audit" }),
       blockedCount: 1,
       blocked: annotateKnownBlocked(
         [

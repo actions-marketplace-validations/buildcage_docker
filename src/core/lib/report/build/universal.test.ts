@@ -1,18 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildUniversalReportData } from "./universal.ts";
-import type { GenReportParameters } from "../types.ts";
-
-function params(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: [],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    allowedTlsRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
+import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 describe("buildUniversalReportData", () => {
   it("aggregates allowed/blocked in restrict mode", async () => {
@@ -20,7 +8,7 @@ describe("buildUniversalReportData", () => {
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "good.com:443" -',
       '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTP) "bad.com:80" not-allowed',
     ].join("\n");
-    const result = await buildUniversalReportData(log.split("\n"), params());
+    const result = await buildUniversalReportData(log.split("\n"), reportParams());
     expect(result.engine).toBe("universal");
     expect(result.passed.length).toBe(1);
     expect(result.passed[0].host).toBe("good.com");
@@ -31,7 +19,7 @@ describe("buildUniversalReportData", () => {
 
   it("aggregates audited traffic in audit mode instead of allowed", async () => {
     const log = '[2024-01-01T00:00:00] buildcage [AUDIT] (HTTPS) "any.com:443"';
-    const result = await buildUniversalReportData(log.split("\n"), params({ mode: "audit" }));
+    const result = await buildUniversalReportData(log.split("\n"), reportParams({ mode: "audit" }));
     expect(result.passed.length).toBe(1);
     expect(result.passed[0].host).toBe("any.com");
   });
@@ -41,13 +29,13 @@ describe("buildUniversalReportData", () => {
       '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "noisy.example.com:443" not-allowed';
     const result = await buildUniversalReportData(
       log.split("\n"),
-      params({ knownBlockedRules: ["noisy.example.com:443"] }),
+      reportParams({ knownBlockedRules: ["noisy.example.com:443"] }),
     );
     expect(result.blocked[0].expected).toBe(true);
   });
 
   it("returns empty passed/blocked and blockedCount 0 for empty log text", async () => {
-    const result = await buildUniversalReportData("".split("\n"), params());
+    const result = await buildUniversalReportData("".split("\n"), reportParams());
     expect(result.passed).toStrictEqual([]);
     expect(result.blocked).toStrictEqual([]);
     expect(result.blockedCount).toBe(0);
@@ -59,7 +47,7 @@ describe("buildUniversalReportData", () => {
       "buildcage haproxy starting",
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "good.com:443" -',
     ].join("\n");
-    const result = await buildUniversalReportData(log.split("\n"), params());
+    const result = await buildUniversalReportData(log.split("\n"), reportParams());
     expect(result.blockedCount).toBe(0);
     expect(result.logLooksPlausible).toBe(true);
   });
@@ -69,7 +57,7 @@ describe("buildUniversalReportData", () => {
       "buildcage haproxy starting",
       '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "bad.com:4',
     ].join("\n");
-    const result = await buildUniversalReportData(log.split("\n"), params());
+    const result = await buildUniversalReportData(log.split("\n"), reportParams());
     expect(result.blockedCount).toBe(0);
     expect(result.logLooksPlausible).toBe(false);
   });
@@ -79,7 +67,7 @@ describe("buildUniversalReportData", () => {
       '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "bad.com:443" not-allowed',
       '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "bad.com:443" not-allowed',
     ].join("\n");
-    const result = await buildUniversalReportData(log.split("\n"), params());
+    const result = await buildUniversalReportData(log.split("\n"), reportParams());
     expect(result.blockedCount).toBe(2);
     expect(result.blocked.length).toBe(1);
     expect(result.blocked[0].count).toBe(2);
@@ -93,7 +81,7 @@ describe("buildUniversalReportData", () => {
     ].join("\n");
     const result = await buildUniversalReportData(
       log.split("\n"),
-      params({ knownBlockedRules: ["noisy.example.com:443"] }),
+      reportParams({ knownBlockedRules: ["noisy.example.com:443"] }),
     );
     expect(result.blockedCount).toBe(1);
     expect(result.blocked[0].expected).toBe(true);
