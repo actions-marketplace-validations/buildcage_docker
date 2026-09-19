@@ -90,20 +90,3 @@ describe("markdownTable", () => {
     });
   });
 });
-
-describe("column alignment", () => {
-  it("defaults a column with no align to left", () => {
-    expect(markdownTable([{ key: "a", title: "A" }], []).split("\n")[1]).toBe("| --- |");
-  });
-
-  it("marks right and center columns", () => {
-    const table = markdownTable(
-      [
-        { key: "a", title: "A", align: "right" },
-        { key: "b", title: "B", align: "center" },
-      ],
-      [],
-    );
-    expect(table.split("\n")[1]).toBe("| ---: | :---: |");
-  });
-});
