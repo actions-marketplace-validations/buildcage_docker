@@ -34,7 +34,8 @@ echo "[no escalation] a client ALLOW for a domain buildcage denies must still be
 cat > "$WORKDIR/policy-escalate.json" <<'EOF'
 {"rules":[{"action":"ALLOW","selector":{"identifier":"^https://blocked\\.example\\.com(/.*)?$","matchType":"REGEX"}}]}
 EOF
-printf 'FROM alpine:3.20\nRUN wget -q -O /dev/null --timeout=5 https://blocked.example.com/\n' > "$WORKDIR/Dockerfile"
+printf 'FROM %s\nRUN wget -q -O /dev/null --timeout=5 https://blocked.example.com/\n' \
+  "$TEST_ALPINE_IMAGE" > "$WORKDIR/Dockerfile"
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-escalate.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/escalate-build.log" 2>&1; then
@@ -52,7 +53,7 @@ fi
 echo ""
 
 echo "[no rejection] a build with a client-supplied policy must not be refused outright:"
-printf 'FROM alpine:3.20\nRUN echo hi\n' > "$WORKDIR/Dockerfile"
+printf 'FROM %s\nRUN echo hi\n' "$TEST_ALPINE_IMAGE" > "$WORKDIR/Dockerfile"
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-escalate.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/ok-build.log" 2>&1; then
@@ -67,7 +68,8 @@ echo "[legitimate access preserved] a client ALLOW for a domain buildcage also a
 cat > "$WORKDIR/policy-redundant.json" <<'EOF'
 {"rules":[{"action":"ALLOW","selector":{"identifier":"^https://allowed\\.example\\.com(/.*)?$","matchType":"REGEX"}}]}
 EOF
-printf 'FROM alpine:3.20\nRUN wget -q -O /dev/null --timeout=10 https://allowed.example.com/\n' > "$WORKDIR/Dockerfile"
+printf 'FROM %s\nRUN wget -q -O /dev/null --timeout=10 https://allowed.example.com/\n' \
+  "$TEST_ALPINE_IMAGE" > "$WORKDIR/Dockerfile"
 if EXPERIMENTAL_BUILDKIT_SOURCE_POLICY="$WORKDIR/policy-redundant.json" \
   docker buildx build --builder "$BUILDER_NAME" --progress=plain \
   -f "$WORKDIR/Dockerfile" "$WORKDIR" >"$WORKDIR/allowed-build.log" 2>&1; then

@@ -26,11 +26,9 @@ cd "$(dirname "$0")/.."
 # (dnsmasq always does; CoreDNS only outside restrict, see coredns-config.ts).
 # An answer then proves the port was reachable rather than that a rule matched.
 # The INPUT rules under test are the same in either mode.
-PROBE_IMAGE=alpine:3
-
 dns_answered() {
   local network="$1" target="$2"
-  docker run --rm --network "$network" "$PROBE_IMAGE" sh -c \
+  docker run --rm --network "$network" "$TEST_ALPINE_IMAGE" sh -c \
     "apk add --no-cache -q bind-tools >/dev/null 2>&1 && dig +time=2 +tries=1 @$target example.com A" 2>/dev/null \
     | grep -qE '^example\.com\.[[:space:]]'
 }
@@ -58,7 +56,7 @@ run_engine() {
   net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$builder")
 
   echo "--- from another container on $net ---"
-  if docker run --rm --network "$net" "$PROBE_IMAGE" nc -w 3 -z "$builder" 10024 2>/dev/null; then
+  if docker run --rm --network "$net" "$TEST_ALPINE_IMAGE" nc -w 3 -z "$builder" 10024 2>/dev/null; then
     fail "[$engine] :10024 reachable from another container on the compose network"
   else
     pass "[$engine] :10024 not reachable from another container on the compose network"

@@ -6,6 +6,13 @@
 # with builder_log. A snapshot rather than a fresh read per assertion, so a
 # line arriving mid-run can't make two assertions disagree about the same log.
 
+# The base image the assertion scripts build or run throwaway containers
+# from. Pinned by digest like every fixture Dockerfile under test/, so a
+# moved tag or a Docker Hub rate limit cannot fail a run for a reason the
+# proxy had no part in.
+# renovate: datasource=docker depName=alpine
+TEST_ALPINE_IMAGE="alpine:3.24.0@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4"
+
 FAILURES=0
 
 pass() { echo "  PASS  $1"; }
