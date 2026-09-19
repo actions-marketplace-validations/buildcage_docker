@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -256,5 +257,74 @@ func TestFinishSkipsTheCheckWhenTheStoreIsUnchanged(t *testing.T) {
 	}
 	if *calls != 0 {
 		t.Errorf("got %d rsync invocations, want none for an unchanged store", *calls)
+	}
+}
+
+// A custom path comes from the Dockerfile, so it can name anything; mirroring
+// it wholesale is bounded rather than trusted. Over either limit, injection is
+// refused for that directory instead.
+func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
+	cases := map[string]func(t *testing.T, dir string){
+		"too many files": func(t *testing.T, dir string) {
+			for i := range maxCustomDirFiles + 1 {
+				mustWriteFile(t, filepath.Join(dir, fmt.Sprintf("f%d", i)), "x")
+			}
+		},
+		"too many bytes": func(t *testing.T, dir string) {
+			mustSparseFile(t, filepath.Join(dir, "huge.pem"), maxCustomDirBytes+1)
+		},
+	}
+	for name, fill := range cases {
+		t.Run(name, func(t *testing.T) {
+			useFakeRsync(t)
+			rootfs := t.TempDir()
+			hostDir := filepath.Join(rootfs, "custom")
+			mustMkdirAll(t, hostDir)
+			fill(t, hostDir)
+
+			scratch, err := newScratchDir("bundle")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := &dirBind{
+				rootfs:       rootfs,
+				hostDir:      hostDir,
+				containerDir: "/custom",
+				scratchDir:   scratch,
+				bundleFiles:  []string{"roots.pem"},
+				custom:       true,
+			}
+			if err := b.prepare([]byte("BUILDCAGE-CA")); err == nil {
+				t.Fatal("expected prepare to refuse the directory")
+			}
+			if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+				t.Errorf("nothing should have been mirrored: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+// The store directory is not a custom path, so the limits do not apply to it:
+// a distribution that ships a large trust store still gets the CA.
+func TestPrepareDoesNotBoundTheSystemStoreDir(t *testing.T) {
+	useFakeRsync(t)
+	rootfs := t.TempDir()
+	hostDir := filepath.Join(rootfs, "etc/ssl/certs")
+	mustMkdirAll(t, hostDir)
+	mustSparseFile(t, filepath.Join(hostDir, "ca-certificates.crt"), maxCustomDirBytes+1)
+
+	scratch, err := newScratchDir("bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &dirBind{
+		rootfs:       rootfs,
+		hostDir:      hostDir,
+		containerDir: "/etc/ssl/certs",
+		scratchDir:   scratch,
+		bundleFiles:  []string{"ca-certificates.crt"},
+	}
+	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+		t.Fatalf("the store directory must not be bounded: %v", err)
 	}
 }

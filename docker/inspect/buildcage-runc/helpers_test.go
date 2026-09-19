@@ -39,6 +39,20 @@ func mustAppendFile(t *testing.T, path, content string) {
 	}
 }
 
+// mustSparseFile makes a file that reports size bytes without writing them;
+// sizeAndCount reads the reported size, which is what the limits bound.
+func mustSparseFile(t *testing.T, path string, size int64) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mustSymlink(t *testing.T, target, link string) {
 	t.Helper()
 	_ = os.Remove(link)
