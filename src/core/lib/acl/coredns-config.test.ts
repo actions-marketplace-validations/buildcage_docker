@@ -1,16 +1,71 @@
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
-import { escapeForCel, generateCorednsConfig } from "./coredns-config.ts";
+import {
+  escapeForCel,
+  generateCorednsConfig,
+  type CorednsConfigOptions,
+} from "./coredns-config.ts";
+import { compileRuleSet, type RuleInputs } from "./haproxy-rules.ts";
 import { buildUrlRules } from "./url-rules.ts";
 
 const BASE = { proxyAddress: "172.20.0.1" };
 
-function gen(options: Partial<Parameters<typeof generateCorednsConfig>[0]> = {}): string {
-  return generateCorednsConfig({ ...BASE, ...options }).config;
+/** Rules and Corefile options in one bag, as the generator took them before
+ *  the rules moved behind compileRuleSet. */
+type CaseOptions = RuleInputs & Partial<CorednsConfigOptions>;
+
+function generate({ httpsRules, httpRules, tlsRules, urlRules, ...options }: CaseOptions = {}) {
+  return generateCorednsConfig(compileRuleSet({ httpsRules, httpRules, tlsRules, urlRules }), {
+    ...BASE,
+    ...options,
+  });
 }
 
-/** The CEL expression line, as it would reach CoreDNS. */
+function gen(options: CaseOptions = {}): string {
+  return generate(options).config;
+}
+
+/** The allowlist view's CEL expression line, as it would reach CoreDNS. */
 function exprLine(config: string): string {
-  return config.split("\n").find((l) => l.includes("name() matches")) ?? "";
+  return matchesLine(config, "view allowlist");
+}
+
+/** The CEL expression line of the view opened by `marker`. */
+function matchesLine(config: string, marker: string): string {
+  const start = config.indexOf(marker);
+  if (start < 0) return "";
+  return (
+    config
+      .slice(start)
+      .split("\n")
+      .find((l) => l.includes("name() matches")) ?? ""
+  );
+}
+
+/** The regex a CEL `matches` line carries, undoing its CEL escaping. */
+function regexOf(exprLine: string): RegExp {
+  const pattern = exprLine.replace(/\\\\/g, "\\");
+  return new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+}
+
+/** From a view's declaration to the end of the block holding it. */
+function blockOf(config: string, marker: string): string {
+  const start = config.indexOf(marker);
+  if (start < 0) return "";
+  return config.slice(start, config.indexOf("\n}\n", start) + 3);
+}
+
+/** The service-discovery block on its own, or "" when the config emits none. */
+function discoveryBlock(config: string): string {
+  const start = config.indexOf("    view discovery {");
+  if (start < 0) return "";
+  const open = config.lastIndexOf(". {", start);
+  return config.slice(open, config.indexOf("\n}\n", start) + 3);
+}
+
+/** The reverse-zone block on its own, which every config emits first. */
+function reverseBlock(config: string): string {
+  const start = config.indexOf("in-addr.arpa ip6.arpa {");
+  return config.slice(start, config.indexOf("\n}\n", start) + 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -18,14 +73,28 @@ function exprLine(config: string): string {
 // and that decision has to match the rules and nothing more, or a name
 // outside them would be misreported as allowed.
 // ---------------------------------------------------------------------------
+describe("readiness", () => {
+  // s6-notifyoncheck polls this. Loopback-only, so a firewall that denies by
+  // default cannot block it, and only the catch-all block declares it, since
+  // a second block binding the same address fails to start.
+  for (const mode of ["audit", "restrict"] as const) {
+    it(`exposes a loopback health endpoint exactly once in ${mode} mode`, () => {
+      // restrict has to emit the allowlist block as well, since that is the
+      // case where declaring health twice would fail to start.
+      const config = gen({ httpsRules: ["a.example.com:443"], mode });
+      expect(config.split("\n").filter((l) => l.trim().startsWith("health ")).length).toBe(1);
+      expect(config.includes("    health 127.0.0.1:8080")).toBe(true);
+    });
+  }
+});
+
 describe("allowlist scope", () => {
   it("logs only names matching the rule as allowed, not the whole parent domain", () => {
     // `*` is one label, so the resolver must not degrade to a suffix match the
     // way dnsmasq's `/amazonaws.com/` would: that would misreport, as allowed,
     // every name beneath it.
     const config = gen({ urlRules: buildUrlRules("GET https://*.amazonaws.com/x") });
-    const pattern = exprLine(config).replace(/\\\\/g, "\\");
-    const regex = new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+    const regex = regexOf(exprLine(config));
     expect(regex.test("a.amazonaws.com.")).toBe(true);
     expect(regex.test("secret.deep.amazonaws.com.")).toBe(false);
     expect(regex.test("amazonaws.com.")).toBe(false);
@@ -33,8 +102,7 @@ describe("allowlist scope", () => {
 
   it("** crosses labels where the rule says so", () => {
     const config = gen({ urlRules: buildUrlRules("GET https://**.amazonaws.com/x") });
-    const pattern = exprLine(config).replace(/\\\\/g, "\\");
-    const regex = new RegExp(pattern.slice(pattern.indexOf("'") + 1, pattern.lastIndexOf("'")));
+    const regex = regexOf(exprLine(config));
     expect(regex.test("secret.deep.amazonaws.com.")).toBe(true);
   });
 
@@ -46,8 +114,9 @@ describe("allowlist scope", () => {
 
   it("combines every rule into one alternation", () => {
     const config = gen({ httpsRules: ["a.example.com:443", "b.example.com:443"] });
+    const allowlist = blockOf(config, "view allowlist");
     expect(exprLine(config).includes("|")).toBe(true);
-    expect(config.split("\n").filter((l) => l.includes("name() matches")).length).toBe(1);
+    expect(allowlist.split("\n").filter((l) => l.includes("name() matches")).length).toBe(1);
   });
 
   it("does not repeat a host shared by several rules", () => {
@@ -63,8 +132,7 @@ describe("allowlist scope", () => {
   });
 
   it("takes the host from an http url rule, which still has to resolve", () => {
-    const result = generateCorednsConfig({
-      ...BASE,
+    const result = generate({
       urlRules: buildUrlRules("GET http://a.example.com/x"),
     });
     expect(exprLine(result.config).includes("a\\\\.example\\\\.com")).toBe(true);
@@ -77,6 +145,21 @@ describe("allowlist scope", () => {
     expect(
       exprLine(gen({ tlsRules: ["db.example.com:5432"] })).includes("db\\\\.example\\\\.com"),
     ).toBe(true);
+  });
+
+  it("takes the host from a ~regex host rule instead of mangling it as a wildcard", () => {
+    const result = generate({
+      tlsRules: ["~^.*\\.example\\.com:8443$"],
+    });
+    expect(exprLine(result.config).includes(".*\\\\.example\\\\.com")).toBe(true);
+  });
+
+  it("takes the host from a ~regex url rule, with its port stripped from the host match", () => {
+    const result = generate({
+      urlRules: buildUrlRules("GET ~^https://a\\.com:8443/x$"),
+    });
+    expect(exprLine(result.config).includes("a\\\\.com")).toBe(true);
+    expect(result.warnings.length).toBe(0);
   });
 });
 
@@ -123,7 +206,26 @@ describe("denied names", () => {
     const denyBlock = config.slice(config.indexOf("# Everything else"));
     const aaaaBlock = denyBlock.slice(denyBlock.indexOf("template IN AAAA"));
     expect(aaaaBlock.includes("answer")).toBe(false);
-    expect(config.includes("rcode NXDOMAIN")).toBe(false);
+    expect(denyBlock.includes("rcode NXDOMAIN")).toBe(false);
+  });
+
+  it("answers every other query type with NODATA rather than leaving it unhandled", () => {
+    // A type that reaches no template at all is answered SERVFAIL, which says
+    // the server is broken and the query worth retrying: musl waits out its
+    // whole resolver timeout on one. NODATA refuses it without the wait.
+    const denyBlock = config.slice(config.indexOf("# Everything else"));
+    const anyBlock = denyBlock.slice(denyBlock.indexOf("template IN ANY"));
+    expect(denyBlock.includes("template IN ANY")).toBe(true);
+    expect(anyBlock.includes("answer")).toBe(false);
+  });
+
+  it("keeps the A template ahead of the catch-all, which matches every type", () => {
+    // CoreDNS takes the first template that matches, so the order in the file
+    // is what stops IN ANY from answering an A query with NODATA.
+    const denyBlock = config.slice(config.indexOf("# Everything else"));
+    expect(denyBlock.indexOf("template IN A {") < denyBlock.indexOf("template IN ANY {")).toBe(
+      true,
+    );
   });
 
   it("labels the two paths distinguishably in the log", () => {
@@ -135,17 +237,14 @@ describe("denied names", () => {
 // ---------------------------------------------------------------------------
 // Allowed names: answered exactly like a denied one. Real resolution is
 // HAProxy's job, strictly after a request has already passed its own rule
-// ACLs (host, path and method) -- see haproxy-config.ts. Nothing about a name
+// ACLs (host, path and method); see haproxy-config.ts. Nothing about a name
 // being on the allowlist may change what CoreDNS answers with, or a name a
 // build only resolves, never connecting to, would leak through the query
 // alone.
 // ---------------------------------------------------------------------------
 describe("allowed names", () => {
   const config = gen({ httpsRules: ["a.example.com:443"] });
-  const allowBlock = config.slice(
-    config.indexOf("view allowlist"),
-    config.indexOf("# Everything else"),
-  );
+  const allowBlock = blockOf(config, "view allowlist");
   const denyBlock = config.slice(config.indexOf("# Everything else"));
   // Both blocks share proxyAnswerLines() in the generator, so this is a
   // stronger, single check in place of separately re-asserting the same
@@ -180,7 +279,7 @@ describe("audit mode", () => {
 
   it("answers every name locally instead of forwarding it", () => {
     // Forwarding would make this resolver a live exfiltration channel for any
-    // name a build only looks up, never connecting to -- audit mode's own
+    // name a build only looks up, never connecting to. Audit mode's own
     // allow-everything policy is HAProxy's job (do-resolve after the ACLs),
     // not this resolver's.
     expect(config.includes("template IN A")).toBe(true);
@@ -199,6 +298,191 @@ describe("audit mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Reverse lookups. No rule can name a reverse zone, so the only question these
+// answer is how the lookup ends, and SERVFAIL, what an unhandled query gets,
+// costs musl its whole five-second resolver timeout every time.
+// ---------------------------------------------------------------------------
+describe("reverse lookups", () => {
+  for (const mode of ["audit", "restrict"] as const) {
+    it(`answers PTR with NXDOMAIN in ${mode} mode, so the caller gives up at once`, () => {
+      const block = reverseBlock(gen({ httpsRules: ["a.example.com:443"], mode }));
+      expect(block.includes("template IN PTR")).toBe(true);
+      expect(block.includes("rcode NXDOMAIN")).toBe(true);
+    });
+  }
+
+  it("carries an SOA, so the refusal is cacheable rather than re-asked each time", () => {
+    expect(reverseBlock(gen({})).includes("IN SOA ns.buildcage.invalid.")).toBe(true);
+  });
+
+  it("records the lookup under a verb of its own, neither allowed nor denied", () => {
+    // inspect.ts reads the allowed and denied verbs only, which is what keeps
+    // this out of the report: a row for a reverse zone could never be taken
+    // away by writing a rule, there being no rule that can name one.
+    const block = reverseBlock(gen({ httpsRules: ["a.example.com:443"] }));
+    expect(block.includes('"buildcage dns reverse name={name}"')).toBe(true);
+    expect(block.includes("dns allowed")).toBe(false);
+    expect(block.includes("dns denied")).toBe(false);
+  });
+
+  it("answers anything else under those zones like any other name", () => {
+    // Only PTR is refused. A name that merely sits under in-addr.arpa still
+    // resolves to the proxy, so the request that follows is recorded with its
+    // full URL the way one for any other name is.
+    expect(reverseBlock(gen({})).includes('answer "{{ .Name }} 60 IN A 172.20.0.1"')).toBe(true);
+  });
+
+  it("never forwards, no more than any other block does", () => {
+    expect(reverseBlock(gen({})).includes("forward")).toBe(false);
+  });
+
+  it("takes only names that really are an address backwards", () => {
+    // The verb this block logs under is one the report layer drops, so without
+    // the view an exfiltration attempt would vanish from the report by having
+    // `.in-addr.arpa` appended to it. Everything else under these zones misses
+    // the view and falls through to the blocks below, which judge it as usual.
+    const regex = regexOf(matchesLine(gen({}), "view reverse"));
+    expect(regex.test("1.0.20.172.in-addr.arpa.")).toBe(true);
+    expect(regex.test("0.20.172.in-addr.arpa.")).toBe(true);
+    expect(regex.test("8.b.d.0.1.0.0.2.ip6.arpa.")).toBe(true);
+    expect(regex.test("secret-data.in-addr.arpa.")).toBe(false);
+    expect(regex.test("1.2.3.4.in-addr.arpa.attacker.example.")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Service discovery. No rule can permit one of these: this resolver returns no
+// discovery record to anybody, so a denied row for one could never be taken
+// away by writing a rule, and would fail a build under fail_on_blocked over
+// a lookup the caller falls back from on its own.
+// ---------------------------------------------------------------------------
+describe("service-discovery names", () => {
+  const RULES = { httpsRules: ["deb.debian.org:443"] };
+
+  for (const mode of ["audit", "restrict"] as const) {
+    it(`records the lookup under a verb of its own in ${mode} mode`, () => {
+      const block = discoveryBlock(gen({ ...RULES, mode }));
+      expect(block.includes('"buildcage dns discovery name={name} type={type}"')).toBe(true);
+      expect(block.includes("dns allowed")).toBe(false);
+      expect(block.includes("dns denied")).toBe(false);
+    });
+  }
+
+  it("carries the query type, which is the whole point of the lookup", () => {
+    // Only the type tells a fallback nobody notices from an outright failure.
+    expect(discoveryBlock(gen(RULES)).includes("type={type}")).toBe(true);
+  });
+
+  it("answers NODATA for SRV rather than NXDOMAIN or SERVFAIL", () => {
+    // What nearly every name on the internet gives for SRV, and what every
+    // caller that uses SRV as a discovery layer already falls back from.
+    const block = discoveryBlock(gen(RULES));
+    expect(block.includes("template IN ANY {\n    }")).toBe(true);
+    expect(block.includes("rcode")).toBe(false);
+  });
+
+  it("never forwards, no more than any other block does", () => {
+    expect(discoveryBlock(gen(RULES)).includes("forward")).toBe(false);
+  });
+
+  it("takes only a service name under a host the rules already allow", () => {
+    // The report keeps this verb out of the blocked table, so a name that
+    // reaches it is a name that left that table. Being shaped like a service
+    // name is not enough to earn that: `_a._tcp.` in front of anything at all
+    // would otherwise take it out.
+    const regex = regexOf(matchesLine(gen(RULES), "view discovery"));
+    expect(regex.test("_http._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_a._tcp.secret-data.attacker.example.")).toBe(false);
+    expect(regex.test("_a._tcp.secret-data.deb.debian.org.")).toBe(false);
+  });
+
+  it("bounds how much of the name the caller chooses", () => {
+    // Everything before the allowed host is a label the caller picks, so it is
+    // held to what RFC 6335 lets a service name be and to the transports
+    // RFC 2782 defines.
+    const regex = regexOf(matchesLine(gen(RULES), "view discovery"));
+    expect(regex.test("_xmpp-client._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_sip._udp.deb.debian.org.")).toBe(true);
+    expect(regex.test("_averyverylongservicename._tcp.deb.debian.org.")).toBe(false);
+    expect(regex.test("_a._secret._tcp.deb.debian.org.")).toBe(false);
+    expect(regex.test("_dmarc.deb.debian.org.")).toBe(false);
+  });
+
+  it("exempts only the types defined at a service name, denying the rest", () => {
+    // An underscore name is a convention for the owner name, not a promise
+    // about the question. A really is answered here, with the proxy's address,
+    // and a type nobody has taught this block about is not one to exempt on a
+    // guess, so both are judged by the blocks below instead.
+    const block = discoveryBlock(gen(RULES));
+    expect(block.includes("expr type() in ['SRV', 'TXT', 'TLSA', 'URI']")).toBe(true);
+  });
+
+  it("takes a service name under any host in audit mode, which refuses nothing", () => {
+    // There is no blocked table in audit, so there is none to leave.
+    const regex = regexOf(matchesLine(gen({ mode: "audit" }), "view discovery"));
+    expect(regex.test("_mongodb._tcp.cluster0.abcde.mongodb.net.")).toBe(true);
+  });
+
+  it("emits no block at all when restrict allows no host", () => {
+    // Nothing can be under an allowed host, so every name is denied as usual.
+    expect(gen({}).includes("view discovery")).toBe(false);
+  });
+
+  it("comes before the blocks that would otherwise deny the name", () => {
+    // CoreDNS takes the first block whose view matches, and the deny block has
+    // no view at all, so order is what decides this.
+    const config = gen(RULES);
+    expect(config.indexOf("view discovery") < config.indexOf("view allowlist")).toBe(true);
+    expect(config.indexOf("view discovery") < config.indexOf("buildcage dns denied")).toBe(true);
+  });
+
+  it("comes before the catch-all in audit mode too", () => {
+    const config = gen({ mode: "audit" });
+    expect(config.indexOf("view discovery") < config.indexOf("buildcage dns allowed")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every other service name. Refused like any other name, but recorded apart:
+// the remedy for one is the host below it, never the name, which no rule can
+// make resolve. Logging it apart is also what keeps the shape of a service
+// name defined in this file alone: the report reads verbs, not names.
+// ---------------------------------------------------------------------------
+describe("refused service names", () => {
+  it("records them under a verb of their own, carrying the type", () => {
+    const block = blockOf(gen({ httpsRules: ["deb.debian.org:443"] }), "view service");
+    expect(block.includes('"buildcage dns service-denied name={name} type={type}"')).toBe(true);
+  });
+
+  it("comes after the allowlist, so an explicit rule still reads as allowed", () => {
+    // Someone who did write a rule naming a service name gets what they asked
+    // for; only names no rule covers reach this block.
+    const config = gen({ httpsRules: ["deb.debian.org:443"] });
+    expect(config.indexOf("view allowlist") < config.indexOf("view service")).toBe(true);
+    expect(config.indexOf("view service") < config.indexOf("buildcage dns denied")).toBe(true);
+  });
+
+  it("takes every service name, under any host", () => {
+    // Whatever missed the discovery block above: the wrong host, or a type not
+    // defined at a service name.
+    const regex = regexOf(matchesLine(gen({ httpsRules: ["deb.debian.org:443"] }), "view service"));
+    expect(regex.test("_mongodb._tcp.cluster0.abcde.mongodb.net.")).toBe(true);
+    expect(regex.test("_http._tcp.deb.debian.org.")).toBe(true);
+    expect(regex.test("secret-data.attacker.example.")).toBe(false);
+    expect(regex.test("_dmarc.example.com.")).toBe(false);
+  });
+
+  it("is emitted even when no host is allowed at all", () => {
+    // The remedy it points at does not depend on there being rules already.
+    expect(gen({}).includes("view service")).toBe(true);
+  });
+
+  it("is not emitted in audit mode, which refuses nothing", () => {
+    expect(gen({ mode: "audit" }).includes("view service")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Degenerate inputs
 // ---------------------------------------------------------------------------
 describe("degenerate inputs", () => {
@@ -206,16 +490,6 @@ describe("degenerate inputs", () => {
     const config = gen({});
     expect(config.includes("view allowlist")).toBe(false);
     expect(config.includes("buildcage dns denied")).toBe(true);
-  });
-
-  it("warns for a regex rule whose host cannot be derived", () => {
-    const result = generateCorednsConfig({
-      ...BASE,
-      urlRules: buildUrlRules("GET ~^https://a\\.com/x$"),
-    });
-    expect(result.warnings.length).toBe(1);
-    expect(result.warnings[0].includes("will not resolve")).toBe(true);
-    expect(result.config.includes("view allowlist")).toBe(false);
   });
 });
 

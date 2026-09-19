@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { createDocker, parseContainerIds, type SpawnCommand } from "./client.ts";
 import { REPORT_ACTION_SCRIPT_PATH } from "./report-source.ts";
 
@@ -59,6 +59,18 @@ describe("createDocker", () => {
     const env = createDocker(run).readEnv("abc123");
     expect(env).toStrictEqual({ PROXY_MODE: "restrict", FOO: "bar" });
     expect(calls).toStrictEqual([["inspect", "abc123", "--format", "{{json .Config.Env}}"]]);
+  });
+
+  it("readLabels runs docker inspect and parses the Labels JSON object", () => {
+    const { run, calls } = fakeRun(['{"org.opencontainers.image.version":"3.1.4"}']);
+    const labels = createDocker(run).readLabels("abc123");
+    expect(labels).toStrictEqual({ "org.opencontainers.image.version": "3.1.4" });
+    expect(calls).toStrictEqual([["inspect", "abc123", "--format", "{{json .Config.Labels}}"]]);
+  });
+
+  it("readLabels returns an empty object for a container with no labels", () => {
+    const { run } = fakeRun(["null"]);
+    expect(createDocker(run).readLabels("abc123")).toStrictEqual({});
   });
 
   it("exec runs docker exec with the given argv and returns its stdout", () => {
@@ -129,7 +141,7 @@ async function drain(iterable: AsyncIterable<string>): Promise<string[]> {
 }
 
 describe("createDocker readFileLines", () => {
-  it("is lazy — nothing spawns until iteration actually starts", () => {
+  it("is lazy: nothing spawns until iteration actually starts", () => {
     const { spawnDocker, calls } = fakeSpawn();
     createDocker(undefined, spawnDocker).readFileLines("abc123", "/var/log/haproxy/current");
     expect(calls).toStrictEqual([]);
@@ -179,11 +191,24 @@ describe("createDocker readFileLines", () => {
     // .next() runs synchronously through spawnDocker(args), so the child
     // already exists once this returns.
     const firstLine = iterator.next();
-    children[0].stdout.write("line one\nline two\n"); // never finish()'d — simulates a still-running process
+    children[0].stdout.write("line one\nline two\n"); // never finish()'d, so this simulates a still-running process
     expect((await firstLine).value).toBe("line one");
     await iterator.return?.(undefined); // what `for await...of` does on an early break
     expect(children[0].killed).toBeTruthy();
   });
-});
 
-reportResults();
+  // A child killed from outside closes stdout, so the consumer reaches EOF and
+  // then finds no exit code at all, only the signal that ended it.
+  it("names the signal, and carries no status, when the child was killed", async () => {
+    const { spawnDocker, children } = fakeSpawn();
+    const drained = drain(createDocker(undefined, spawnDocker).readFileLines("abc123", "/x"));
+    await Promise.resolve();
+    children[0].stderr.write("terminated\n");
+    children[0].kill();
+    await expect(drained).rejects.toSatisfy(
+      (e) =>
+        (e as { status?: number }).status === undefined &&
+        (e as Error).message.includes("(signal SIGTERM)"),
+    );
+  });
+});

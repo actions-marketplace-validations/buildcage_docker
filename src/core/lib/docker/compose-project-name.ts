@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 
 /**
  * An explicit, deterministic Compose project name, so concurrent
- * `up`/`down`/`ps` from different steps in the same job never collide on
+ * `up`/`down`/`logs` from different steps in the same job never collide on
  * Compose's shared, directory-derived default.
  *
  * Hashed rather than used verbatim: Compose project names are constrained
  * to `^[a-z0-9][a-z0-9_-]*$`, but the input can be a wider-charset
- * user-supplied `builder_name` — a hex digest is always in-charset
+ * user-supplied `builder_name`. A hex digest is always in-charset
  * regardless, so this never needs to validate its input.
  */
 export function deriveProjectName(containerName: string): string {

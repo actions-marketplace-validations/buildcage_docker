@@ -4,7 +4,7 @@
  *
  * `vitest`/`qjs:std` are dynamic-imported via non-literal variables so tsc
  * doesn't resolve the other runtime's types. `chai`/`@vitest/expect` are
- * portable, so they're static imports instead — that's also required for
+ * portable, so they're static imports instead, which is also required for
  * bundling, since qjs can't resolve a bare specifier left un-inlined by a
  * dynamic import. The polyfill import must come first: ES modules evaluate
  * static imports before their own body runs.
@@ -15,7 +15,7 @@ import { JestChaiExpect } from "@vitest/expect";
 
 const isNode = typeof (globalThis as { process?: unknown }).process !== "undefined";
 
-/** Deliberately narrow subset of vitest's real `expect()` chain — only the
+/** Deliberately narrow subset of vitest's real `expect()` chain: only the
  *  matchers this codebase's tests actually use. */
 interface ExpectMatchers {
   toBe(expected: unknown): void;
@@ -28,7 +28,7 @@ interface ExpectMatchers {
   rejects: AsyncExpectMatchers;
 }
 
-/** `expect(promise).rejects.toX(...)` — same matchers, each resolving once the promise settles. */
+/** `expect(promise).rejects.toX(...)`: same matchers, each resolving once the promise settles. */
 interface AsyncExpectMatchers {
   toBe(expected: unknown): Promise<void>;
   toStrictEqual(expected: unknown): Promise<void>;

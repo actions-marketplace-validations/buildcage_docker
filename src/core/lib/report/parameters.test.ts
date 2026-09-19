@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { buildReportParameters } from "./parameters.ts";
 
 describe("buildReportParameters", () => {
@@ -9,6 +9,7 @@ describe("buildReportParameters", () => {
         ALLOWED_HTTPS_RULES: "a.com:443 b.com:443",
         ALLOWED_HTTP_RULES: "c.com:80",
         ALLOWED_IP_RULES: "",
+        ALLOWED_TLS_RULES: "d.example.com:8443",
         KNOWN_BLOCKED_RULES: "noisy.example.com:443",
       }),
     ).toStrictEqual({
@@ -16,6 +17,7 @@ describe("buildReportParameters", () => {
       allowedHttpsRules: ["a.com:443", "b.com:443"],
       allowedHttpRules: ["c.com:80"],
       allowedIpRules: [],
+      allowedTlsRules: ["d.example.com:8443"],
       knownBlockedRules: ["noisy.example.com:443"],
     });
   });
@@ -29,8 +31,7 @@ describe("buildReportParameters", () => {
     expect(params.allowedHttpsRules).toStrictEqual([]);
     expect(params.allowedHttpRules).toStrictEqual([]);
     expect(params.allowedIpRules).toStrictEqual([]);
+    expect(params.allowedTlsRules).toStrictEqual([]);
     expect(params.knownBlockedRules).toStrictEqual([]);
   });
 });
-
-reportResults();

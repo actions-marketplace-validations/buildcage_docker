@@ -22,6 +22,13 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
+@actions/core (bundled into /opt/buildcage/scripts/report-action.js)
+  Website : https://github.com/actions/toolkit/tree/main/packages/core
+  License : MIT License
+  Source  : https://github.com/actions/toolkit
+
+------------------------------------------------------------------------------
+
 buildkit-proxy Go module dependencies
 
   github.com/moby/buildkit (api/services/control, sourcepolicy/pb packages)
@@ -58,5 +65,5 @@ buildkit-proxy Go module dependencies
 
 Full license texts for these modules are available from their respective
 source repositories. The buildkit-proxy binary is statically compiled from
-source at image build time (see setup/docker/explicit/buildkit-proxy/); no Go
+source at image build time (see docker/explicit/buildkit-proxy/); no Go
 toolchain remains in the published image.

@@ -1,536 +1,297 @@
 /**
- * Unit tests for core/lib/oci-registry.ts
+ * Unit tests for oci-registry.ts: the pull token, the manifest digest and an
+ * image's config labels. The registry client underneath them is exercised
+ * through those three rather than on its own.
  *
- * Tests use injectable _exec / _fetch arguments to avoid real network/docker calls.
+ * Tests use an injectable _fetch to avoid real network access.
  *
  * Run with: vp test run core/lib/provenance/oci-registry.test.ts
  */
-import { describe, it, expect, assert } from "vitest";
+import { describe, it, expect } from "vitest";
 
 import {
   fetchManifestDigest,
   fetchRegistryToken,
-  fetchBundle,
-  readGhcrBasicAuth,
+  fetchImageConfigLabels,
+  type FetchLike,
+  type FetchLikeResponse,
 } from "./oci-registry.ts";
-import { VerifyImageError } from "./errors.ts";
+import {
+  expectVerifyError,
+  failsWith,
+  networkFailure,
+  okJson,
+  stubRegistry,
+} from "#core/lib/test/registry-stub.ts";
+
+const DIGEST = "sha256:" + "a".repeat(64);
+
+/** The HEAD response fetchManifestDigest reads its digest out of. */
+function manifestHead(status: number, digestValue: string | null): FetchLikeResponse {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name: string) => (name === "Docker-Content-Digest" ? digestValue : null) },
+  };
+}
 
 // ── fetchManifestDigest ───────────────────────────────────────────────────
 
 describe("fetchManifestDigest", () => {
-  const digest = "sha256:" + "a".repeat(64);
-
-  function makeResp(status: number, digestValue: string | null) {
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      headers: { get: (name: string) => (name === "Docker-Content-Digest" ? digestValue : null) },
-    };
-  }
+  const call = (_fetch: FetchLike) =>
+    fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", _fetch);
 
   it("returns digest from Docker-Content-Digest header on success", async () => {
     let capturedOpts: { method?: string } | undefined;
-    const mockFetch = async (url: string, opts?: { method?: string }) => {
+    const result = await call(async (_url, opts) => {
       capturedOpts = opts;
-      return makeResp(200, digest);
-    };
-    const result = await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-    expect(result).toBe(digest);
+      return manifestHead(200, DIGEST);
+    });
+    expect(result).toBe(DIGEST);
     expect(capturedOpts?.method).toBe("HEAD");
   });
 
   it("throws NOT_FOUND on 404", async () => {
-    const mockFetch = async () => makeResp(404, null);
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("NOT_FOUND");
-    }
+    await expectVerifyError(
+      call(async () => manifestHead(404, null)),
+      "NOT_FOUND",
+    );
   });
 
   it("throws TRANSIENT on 5xx", async () => {
-    const mockFetch = async () => makeResp(500, null);
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(
+      call(async () => manifestHead(500, null)),
+      "TRANSIENT",
+    );
   });
 
   it("throws TRANSIENT with auth hint on 401", async () => {
-    const mockFetch = async () => makeResp(401, null);
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-      expect(
-        (err as VerifyImageError).message.includes("authenticated"),
-        "error message should hint at authentication",
-      ).toBeTruthy();
-    }
+    await expectVerifyError(
+      call(async () => manifestHead(401, null)),
+      "TRANSIENT",
+      /authenticated/,
+    );
   });
 
   it("throws TRANSIENT with auth hint on 403", async () => {
-    const mockFetch = async () => makeResp(403, null);
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-      expect(
-        (err as VerifyImageError).message.includes("authenticated"),
-        "error message should hint at authentication",
-      ).toBeTruthy();
-    }
+    await expectVerifyError(
+      call(async () => manifestHead(403, null)),
+      "TRANSIENT",
+      /authenticated/,
+    );
   });
 
   it("throws TRANSIENT when Docker-Content-Digest header is absent", async () => {
-    const mockFetch = async () => makeResp(200, null);
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(
+      call(async () => manifestHead(200, null)),
+      "TRANSIENT",
+    );
   });
 
   it("throws TRANSIENT on network error", async () => {
-    const mockFetch = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-    try {
-      await fetchManifestDigest("ghcr.io", "owner/repo", "2.1.0", "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(call(networkFailure), "TRANSIENT");
+  });
+
+  it("throws TRANSIENT for a non-ok status that is not 404, 401/403 or 5xx", async () => {
+    await expectVerifyError(
+      call(async () => manifestHead(418, null)),
+      "TRANSIENT",
+    );
   });
 });
 
 // ── fetchRegistryToken ────────────────────────────────────────────────────
 
 describe("fetchRegistryToken", () => {
-  // ── basicAuth=null (未ログイン) ─────────────────────────────────────────
+  const call = (basicAuth: string | null, _fetch: FetchLike) =>
+    fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, _fetch);
+
+  // ── basicAuth=null (not logged in) ─────────────────────────────────────
 
   it("returns anonymous token when no Docker credentials and registry responds 200", async () => {
     let callCount = 0;
-    const mockFetch = async (url: string, opts?: { headers?: Record<string, string> }) => {
+    const token = await call(null, async (_url, opts) => {
       callCount++;
       expect(opts, "should send no auth header").toBe(undefined);
-      return { ok: true, status: 200, json: async () => ({ token: "anon-token" }) };
-    };
-    const token = await fetchRegistryToken("ghcr.io", "buildcage/docker", null, mockFetch);
+      return okJson({ token: "anon-token" });
+    });
     expect(token).toBe("anon-token");
     expect(callCount, "should make exactly one request").toBe(1);
   });
 
-  it("throws TOKEN_ERROR on 401 when no Docker credentials (private, not logged in)", async () => {
-    const mockFetch = async () => ({ ok: false, status: 401 });
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", null, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TOKEN_ERROR");
-      expect(
-        (err as VerifyImageError).message.includes("docker login"),
-        "error message should mention docker login",
-      ).toBeTruthy();
-    }
-  });
-
-  it("throws TOKEN_ERROR on 403 when no Docker credentials (private, not logged in)", async () => {
-    const mockFetch = async () => ({ ok: false, status: 403 });
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", null, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TOKEN_ERROR");
-    }
+  it("throws TOKEN_ERROR on 401/403 when no Docker credentials (private, not logged in)", async () => {
+    await expectVerifyError(
+      call(null, async () => failsWith(401)),
+      "TOKEN_ERROR",
+      /docker login/,
+    );
+    await expectVerifyError(
+      call(null, async () => failsWith(403)),
+      "TOKEN_ERROR",
+    );
   });
 
   it("throws TRANSIENT on 5xx when no Docker credentials", async () => {
-    const mockFetch = async () => ({ ok: false, status: 503 });
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", null, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(
+      call(null, async () => failsWith(503)),
+      "TRANSIENT",
+    );
   });
 
   it("throws TRANSIENT on network error when no Docker credentials", async () => {
-    const mockFetch = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", null, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(call(null, networkFailure), "TRANSIENT");
   });
 
-  // ── basicAuth あり (docker login 済み) ────────────────────────────────
+  // ── basicAuth set (after docker login) ─────────────────────────────────
 
   it("uses Basic auth directly (no anonymous attempt) when Docker credentials are available", async () => {
     const basicAuth = Buffer.from("actor:ghp_token").toString("base64");
     let callCount = 0;
     let capturedAuth: string | undefined;
-    const mockFetch = async (url: string, opts?: { headers?: Record<string, string> }) => {
+    const token = await call(basicAuth, async (_url, opts) => {
       callCount++;
       capturedAuth = opts?.headers?.Authorization;
-      return { ok: true, status: 200, json: async () => ({ token: "jwt-token" }) };
-    };
-    const token = await fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, mockFetch);
+      return okJson({ token: "jwt-token" });
+    });
     expect(token).toBe("jwt-token");
     expect(callCount, "should make exactly one request (no anonymous attempt)").toBe(1);
     expect(capturedAuth, "should send the Docker config auth directly").toBe(`Basic ${basicAuth}`);
   });
 
   it("throws TOKEN_ERROR immediately on 401 when Docker credentials are present (no fallback)", async () => {
-    const basicAuth = Buffer.from("actor:expired_token").toString("base64");
     let callCount = 0;
-    const mockFetch = async () => {
-      callCount++;
-      return { ok: false, status: 401 };
-    };
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TOKEN_ERROR");
-      expect(
-        (err as VerifyImageError).message.includes("docker login"),
-        "error message should mention docker login",
-      ).toBeTruthy();
-      expect(callCount, "should not retry with anonymous").toBe(1);
-    }
-  });
-
-  it("throws TOKEN_ERROR immediately on 403 when Docker credentials are present (no fallback)", async () => {
-    const basicAuth = Buffer.from("actor:token").toString("base64");
-    const mockFetch = async () => ({ ok: false, status: 403 });
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TOKEN_ERROR");
-    }
+    await expectVerifyError(
+      call(Buffer.from("actor:expired_token").toString("base64"), async () => {
+        callCount++;
+        return failsWith(401);
+      }),
+      "TOKEN_ERROR",
+      /docker login/,
+    );
+    expect(callCount, "should not retry with anonymous").toBe(1);
   });
 
   it("throws TRANSIENT on 5xx when Docker credentials are present", async () => {
-    const basicAuth = Buffer.from("actor:token").toString("base64");
-    const mockFetch = async () => ({ ok: false, status: 500 });
-    try {
-      await fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
+    await expectVerifyError(
+      call(Buffer.from("actor:token").toString("base64"), async () => failsWith(500)),
+      "TRANSIENT",
+    );
+  });
+
+  it("wraps a network failure under Basic auth as TRANSIENT", async () => {
+    await expectVerifyError(call("dXNlcjpwYXNz", networkFailure), "TRANSIENT");
   });
 });
 
-// ── readGhcrBasicAuth ─────────────────────────────────────────────────────
+// ── fetchImageConfigLabels ────────────────────────────────────────────────
 
-describe("readGhcrBasicAuth", () => {
-  const mockReadFileSync = (content: string) => (_path: string, _enc: string) => content;
+describe("fetchImageConfigLabels", () => {
+  const amd64Dig = "sha256:" + "b".repeat(64);
+  const configDig = "sha256:" + "c".repeat(64);
+  const labels = { "org.opencontainers.image.version": "3.1.0-inspect" };
+  const call = (_fetch: FetchLike) =>
+    fetchImageConfigLabels("ghcr.io", "buildcage/docker", DIGEST, "token", _fetch);
 
-  it("returns auth when auths['ghcr.io'].auth is present", () => {
-    const config = JSON.stringify({ auths: { "ghcr.io": { auth: "dGVzdDp0b2tlbg==" } } });
-    const result = readGhcrBasicAuth({}, mockReadFileSync(config));
-    expect(result).toBe("dGVzdDp0b2tlbg==");
+  it("follows index → platform manifest → config blob and returns the labels", async () => {
+    const registry = stubRegistry({
+      [`/manifests/${DIGEST}`]: okJson({
+        manifests: [
+          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+          { digest: "sha256:" + "e".repeat(64), platform: { architecture: "arm64", os: "linux" } },
+        ],
+      }),
+      [`/manifests/${amd64Dig}`]: okJson({ config: { digest: configDig } }),
+      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+    });
+    expect(await call(registry)).toStrictEqual(labels);
+    expect(registry.urls[1], "the first real platform, not the index again").toContain(amd64Dig);
   });
 
-  it("normalizes https:// prefix and trailing slash in key", () => {
-    const config = JSON.stringify({ auths: { "https://ghcr.io/": { auth: "dGVzdA==" } } });
-    const result = readGhcrBasicAuth({}, mockReadFileSync(config));
-    expect(result).toBe("dGVzdA==");
+  it("skips the unknown/unknown attestation manifests buildx attaches", async () => {
+    const registry = stubRegistry({
+      [`/manifests/${DIGEST}`]: okJson({
+        manifests: [
+          {
+            digest: "sha256:" + "f".repeat(64),
+            platform: { architecture: "unknown", os: "unknown" },
+          },
+          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+        ],
+      }),
+      [`/manifests/${amd64Dig}`]: okJson({ config: { digest: configDig } }),
+      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+    });
+    await call(registry);
+    expect(registry.urls[1]).toContain(amd64Dig);
   });
 
-  it("returns null when ghcr.io entry is absent", () => {
-    const config = JSON.stringify({ auths: { "docker.io": { auth: "dGVzdA==" } } });
-    expect(readGhcrBasicAuth({}, mockReadFileSync(config))).toBe(null);
+  it("reads a single-platform image whose digest is the manifest itself", async () => {
+    const registry = stubRegistry({
+      [`/manifests/${DIGEST}`]: okJson({ config: { digest: configDig } }),
+      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+    });
+    expect(await call(registry)).toStrictEqual(labels);
   });
 
-  it("returns null when auth field is empty string (credsStore environment)", () => {
-    const config = JSON.stringify({ auths: { "ghcr.io": {} } });
-    expect(readGhcrBasicAuth({}, mockReadFileSync(config))).toBe(null);
+  it("returns an empty object for an image with no labels", async () => {
+    const registry = stubRegistry({
+      [`/manifests/${DIGEST}`]: okJson({ config: { digest: configDig } }),
+      [`/blobs/${configDig}`]: okJson({ config: {} }),
+    });
+    expect(await call(registry)).toStrictEqual({});
   });
 
-  it("returns null when auths is absent", () => {
-    const config = JSON.stringify({ credsStore: "desktop" });
-    expect(readGhcrBasicAuth({}, mockReadFileSync(config))).toBe(null);
+  it("throws TRANSIENT on 5xx", async () => {
+    await expectVerifyError(
+      call(stubRegistry({ [`/manifests/${DIGEST}`]: failsWith(503) })),
+      "TRANSIENT",
+    );
   });
 
-  it("returns null on file read error (not logged in at all)", () => {
-    const throwingRead = () => {
-      throw new Error("ENOENT");
-    };
-    expect(readGhcrBasicAuth({}, throwingRead)).toBe(null);
+  it("throws NOT_FOUND, naming the image, on 404", async () => {
+    await expectVerifyError(
+      call(stubRegistry({ [`/manifests/${DIGEST}`]: failsWith(404) })),
+      "NOT_FOUND",
+      `ghcr.io/buildcage/docker@${DIGEST}`,
+    );
   });
 
-  it("returns null on invalid JSON", () => {
-    expect(readGhcrBasicAuth({}, mockReadFileSync("not json"))).toBe(null);
+  it("throws TRANSIENT with an auth hint on 403", async () => {
+    await expectVerifyError(
+      call(stubRegistry({ [`/manifests/${DIGEST}`]: failsWith(403) })),
+      "TRANSIENT",
+      /authenticated/,
+    );
   });
 
-  it("uses DOCKER_CONFIG env var to resolve config path", () => {
-    let capturedPath: string | undefined;
-    const readSpy = (p: string) => {
-      capturedPath = p;
-      return JSON.stringify({ auths: {} });
-    };
-    readGhcrBasicAuth({ DOCKER_CONFIG: "/custom/docker" }, readSpy);
-    expect(
-      capturedPath?.startsWith("/custom/docker"),
-      `expected path under DOCKER_CONFIG, got: ${capturedPath}`,
-    ).toBeTruthy();
-  });
-});
-
-// ── fetchBundle ───────────────────────────────────────────────────────────
-
-const BUNDLE_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
-
-function makeFetchReturning(responses: any[]) {
-  let i = 0;
-  return async (url: string) => {
-    const resp = responses[i++] ?? responses[responses.length - 1];
-    return typeof resp === "function" ? resp(url) : resp;
-  };
-}
-
-describe("fetchBundle — Referrers API path", () => {
-  const digest = "sha256:" + "a".repeat(64);
-  const manifestDig = "sha256:" + "b".repeat(64);
-  const blobDig = "sha256:" + "d".repeat(64);
-  const bundleObj = { mediaType: BUNDLE_TYPE, verificationMaterial: {} };
-
-  it("returns bundle when found via Referrers API (3-request flow: referrers → manifest → blob)", async () => {
-    const mockFetch = makeFetchReturning([
-      // GET /referrers/<digest>
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          manifests: [
-            {
-              artifactType: BUNDLE_TYPE,
-              mediaType: "application/vnd.oci.image.manifest.v1+json",
-              digest: manifestDig,
-            },
-          ],
+  it("throws NOT_FOUND when an index carries no real platform", async () => {
+    await expectVerifyError(
+      call(
+        stubRegistry({
+          [`/manifests/${DIGEST}`]: okJson({
+            manifests: [{ digest: amd64Dig, platform: { architecture: "unknown", os: "unknown" } }],
+          }),
         }),
-      },
-      // GET /manifests/<manifestDig>
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          artifactType: BUNDLE_TYPE,
-          layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }],
-        }),
-      },
-      // GET /blobs/<blobDig>
-      { ok: true, status: 200, json: async () => bundleObj },
-    ]);
-    const result = await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-    expect(result).toStrictEqual(bundleObj);
+      ),
+      "NOT_FOUND",
+    );
   });
 
-  it("throws NOT_FOUND when Referrers returns no matching artifactType", async () => {
-    const mockFetch = makeFetchReturning([
-      // Referrers API → no bundle
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          manifests: [{ artifactType: "application/other", digest: "sha256:c" }],
-        }),
-      },
-      // Fallback tag → 404
-      { ok: false, status: 404, json: async () => ({}) },
-    ]);
-    try {
-      await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("NOT_FOUND");
-    }
-  });
-});
-
-describe("fetchBundle — fallback tag path", () => {
-  const digest = "sha256:" + "a".repeat(64);
-  const manifestDig = "sha256:" + "b".repeat(64);
-  const blobDig = "sha256:" + "c".repeat(64);
-  const bundleObj = { mediaType: BUNDLE_TYPE };
-
-  it("falls back to sha256-<hex> tag (legacy direct-layers format) and returns bundle", async () => {
-    const mockFetch = makeFetchReturning([
-      // Referrers API → 404 (old registry, no Referrers support)
-      { ok: false, status: 404, json: async () => ({}) },
-      // Fallback tag: direct manifest with layers
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }],
-        }),
-      },
-      // Blob
-      { ok: true, status: 200, json: async () => bundleObj },
-    ]);
-    const result = await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-    expect(result).toStrictEqual(bundleObj);
+  it("throws NOT_FOUND when the manifest names no config blob", async () => {
+    await expectVerifyError(
+      call(stubRegistry({ [`/manifests/${DIGEST}`]: okJson({}) })),
+      "NOT_FOUND",
+    );
   });
 
-  it("falls back to sha256-<hex> tag as OCI image index (standard artifactType match)", async () => {
-    const mockFetch = makeFetchReturning([
-      // Referrers API → 404
-      { ok: false, status: 404, json: async () => ({}) },
-      // Fallback tag: image index with correct artifactType
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          manifests: [
-            {
-              mediaType: "application/vnd.oci.image.manifest.v1+json",
-              artifactType: BUNDLE_TYPE,
-              digest: manifestDig,
-            },
-          ],
-        }),
-      },
-      // Sub-manifest
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          artifactType: BUNDLE_TYPE,
-          layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }],
-        }),
-      },
-      // Blob
-      { ok: true, status: 200, json: async () => bundleObj },
-    ]);
-    const result = await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-    expect(result).toStrictEqual(bundleObj);
+  it("throws TRANSIENT for a non-ok status the registry JSON reader does not name", async () => {
+    await expectVerifyError(
+      call(stubRegistry({ [`/manifests/${DIGEST}`]: failsWith(418) })),
+      "TRANSIENT",
+    );
   });
 
-  it("falls back to sha256-<hex> tag as OCI image index (GHCR: config.mediaType used as artifactType)", async () => {
-    // GHCR stores config.mediaType ("application/vnd.oci.empty.v1+json") as artifactType
-    // in the Referrers Tag Schema index instead of the manifest's own artifactType field.
-    const mockFetch = makeFetchReturning([
-      // Referrers API → 303 redirect → image index (GHCR behaviour)
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          manifests: [
-            {
-              mediaType: "application/vnd.oci.image.manifest.v1+json",
-              artifactType: "application/vnd.oci.empty.v1+json", // ← GHCR: config.mediaType
-              digest: manifestDig,
-            },
-          ],
-        }),
-      },
-      // Fallback tag: same image index (fetched again)
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          manifests: [
-            {
-              mediaType: "application/vnd.oci.image.manifest.v1+json",
-              artifactType: "application/vnd.oci.empty.v1+json", // ← GHCR: config.mediaType
-              digest: manifestDig,
-            },
-          ],
-        }),
-      },
-      // Sub-manifest inspection: real artifactType is correct
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          artifactType: BUNDLE_TYPE,
-          layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }],
-        }),
-      },
-      // Blob
-      { ok: true, status: 200, json: async () => bundleObj },
-    ]);
-    const result = await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-    expect(result).toStrictEqual(bundleObj);
-  });
-
-  it("throws TRANSIENT on 5xx from Referrers API", async () => {
-    const mockFetch = makeFetchReturning([{ ok: false, status: 503 }]);
-    try {
-      await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
-  });
-
-  it("throws TRANSIENT on network error from Referrers API", async () => {
-    const mockFetch = async () => {
-      throw new Error("ECONNRESET");
-    };
-    try {
-      await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect((err as VerifyImageError).code).toBe("TRANSIENT");
-    }
-  });
-
-  it("throws TRANSIENT (not NOT_FOUND) on 403 from blob fetch", async () => {
-    const mockFetch = makeFetchReturning([
-      // Referrers API → 404 (no Referrers support)
-      { ok: false, status: 404, json: async () => ({}) },
-      // Fallback tag manifest found (legacy format)
-      {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          layers: [{ mediaType: BUNDLE_TYPE, digest: blobDig }],
-        }),
-      },
-      // Blob fetch → 403 (auth error, e.g. private repo not authenticated)
-      { ok: false, status: 403 },
-    ]);
-    try {
-      await fetchBundle("ghcr.io", "buildcage/docker", digest, "token", mockFetch);
-      assert.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(VerifyImageError);
-      expect(
-        (err as VerifyImageError).code,
-        "auth error must not be reported as NOT_FOUND (unsigned image)",
-      ).toBe("TRANSIENT");
-    }
+  it("wraps a network failure as TRANSIENT rather than letting it escape untyped", async () => {
+    await expectVerifyError(call(networkFailure), "TRANSIENT");
   });
 });

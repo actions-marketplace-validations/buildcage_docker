@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { formatElapsedVariable, formatElapsedFixed } from "./elapsed-time.ts";
 
 describe("formatElapsedVariable", () => {
@@ -41,5 +41,3 @@ describe("formatElapsedFixed", () => {
     expect(formatElapsedFixed(-1)).toBe("00:00:00.000");
   });
 });
-
-reportResults();

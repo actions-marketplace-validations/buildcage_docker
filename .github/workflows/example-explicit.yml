@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Start Buildcage builder
-        uses: buildcage/docker@0387f9e87afc1776ca811dc36ae23dc4b14d98dc # v3.1.3
+        uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
         with:
           proxy_mode: restrict
           proxy_engine: explicit
@@ -22,7 +22,7 @@ jobs:
             fonts.googleapis.com:443
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           driver: remote
           endpoint: docker-container://buildcage
@@ -34,9 +34,8 @@ jobs:
           FROM node:24-alpine
           WORKDIR /app
           RUN npm init -y
-          # npm bundles its own CA store, so it needs NODE_USE_SYSTEM_CA=1 to trust
-          # the CA that BuildKit's explicit engine injected into the system store.
-          RUN NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts express
+          # npm bundles its own CA store, so it needs NODE_USE_SYSTEM_CA=1 to trust the proxy CA.
+          RUN NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts @hono/node-server
           RUN wget -q -O /dev/null --timeout=5 https://example.com/ || true
           EOF
 
@@ -49,6 +48,6 @@ jobs:
 
       - name: Show proxy report
         if: always()
-        uses: buildcage/docker/report@0387f9e87afc1776ca811dc36ae23dc4b14d98dc # v3.1.3
+        uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
         with:
           fail_on_blocked: false

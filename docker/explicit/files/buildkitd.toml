@@ -10,7 +10,7 @@ address = ["unix:///run/buildkit/buildkitd-internal.sock"]
 enabled = true
 snapshotter = "auto"
 # Governs only the internal proxy's own egress (see moby/buildkit's
-# util/network/netproviders.Providers) — RUN steps are isolated via
+# util/network/netproviders.Providers): RUN steps are isolated via
 # proxyNetwork's own point-to-point veth regardless of this setting.
 networkMode = "host"
 

@@ -2,7 +2,7 @@
  * Protects a report's write against GitHub Actions' per-step Job Summary
  * limit: confirmed at exactly 1 MiB (`actions/runner`'s
  * `CreateStepSummaryCommand.AttachmentSizeLimit`). Exceeding it does not
- * truncate on GitHub's side -- it silently drops the *entire* step's summary
+ * truncate on GitHub's side: it silently drops the entire step's summary
  * upload, so a report that grows too large would otherwise vanish rather
  * than degrade.
  *
@@ -11,18 +11,16 @@
  * is the only part ever cut here.
  */
 
+import {
+  COMMUNICATION_DETAILS_CLOSE as DETAILS_CLOSE,
+  COMMUNICATION_DETAILS_OPEN as DETAILS_OPEN,
+} from "./communication-section.ts";
+
 // GitHub's own limit, in bytes.
 const STEP_SUMMARY_LIMIT_BYTES = 1024 * 1024;
 // Headroom for byte-counting slop and for the truncation notice itself, so
 // appending the notice can never be what pushes the file over the edge.
 const SAFETY_MARGIN_BYTES = 8 * 1024;
-
-// Both renderers that produce a Communication details section (inspect,
-// explicit) open it with this exact literal, and it appears nowhere else in
-// a report -- the audit-mode example blocks use <details> too, but without
-// this <summary>.
-const DETAILS_OPEN = "<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n";
-const DETAILS_CLOSE = "</details>\n";
 
 /**
  * Returns `markdown` unchanged when it already fits. Otherwise cuts the
@@ -30,10 +28,18 @@ const DETAILS_CLOSE = "</details>\n";
  * other (fixed-size) part of the report, always at a line boundary, closing
  * a fenced code block left open by the cut and noting that it happened.
  * `artifactAvailable` decides whether that note points at the artifact or
- * suggests turning it on -- it does not fetch or check anything itself.
+ * suggests turning it on; it does not fetch or check anything itself.
+ *
+ * `limitBytes` is GitHub's limit. A caller passes its own only to say what
+ * "too large" means without building something that large: every branch below
+ * is reached by the ratio of input to limit, not by the absolute size.
  */
-export function truncateForStepSummary(markdown: string, artifactAvailable: boolean): string {
-  if (Buffer.byteLength(markdown, "utf8") <= STEP_SUMMARY_LIMIT_BYTES - SAFETY_MARGIN_BYTES) {
+export function truncateForStepSummary(
+  markdown: string,
+  artifactAvailable: boolean,
+  limitBytes: number = STEP_SUMMARY_LIMIT_BYTES,
+): string {
+  if (Buffer.byteLength(markdown, "utf8") <= limitBytes - SAFETY_MARGIN_BYTES) {
     return markdown;
   }
 
@@ -52,7 +58,7 @@ export function truncateForStepSummary(markdown: string, artifactAvailable: bool
     Buffer.byteLength(before, "utf8") +
     Buffer.byteLength(after, "utf8") +
     Buffer.byteLength(note, "utf8");
-  const budget = Math.max(0, STEP_SUMMARY_LIMIT_BYTES - SAFETY_MARGIN_BYTES - fixedBytes);
+  const budget = Math.max(0, limitBytes - SAFETY_MARGIN_BYTES - fixedBytes);
 
   let kept = "";
   let usedBytes = 0;
@@ -65,8 +71,8 @@ export function truncateForStepSummary(markdown: string, artifactAvailable: bool
     usedBytes += lineBytes;
     if (line.trim().startsWith("```")) fenceOpen = !fenceOpen;
   }
-  // A cut mid-fence would otherwise turn everything after it -- the note,
-  // </details>, the report's own footer -- into literal code-block text.
+  // A cut mid-fence would otherwise turn everything after it (the note,
+  // </details>, the report's own footer) into literal code-block text.
   if (fenceOpen) kept += "```\n";
 
   return before + kept + note + after;

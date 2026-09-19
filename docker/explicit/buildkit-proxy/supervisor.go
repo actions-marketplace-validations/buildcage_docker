@@ -6,7 +6,7 @@ package main
 // solve.go, which is this binary's primary purpose.
 //
 // buildkitdEnv (called from startBuildkitd below) is defined in ca_prod.go
-// or ca_testhooks.go depending on the "testhooks" build tag — see that
+// or ca_testhooks.go depending on the "testhooks" build tag; see that
 // file's doc comment for why a second, test-only variant exists at all.
 
 import (
@@ -34,9 +34,38 @@ func writeResolvConf(externalResolver string) error {
 	return os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0o644)
 }
 
+// remountCgroupRW makes /sys/fs/cgroup writable so buildkitd's OCI worker can
+// make a cgroup per RUN step. Remounting, rather than bind-mounting the host's
+// cgroupfs, keeps the writable tree inside this container's own cgroup
+// namespace. universal and inspect do the same from an s6 oneshot, which this
+// image has no equivalent of.
+func remountCgroupRW() error {
+	// A v1 host passes the remount below and still leaves its per-controller
+	// mounts read-only, so the exit status alone is not enough to go on.
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return fmt.Errorf("not a cgroup v2 mount, which buildcage requires: %w", err)
+	}
+
+	// busybox mount won't resolve a lone mountpoint against /proc/mounts, hence
+	// the source. The flags are restated because a remount drops the ones it
+	// omits.
+	out, err := exec.Command("mount",
+		"-o", "remount,rw,nosuid,nodev,noexec,relatime", "cgroup", "/sys/fs/cgroup").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Fail here rather than leave buildkitd to fail at the first RUN step.
+	const probe = "/sys/fs/cgroup/buildcage-probe"
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		return fmt.Errorf("still read-only after remounting it: %w", err)
+	}
+	return os.Remove(probe)
+}
+
 // generateSourcePolicy invokes the QuickJS policy generator (which reuses
-// core/shared/lib/rules.ts's wildcard/regex compiler) and writes its
-// stdout — a sourcepolicy.pb.Policy protobuf-JSON document — to outPath.
+// core/lib/acl/wildcard-rules.ts's wildcard/regex compiler) and writes its
+// stdout, a sourcepolicy.pb.Policy protobuf-JSON document, to outPath.
 // Fails closed: any error here aborts startup rather than running without a
 // policy.
 func generateSourcePolicy(outPath string) error {
@@ -57,11 +86,11 @@ func generateSourcePolicy(outPath string) error {
 
 // startBuildkitd launches the real buildkitd as a child process, teeing its
 // combined stdout/stderr to both the container's own stdout (so `docker logs`
-// works) and a log file that report.js parses for policy-denial entries.
+// works) and a log file that report-action.js parses for policy-denial entries.
 // BuildKit's source-policy engine logs denials into this stream via its own
 // structured logger.
 //
-// Allowed requests are not read from this log file: report/src/lib/vertex-log.ts
+// Allowed requests are not read from this log file: core/lib/log/vertex.ts
 // fetches those separately via `buildctl debug logs --progress=rawjson`, which
 // tags every entry with the vertex (RUN step) that produced it. Getting that
 // same data from buildkitd's own log instead would require running it with

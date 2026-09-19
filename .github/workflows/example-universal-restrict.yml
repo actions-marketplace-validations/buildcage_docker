@@ -1,0 +1,56 @@
+name: Example (universal engine, restrict mode)
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # Same build as the audit example, with the rules that run produced.
+      # universal enforces on host and port only, as far as it can see
+      # without decrypting, and all a JVM build like this one can accept.
+      - name: Start Buildcage builder
+        uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+        with:
+          proxy_mode: restrict
+          proxy_engine: universal
+          allowed_https_rules: |
+            repo.maven.apache.org:443
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: remote
+          endpoint: docker-container://buildcage
+
+      - name: Create test Dockerfile
+        run: |
+          mkdir -p /tmp/build-context
+          cat <<'EOF' > /tmp/build-context/Dockerfile
+          FROM maven:3-eclipse-temurin-21-alpine
+          WORKDIR /app
+          RUN mvn -B dependency:get -Dartifact=org.apache.commons:commons-lang3:3.17.0
+          # Not on the allowlist, so the report shows it as a blocked host.
+          RUN wget -q -O /dev/null --timeout=5 https://example.com/ || true
+          EOF
+
+      - name: Build test image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: /tmp/build-context
+          push: false
+          no-cache: true
+
+      # fail_on_blocked is false only because this example blocks on purpose;
+      # leave it at its default so a real workflow fails on a disallowed destination.
+      - name: Show proxy report
+        if: always()
+        uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+        with:
+          fail_on_blocked: false

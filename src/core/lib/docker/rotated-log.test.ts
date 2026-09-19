@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { parseLogSegments, readRotatedLog } from "./rotated-log.ts";
 import type { Docker } from "./client.ts";
 
@@ -36,7 +36,7 @@ describe("parseLogSegments", () => {
 
   // Archive names are a fixed-width 24-hex-digit TAI64N timestamp, not a
   // decimal counter, so there's no "10" sorting before "9" the way there
-  // would be for variable-width numbers -- string order already is
+  // would be for variable-width numbers: string order already is
   // chronological order, however many archives exist. n100 (see the
   // haproxy-log/coredns-log run scripts) means a build can genuinely produce
   // more than 10, so this is exercised past double digits, not just at 2.
@@ -57,6 +57,7 @@ function fakeDocker(
     findContainers: () => [],
     copyFromContainer: () => {},
     readEnv: () => ({}),
+    readLabels: () => ({}),
     exec: (_id, args) => {
       if (args[0] === "ls") return lsOutput;
       throw new Error(`unexpected exec: ${args.join(" ")}`);
@@ -106,6 +107,7 @@ describe("readRotatedLog", () => {
       findContainers: () => [],
       copyFromContainer: () => {},
       readEnv: () => ({}),
+      readLabels: () => ({}),
       exec: (_id, args) => {
         seenArgs = args;
         return "current\n";
@@ -116,5 +118,3 @@ describe("readRotatedLog", () => {
     expect(seenArgs).toStrictEqual(["ls", "-1", "/var/log/haproxy"]);
   });
 });
-
-reportResults();

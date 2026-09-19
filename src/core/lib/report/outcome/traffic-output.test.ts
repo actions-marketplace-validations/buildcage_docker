@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +27,7 @@ const EVENTS: TrafficEvent[] = [
     url: "https://a.example.com/pkg",
     status: 200,
     bytes: 708,
+    destination: "203.0.113.10",
   },
   {
     time: t + 1,
@@ -44,10 +45,27 @@ const EVENTS: TrafficEvent[] = [
     reason: "dns-not-allowed",
   },
   { time: t + 4, action: "allow", protocol: "dns", host: "a.example.com" },
+  {
+    time: t + 5,
+    action: "discovery",
+    protocol: "dns",
+    host: "_http._tcp.deb.debian.org",
+    queryType: "SRV",
+  },
 ];
 
 describe("buildTrafficRecords", () => {
   const records = buildTrafficRecords(EVENTS, t);
+
+  it("carries a discovery lookup with the record type it asked for", () => {
+    // The summary keeps these out of its tables, so the artifact is the only
+    // place a machine reader finds them.
+    const r = records[records.length - 1];
+    expect(r.action).toBe("discovery");
+    expect(r.protocol).toBe("dns");
+    expect(r.queryType).toBe("SRV");
+    expect(r.port === undefined).toBe(true);
+  });
 
   it("carries the fields that apply to a request", () => {
     const r = records[0];
@@ -60,6 +78,16 @@ describe("buildTrafficRecords", () => {
     expect(r.url).toBe("https://a.example.com/pkg");
     expect(r.status).toBe(200);
     expect(r.bytes).toBe(708);
+  });
+
+  it("carries the resolved destination when the event has one", () => {
+    const r = records.find((r) => r.host === "a.example.com" && r.protocol === "https")!;
+    expect(r.destination).toBe("203.0.113.10");
+  });
+
+  it("omits destination when the event has none", () => {
+    const blocked = records.find((r) => r.action === "block" && r.protocol === "https")!;
+    expect("destination" in blocked).toBe(false);
   });
 
   it("keeps millisecond precision, not just whole seconds", () => {
@@ -101,10 +129,10 @@ describe("buildTrafficRecords", () => {
     expect(dns.bytes === undefined).toBe(true);
   });
 
-  it("keeps names that merely resolved, unlike the summary", () => {
-    // Read by machines, where the volume costs nothing and a name resolved but
-    // never connected to is how a too-wide rule being probed shows up.
-    expect(records.filter((r) => r.protocol === "dns").length).toBe(2);
+  it("keeps a name the build connected on, which the summary folds away", () => {
+    // Read by machines, where the volume costs nothing. The summary drops a
+    // lookup the request that followed already accounts for; this keeps both.
+    expect(records.filter((r) => r.protocol === "dns").length).toBe(3);
   });
 
   it("orders by time, so the list reads as the sequence the build made", () => {
@@ -129,8 +157,6 @@ describe("writeTrafficFile", () => {
     writeTrafficFile(file, buildTrafficRecords(EVENTS, t));
     const text = readFileSync(file, "utf8");
     expect(text.includes('\n  {\n    "time"')).toBe(true);
-    expect(JSON.parse(text).length).toBe(5);
+    expect(JSON.parse(text).length).toBe(6);
   });
 });
-
-reportResults();

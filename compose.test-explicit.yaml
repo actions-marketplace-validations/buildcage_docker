@@ -2,7 +2,7 @@ services:
   # Point builder's resolver to test-dns + configure test rules.
   # Explicit-engine-specific overlay (see compose.test-universal.yaml for
   # universal mode, which is unmodified): test-dns/test-server here use fixtures the
-  # explicit engine needs and universal mode does not — a real upstream
+  # explicit engine needs and universal mode does not: a real upstream
   # resolver (buildkit-proxy points the container's own /etc/resolv.conf at
   # this server, so FROM pulls need real DNS too) and a self-signed
   # certificate the internal MITM proxy's own upstream TLS connection can
@@ -15,34 +15,48 @@ services:
         # real builds/releases.
         BUILDKIT_PROXY_BUILD_TAGS: testhooks
     environment:
+      - TEST_NET_ADDR=10.200.0.2/24
+      - TEST_NET_SUBNET=${TEST_NET_SUBNET:-10.210.0.0/24}
       - EXTERNAL_RESOLVER=10.200.0.53
-      - ALLOWED_HTTPS_RULES=allowed.example.com:443 allowed.example.com:8443 *.wildcard.example.com:443 *.wildcard.example.com:8443 registry.npmjs.org:443
+      - ALLOWED_HTTPS_RULES=allowed.example.com:443 allowed.example.com:8443 *.wildcard.example.com:443 *.wildcard.example.com:8443
       - ALLOWED_HTTP_RULES=allowed.example.com:80 allowed.example.com:8080 *.wildcard.example.com:80 *.wildcard.example.com:8080
       - BUILDKIT_PROXY_EXTRA_CA_FILE=/test-fixtures/test-server-cert.pem
     volumes:
       - ./test/test-server-explicit/cert.pem:/test-fixtures/test-server-cert.pem:ro
+      - ./test/test-net-addr/attach.sh:/test-hooks/attach-test-net-addr.sh:ro
+    # Wrapped here rather than in the image: the builder is the product image
+    # and carries no test-only setup.
+    entrypoint: ["/test-hooks/attach-test-net-addr.sh", "/opt/buildcage/bin/buildkit-proxy"]
     networks:
       default:
       test-net:
 
   # Test HTTP server (with a static self-signed certificate covering the
-  # fake test domains — see test/test-server-explicit/cert.pem).
+  # fake test domains; see test/test-server-explicit/cert.pem).
   test-server:
     build: test/test-server-explicit
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.100/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.100
 
   # DNS used by builder (resolves the fake test domains to test-server,
   # forwards everything else to a real upstream resolver).
   test-dns:
     build: test/test-dns-explicit
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.53/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.53
 
 networks:
+  # Pinned rather than auto-assigned: Docker's pool includes 172.20.0.0/16,
+  # which collides with the builder's CNI bridge inside its netns.
   test-net:
     ipam:
       config:
-        - subnet: 10.200.0.0/24
+        - subnet: ${TEST_NET_SUBNET:-10.210.0.0/24}

@@ -14,7 +14,7 @@ inputs:
     required: false
     default: "restrict"
   proxy_engine:
-    description: "Network enforcement engine: universal (network-level proxy, default, needs no CA trust; 'transparent' is accepted as an alias), inspect (terminates TLS to enforce on method and URL; see docs/inspect-engine.md) or explicit (BuildKit's native --proxy-network; deprecated, see docs/explicit-engine.md)"
+    description: "Network enforcement engine: inspect (terminates TLS to enforce on method and URL), universal (network-level proxy, default, needs no CA trust; 'transparent' is accepted as an alias) or explicit (BuildKit's native --proxy-network; deprecated, see docs/explicit-engine.md)"
     required: false
     default: "universal"
   allowed_https_rules:
@@ -33,12 +33,12 @@ inputs:
     description: "URL allow rules, one per line, as '<methods> <url>'. Methods are separated by | or , and * means any. Requires proxy_engine: inspect. e.g., 'GET|HEAD https://registry.npmjs.org/**'"
     required: false
     default: ""
-  allow_tls_rules:
+  allowed_tls_rules:
     description: "TLS destinations passed through undecrypted, judged on SNI alone, separated by whitespace. Port required. Requires proxy_engine: inspect. e.g., 'db.example.com:5432'"
     required: false
     default: ""
   known_blocked_rules:
-    description: "Domains expected to be blocked intentionally (wildcard or ~regex), separated by whitespace. Port required. Blocked connections matching these rules don't fail the report step even when fail_on_blocked is true — only unmatched (unexpected) blocked connections do. e.g., 'known-noisy.example.com:443'"
+    description: "Domains expected to be blocked intentionally (wildcard or ~regex), separated by whitespace. A rule that names no port matches any port, a refused name having none. Blocked connections matching these rules don't fail the report step even when fail_on_blocked is true; only unmatched (unexpected) blocked connections do. e.g., 'known-noisy.example.com:443'"
     required: false
     default: ""
 

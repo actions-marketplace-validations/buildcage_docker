@@ -1,10 +1,14 @@
 #!/bin/sh
 set -e
 
+# Assigned here rather than by Compose IPAM, so 10.200.0.0/24 stays out of the
+# daemon's address space and several worktrees can run the suite at once.
+ip addr add "$TEST_NET_ADDR" dev eth0
+
 # cert.pem/key.pem are static fixtures (see cert.pem's header comment to
 # regenerate). A static, known cert lets the explicit-engine builder
 # container (via BUILDKIT_PROXY_EXTRA_CA_FILE, compose.test-explicit.yaml
-# only) trust the exact same file as an extra CA — BuildKit's internal MITM
+# only) trust the exact same file as an extra CA: BuildKit's internal MITM
 # proxy makes its own upstream TLS connection to this server and validates
 # its certificate normally (unlike universal-mode tests, which use
 # test/test-server/ instead: HAProxy never terminates TLS, so clients there

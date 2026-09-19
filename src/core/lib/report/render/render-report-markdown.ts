@@ -1,4 +1,5 @@
 import { renderHostTable } from "./host-table.ts";
+import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import { buildRestrictExample } from "./build-example.ts";
 import { renderCommunicationDetails } from "./communication-details.ts";
 import { renderInspectDetails } from "./inspect-details.ts";
@@ -10,16 +11,18 @@ export interface RenderReportMarkdownOptions {
    *  Defaults to a bare "Outbound Traffic Report", which is what both
    *  engines' report scripts use. */
   title?: string;
+  /** Version to annotate the restrict-mode example's `uses:` line with. */
+  actionVersion?: string;
 }
 
 /** Branches on `report.engine`/`report.parameters.mode` rather than being
  *  duplicated per engine. actionRepo/actionRef are real values, not
- *  placeholders — this runs on the runner, with process.env available. */
+ *  placeholders: this runs on the runner, with process.env available. */
 export function renderReportMarkdown(
   report: ReportData,
   actionRepo: string,
   actionRef: string,
-  { title = "Outbound Traffic Report" }: RenderReportMarkdownOptions = {},
+  { title = "Outbound Traffic Report", actionVersion }: RenderReportMarkdownOptions = {},
 ): string {
   const isAudit = report.parameters.mode === "audit";
   const showExpected = report.parameters.knownBlockedRules.length > 0;
@@ -30,6 +33,15 @@ export function renderReportMarkdown(
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
   let markdown = `## ${title}${isAudit ? " (audit mode)" : ""}\n\n`;
 
+  // The tables would otherwise read as the whole story.
+  if (!report.logLooksPlausible) {
+    markdown +=
+      "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n" +
+      "> Either the logs don't begin where a real run does, or one carries a line that cannot be\n" +
+      "> read. A missing beginning was either removed or rotated out by traffic heavy enough to\n" +
+      "> fill the 100 MB of log kept, which takes a few hundred thousand requests.\n\n";
+  }
+
   if (report.passed.length > 0) {
     markdown += `### ${heading}\n\n` + renderHostTable(report.passed) + "\n";
   }
@@ -38,19 +50,27 @@ export function renderReportMarkdown(
     // be that much narrower than one built from hosts alone.
     markdown +=
       report.engine === "inspect"
-        ? buildInspectRestrictExample(report.timeline, actionRepo, actionRef)
-        : buildRestrictExample(report.passed, actionRepo, actionRef);
+        ? buildInspectRestrictExample(report.timeline, actionRepo, actionRef, {
+            actionVersion,
+            allowedIpRules: report.parameters.allowedIpRules,
+            allowedTlsRules: report.parameters.allowedTlsRules,
+          })
+        : buildRestrictExample(report.passed, actionRepo, actionRef, actionVersion);
   }
   if (report.blocked.length > 0) {
     if (report.passed.length > 0) markdown += "\n";
+    // A folded row names its rule rather than its hosts, so it needs the
+    // Communication details universal has no section for.
+    const blocked =
+      report.engine === "universal" ? report.blocked : foldExpectedBlockedRows(report.blocked);
     markdown +=
       "### 🚫 Blocked Hosts\n\n" +
-      renderHostTable(report.blocked, { showReason: true, showExpected }) +
+      renderHostTable(blocked, { showReason: true, showExpected }) +
       "\n";
   }
   if (report.passed.length === 0 && report.blocked.length === 0) {
     // Otherwise a no-traffic build leaves nothing between the heading and the
-    // footer — indistinguishable from a report that failed to generate.
+    // footer, indistinguishable from a report that failed to generate.
     markdown += "_(no communication)_\n\n";
   }
 
@@ -59,7 +79,7 @@ export function renderReportMarkdown(
   } else if (report.engine === "inspect") {
     markdown += renderInspectDetails(report.timeline, report.startedAt);
   } else {
-    // SNI-based sniffing only applies to the universal engine — the
+    // SNI-based sniffing only applies to the universal engine: the
     // explicit engine terminates TLS itself, so this caveat doesn't apply
     // there (renderCommunicationDetails above covers explicit instead).
     markdown +=

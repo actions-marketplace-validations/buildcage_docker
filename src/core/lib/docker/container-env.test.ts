@@ -1,5 +1,5 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
-import { parseDockerInspectEnv } from "./container-env.ts";
+import { describe, it, expect } from "vitest";
+import { parseDockerInspectEnv, parseDockerInspectLabels } from "./container-env.ts";
 
 describe("parseDockerInspectEnv", () => {
   it("parses a JSON array of KEY=VALUE strings into a map", () => {
@@ -28,4 +28,18 @@ describe("parseDockerInspectEnv", () => {
   });
 });
 
-reportResults();
+describe("parseDockerInspectLabels", () => {
+  it("parses a JSON object into a map", () => {
+    expect(
+      parseDockerInspectLabels('{"org.opencontainers.image.version":"3.1.4","foo":"bar"}'),
+    ).toStrictEqual({ "org.opencontainers.image.version": "3.1.4", foo: "bar" });
+  });
+
+  it("returns an empty object for the literal 'null' (a container with no labels)", () => {
+    expect(parseDockerInspectLabels("null")).toStrictEqual({});
+  });
+
+  it("returns an empty object for '{}'", () => {
+    expect(parseDockerInspectLabels("{}")).toStrictEqual({});
+  });
+});

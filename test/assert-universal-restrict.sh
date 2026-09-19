@@ -2,6 +2,8 @@
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 
+LOGS=$(builder_log haproxy)
+
 echo ""
 echo "=== Restrict Mode Assertions ==="
 echo ""
@@ -13,6 +15,11 @@ assert_log_contains ALLOWED "sub.wildcard.example.com:80" "-"
 assert_log_contains ALLOWED "allowed.example.com:80" "-"
 assert_log_contains ALLOWED "allowed.example.com:8443" "-"
 assert_log_contains ALLOWED "allowed.example.com:8080" "-"
+assert_log_contains ALLOWED "ALLOWED.example.com:443" "-"
+assert_log_contains ALLOWED "ALLOWED.example.com:80" "-"
+assert_log_contains ALLOWED "ok.regex.example.com:443" "-"
+assert_log_contains ALLOWED "ports.regex.example.com:443" "-"
+assert_log_contains ALLOWED "ports.regex.example.com:8443" "-"
 echo ""
 
 echo "[BLOCKED] expected:"
@@ -21,16 +28,62 @@ assert_log_contains BLOCKED "blocked.example.com:80" "not-allowed"
 assert_log_contains BLOCKED "blocked.example.com:8443" "not-allowed"
 assert_log_contains BLOCKED "blocked.example.com:8080" "not-allowed"
 assert_log_contains BLOCKED "deep.sub.wildcard.example.com:443" "not-allowed"
+assert_log_contains BLOCKED "not-ok.regex.example.com:443" "not-allowed"
+assert_log_contains BLOCKED "ports.regex.example.com:80" "not-allowed"
 assert_log_contains BLOCKED "10.200.0.100:80" "ip-not-allowed"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:443" "dns-failed"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:80" "dns-failed"
+assert_log_contains BLOCKED "v6only.wildcard.example.com:443" "dns-failed"
+assert_log_contains BLOCKED "v6only.wildcard.example.com:80" "dns-failed"
 assert_log_contains BLOCKED "172.20.0.1:443" "missing-sni"
 assert_log_contains BLOCKED "172.20.0.1:80" "missing-host-header"
+assert_log_contains BLOCKED "internal.wildcard.example.com:443" "internal-address"
+assert_log_contains BLOCKED "internal.wildcard.example.com:80" "internal-address"
+assert_log_contains BLOCKED "runner.wildcard.example.com:443" "internal-address"
+assert_log_contains BLOCKED "runner.wildcard.example.com:80" "internal-address"
+echo ""
+
+echo "[BLOCKED] forged SNI, sanitized to a single log line:"
+assert_log_contains BLOCKED "x__-__T__buildcage__ALLOWED___HTTPS___forged.example.com:443" "not-allowed"
+echo ""
+
+echo "[keep-alive] txn.decision/txn.reason must not leak across requests on one connection:"
+assert_log_not_matching ALLOWED "blocked.example.com:80"
+assert_log_not_matching ALLOWED "allowed.example.com:80" "not-allowed"
 echo ""
 
 echo "[AUDIT] must not exist:"
 assert_log_not_contains AUDIT
 echo ""
 
-assert_results
+echo "[log integrity] no forged/malformed lines from the injection attempt:"
+assert_no_forged_log_lines
 echo ""
+
+# report-action.js renders the full stepSummary itself; report/src/main.ts just
+# relays it. GITHUB_STEP_SUMMARY is unset so it prints to stdout instead.
+REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
+
+echo "[report] Allowed Hosts:"
+if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| allowed.example.com:80 | HTTP |" <<< "$REPORT_MARKDOWN"; then
+  pass "the table lists the hosts that were reached, each on its own port"
+else
+  fail "the Allowed Hosts table is missing expected rows"
+fi
+echo ""
+
+echo "[report] Blocked Hosts, one row per reason the proxy refused for:"
+if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| 10.200.0.100:80 | IP | ip-not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| nxdomain.wildcard.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| internal.wildcard.example.com:443 | HTTPS | internal-address |" <<< "$REPORT_MARKDOWN"; then
+  pass "a name no rule covers, an address, an unresolvable name and an internal one each keep their reason"
+else
+  fail "the Blocked Hosts table is missing expected rows"
+fi
+echo ""
+
+assert_results

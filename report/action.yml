@@ -13,7 +13,7 @@ inputs:
   upload_traffic_artifact:
     description: >-
       Upload the observed traffic as a JSON artifact named buildcage-traffic, fetchable afterwards by
-      whoever turns out to want it — a later job in the same run via actions/download-artifact, or
+      whoever turns out to want it: a later job in the same run via actions/download-artifact, or
       anyone else via the API, subject to the retention period below. Requires proxy_engine: inspect.
     required: false
     default: "false"

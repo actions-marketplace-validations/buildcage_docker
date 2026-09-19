@@ -23,11 +23,8 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
       packages: write
-      attestations: write
-      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -41,12 +38,12 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       # Matrix legs sharing one output name would clobber each other (last
-      # completed leg wins) — each leg instead writes to a step-output key
+      # completed leg wins), so each leg instead writes to a step-output key
       # suffixed with its own matrix.engine value, so both never collide
       # and both survive into this job's own (statically-declared) outputs.
-      bundle-content-universal: ${{ steps.bundle.outputs['content-universal'] }}
-      bundle-content-explicit: ${{ steps.bundle.outputs['content-explicit'] }}
-      bundle-content-inspect: ${{ steps.bundle.outputs['content-inspect'] }}
+      digest-universal: ${{ steps.digest.outputs['universal'] }}
+      digest-explicit: ${{ steps.digest.outputs['explicit'] }}
+      digest-inspect: ${{ steps.digest.outputs['inspect'] }}
 
     steps:
       - name: Checkout
@@ -66,7 +63,7 @@ jobs:
             if [ -n "$INPUT_TAG" ]; then
               TAG="$INPUT_TAG"
             else
-              TAG=$(git tag --sort=-version:refname --list 'v*.*' | head -1)
+              TAG=$(git tag --sort=-version:refname --list 'v*.*' | grep -vE '^v[0-9]+\.[0-9]+\.[0-9]+-' | head -1)
               if [ -z "$TAG" ]; then
                 echo "::error::No version tag found"
                 exit 1
@@ -83,7 +80,7 @@ jobs:
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Extract metadata
         id: meta
@@ -121,12 +118,193 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Record the digest under this engine's own key
+        id: digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ENGINE: ${{ matrix.engine }}
+        run: echo "${ENGINE}=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  # Gates signing on the pushed image actually building. A release build resolves
+  # its packages and base image again, so a green PR says nothing about what this
+  # tag carries; signing only what has built keeps a broken image unusable, since
+  # the setup action refuses an unsigned one.
+  #
+  # Real hosts, not the fixtures: trusting their self-signed certificate takes a
+  # BUILDCAGE_TEST_HOOKS or BUILDKIT_PROXY_BUILD_TAGS build, which a released
+  # image deliberately is not. explicit, deprecated, is covered by neither and so
+  # goes unexercised, though signing it still waits on the engines that are.
+  verify-image:
+    needs: build-and-push
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Natively on both: QEMU would put buildkitd, the s6 tree and iptables
+        # through a layer the released image never runs under.
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        engine: [universal, inspect]
+    runs-on: ${{ matrix.runner }}
+    name: "verify (${{ matrix.engine }}, ${{ matrix.runner }})"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # workflow_dispatch can name a tag other than this run's own ref.
+          ref: ${{ needs.build-and-push.outputs.tag }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-vp
+
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve this engine's image ref
+        id: image
+        env:
+          OUTPUTS: ${{ toJSON(needs.build-and-push.outputs) }}
+          ENGINE: ${{ matrix.engine }}
+          REPO: ${{ github.repository }}
+        run: |
+          DIGEST=$(jq -er --arg e "$ENGINE" '.["digest-" + $e]' <<< "$OUTPUTS")
+          echo "ref=ghcr.io/${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      # The override starts the builder with --pull never, so the image has to
+      # be here first.
+      - name: Pull the image that was just pushed
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: docker pull "$IMAGE_REF"
+
+      # The image is not signed yet, so the action's provenance path cannot
+      # resolve it and this hook is the only way to name a ref. Never committed.
+      - name: Rebuild setup action with the local-image test hook enabled
+        env:
+          BUILDCAGE_BUILD_TEST_HOOKS: "1"
+        run: vp run build
+
+      - name: Start Buildcage builder via the real setup action
+        uses: ./
+        env:
+          BUILDCAGE_LOCAL_IMAGE_REF: ${{ steps.image.outputs.ref }}
+        with:
+          proxy_mode: restrict
+          proxy_engine: ${{ matrix.engine }}
+          # Each engine gets the rule kind it actually enforces on.
+          allowed_https_rules: ${{ matrix.engine == 'universal' && 'example.com:443' || '' }}
+          allowed_url_rules: ${{ matrix.engine == 'inspect' && 'GET|HEAD https://example.com/**' || '' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: remote
+          # Matches action.yml's default builder_name; update together.
+          endpoint: docker-container://buildcage
+
+      # alpine for busybox wget alone: buildkitd fetches FROM off the isolated
+      # network, so the base image needs no rule of its own.
+      - name: Create test Dockerfile
+        run: |
+          mkdir -p /tmp/build-context
+          cat <<'EOF' > /tmp/build-context/Dockerfile
+          FROM alpine:3
+          # Retried because a release should not go unsigned over one bad
+          # minute at the origin. No --no-check-certificate: under inspect the
+          # proxy terminates TLS, so this also proves buildcage-runc gave the
+          # step its CA.
+          RUN for attempt in 1 2 3; do \
+                wget -q -T 15 -O /dev/null https://example.com/ && break; \
+                [ "$attempt" = 3 ] && exit 1; \
+                sleep 5; \
+              done
+          RUN if wget -q -T 15 -O /dev/null https://neverssl.com/; then \
+                echo "FAILED: neverssl.com should have been refused" && exit 1; \
+              fi
+          EOF
+
+      - name: Build test image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: /tmp/build-context
+          push: false
+          no-cache: true
+
+      # The build only sees that the second request failed, which an outage
+      # would produce too. fail_on_blocked stays at its default so that the
+      # report finding the refusal is what the next step asserts on, and
+      # producing it exercises the image's own report-action.js.
+      - name: Show proxy report
+        id: report
+        if: always()
+        continue-on-error: true
+        uses: ./report
+
+      - name: The report must have recorded the refusal
+        env:
+          REPORT_OUTCOME: ${{ steps.report.outcome }}
+        run: |
+          if [ "$REPORT_OUTCOME" != "failure" ]; then
+            echo "::error::no blocked connection reached the report"
+            exit 1
+          fi
+
+      # No cleanup step: ephemeral runner, and setup's post-hook already
+      # stops the container.
+
+  sign-and-attest:
+    needs: [build-and-push, verify-image]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [universal, explicit, inspect]
+    name: "sign (${{ matrix.engine }})"
+    outputs:
+      # Same reason as build-and-push's own per-engine output keys above.
+      bundle-content-universal: ${{ steps.bundle.outputs['content-universal'] }}
+      bundle-content-explicit: ${{ steps.bundle.outputs['content-explicit'] }}
+      bundle-content-inspect: ${{ steps.bundle.outputs['content-inspect'] }}
+
+    steps:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve this engine's digest
+        id: digest
+        env:
+          OUTPUTS: ${{ toJSON(needs.build-and-push.outputs) }}
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          DIGEST=$(jq -er --arg e "$ENGINE" '.["digest-" + $e]' <<< "$OUTPUTS")
+          echo "value=$DIGEST" >> "$GITHUB_OUTPUT"
+
       - name: Sign Docker image
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.digest.outputs.value }}
           REPO: ${{ github.repository }}
         run: |
           cosign sign --yes --new-bundle-format ghcr.io/${REPO}@${DIGEST}
@@ -136,7 +314,7 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.digest.outputs.value }}
           push-to-registry: true
 
       - name: Read bundle content
@@ -150,7 +328,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
   upload-release-assets:
-    needs: build-and-push
+    needs: [build-and-push, sign-and-attest]
     runs-on: ubuntu-slim
     permissions:
       contents: write
@@ -177,9 +355,9 @@ jobs:
         if: steps.check.outputs.upload == 'true'
         env:
           TAG: ${{ needs.build-and-push.outputs.tag }}
-          BUNDLE_UNIVERSAL: ${{ needs.build-and-push.outputs['bundle-content-universal'] }}
-          BUNDLE_EXPLICIT: ${{ needs.build-and-push.outputs['bundle-content-explicit'] }}
-          BUNDLE_INSPECT: ${{ needs.build-and-push.outputs['bundle-content-inspect'] }}
+          BUNDLE_UNIVERSAL: ${{ needs.sign-and-attest.outputs['bundle-content-universal'] }}
+          BUNDLE_EXPLICIT: ${{ needs.sign-and-attest.outputs['bundle-content-explicit'] }}
+          BUNDLE_INSPECT: ${{ needs.sign-and-attest.outputs['bundle-content-inspect'] }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$BUNDLE_UNIVERSAL" > buildcage-container.sigstore.json

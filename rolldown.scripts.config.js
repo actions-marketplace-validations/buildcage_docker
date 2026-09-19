@@ -8,10 +8,13 @@ const productionInputs = globSync(["**/scripts/*.ts"], {
 });
 
 // src/core/lib/acl/*.test.ts is dual-consumed (also runs under vitest);
-// *.property.test.ts siblings are vitest/fast-check only, not qjs-compatible.
+// *.property.test.ts (fast-check) and *.golden.test.ts (reads its fixture off
+// disk) siblings are vitest-only, not qjs-compatible.
 const qjsTestInputs = [
   "src/core/scripts/test/run-tests.qjs.ts",
-  ...globSync(["src/core/lib/acl/*.test.ts"], { exclude: ["**/*.property.test.ts"] }),
+  ...globSync(["src/core/lib/acl/*.test.ts"], {
+    exclude: ["**/*.property.test.ts", "**/*.golden.test.ts"],
+  }),
 ];
 
 function settingsFor(input) {
@@ -40,10 +43,11 @@ const baseOutput = {
   // report-action's plain .js is still ESM: node auto-detects import/export syntax (Node 22.7+).
   format: "esm",
   codeSplitting: false,
+  comments: false,
   minify: {
     compress: true,
     mangle: false,
-    codegen: { removeWhitespace: false, legalComments: "none" },
+    codegen: { removeWhitespace: false },
   },
 };
 
@@ -61,7 +65,7 @@ export default defineConfig(
         input,
         // "vitest" is only ever reached by test-shim.ts's Node branch (dead at
         // qjs runtime), but its dynamic import()'s specifier is a compile-time
-        // constant, so rolldown resolves and inlines it unless excluded here —
+        // constant, so rolldown resolves and inlines it unless excluded here,
         // dragging in vitest's own devDependencies (e.g. expect-type), which
         // aren't installed for/resolvable under qjs's "neutral" platform.
         external: ["qjs:std", "qjs:os", "vitest"],

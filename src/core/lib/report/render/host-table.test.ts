@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { renderHostTable } from "./host-table.ts";
 
 describe("renderHostTable", () => {
@@ -50,6 +50,41 @@ describe("renderHostTable", () => {
   });
 });
 
+describe("a host carrying markdown syntax", () => {
+  it("stays one cell, so a forged Host header cannot write the rest of the row", () => {
+    const md = renderHostTable(
+      [
+        {
+          host: "evil.example|HTTPS|-|1|x|",
+          port: "443",
+          ruleType: "HTTPS",
+          reason: "-",
+          count: 1,
+        },
+      ],
+      { showReason: true },
+    );
+    const row = md.split("\n")[2];
+    expect(row).toBe("| evil.example\\|HTTPS\\|-\\|1\\|x\\|:443 | HTTPS | - | 1 |");
+  });
+});
+
+describe("a row carrying its own Host text", () => {
+  it("shows that text instead of host:port, for a row standing for several", () => {
+    const md = renderHostTable([
+      {
+        host: "*.sury.org:*",
+        port: "-",
+        ruleType: "DNS",
+        reason: "dns-not-allowed",
+        count: 12,
+        display: "*.sury.org:* (12 hosts)",
+      },
+    ]);
+    expect(md.includes("| \\*.sury.org:\\* (12 hosts) | DNS | 12 |")).toBe(true);
+  });
+});
+
 describe("a row with no port", () => {
   it("shows the name alone, since a refused name was never connected to", () => {
     const md = renderHostTable([
@@ -59,5 +94,3 @@ describe("a row with no port", () => {
     expect(md.includes("attacker.example:-")).toBe(false);
   });
 });
-
-reportResults();

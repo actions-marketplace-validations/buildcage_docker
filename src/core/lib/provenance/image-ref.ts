@@ -1,6 +1,6 @@
 /**
  * Resolve the buildcage Docker image reference (image@digest). The
- * repository is always derived from the action repository — external image
+ * repository is always derived from the action repository: external image
  * overrides are intentionally not supported to preserve Sigstore verification
  * integrity.
  *

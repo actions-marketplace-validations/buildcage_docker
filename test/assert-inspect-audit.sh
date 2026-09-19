@@ -1,50 +1,33 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
-FAILURES=0
-PROXY_LOG=$(docker compose exec builder cat /var/log/haproxy/current 2>/dev/null)
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
-
-esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
-
-assert_logged() {
-  local method="$1" url="$2"
-  if grep -qE "^buildcage [0-9]+ https? ${method} $(esc "$url") 200 " <<< "$PROXY_LOG"; then
-    pass "$method $url"
-  else
-    fail "$method $url -- no 200 recorded"
-  fi
-}
+LOGS=$(builder_log haproxy)
 
 echo ""
 echo "=== Inspect Proxy Engine Assertions (audit) ==="
 echo ""
 
 echo "[audit records everything, with no rules configured]:"
-assert_logged GET "https://allowed.example.com/public/pkg.tgz"
-assert_logged POST "https://api.example.com/v1/thing"
-assert_logged GET "https://allowed.example.com:9443/private/secret"
-assert_logged GET "http://allowed.example.com:9080/public/pkg.tgz"
-assert_logged GET "https://blocked.example.com/exfil?token=SECRET-VALUE"
+assert_logged GET "https://allowed.example.com/public/pkg.tgz" 200
+assert_logged POST "https://api.example.com/v1/thing" 200
+assert_logged GET "https://allowed.example.com:9443/private/secret" 200
+assert_logged GET "http://allowed.example.com:9080/public/pkg.tgz" 200
+assert_logged GET "https://blocked.example.com/exfil?token=SECRET-VALUE" 200
 echo ""
 
 echo "[audit enforces nothing]:"
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ \\S+ (403|502) " <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ (403|502) " <<< "$LOGS"; then
   fail "something was refused in audit mode"
-  grep -E "(403|502) " <<< "$PROXY_LOG" || true
+  grep -E "(403|502) " <<< "$LOGS" || true
 else
   pass "no request was refused"
 fi
 echo ""
 
 echo "[undeclared ports] classified by content, with no port declared as either:"
-if grep -qE "dst=10\.200\.0\.100:9443$" <<< "$PROXY_LOG" \
-  && grep -qE "dst=10\.200\.0\.100:9080$" <<< "$PROXY_LOG"; then
+if grep -qE "dst=10\.200\.0\.100:9443 " <<< "$LOGS" \
+  && grep -qE "dst=10\.200\.0\.100:9080 " <<< "$LOGS"; then
   pass "TLS on 9443 and plaintext on 9080 both reached the origin on their own port"
 else
   fail "an undeclared port did not survive to the origin connection"
@@ -84,7 +67,17 @@ else
   fail "no restrict-mode URL rule example was rendered"
 fi
 
-RULES=$(sed -n '/allowed_url_rules: |/,/```/p' <<< "$REPORT_MARKDOWN" | sed '1d;$d' | sed 's/^ *//')
+RULES=$(
+  awk '
+    # Stops at the next top-level key (allowed_tls_rules/allowed_ip_rules are
+    # now echoed into the same fenced block, see inspect-example.ts) as well
+    # as the closing fence, so only the allowed_url_rules value is captured.
+    /allowed_url_rules: \|/ { capture=1; next }
+    capture && /^ *(allowed_tls_rules|allowed_ip_rules): \|/ { exit }
+    capture && /```/ { exit }
+    capture { print }
+  ' <<< "$REPORT_MARKDOWN" | sed 's/^ *//'
+)
 echo "  ---- generated rules ----"
 sed 's/^/  /' <<< "$RULES"
 
@@ -122,7 +115,7 @@ echo ""
 
 echo "[report] the traffic artifact:"
 # writeTrafficFile only runs when BUILDCAGE_TRAFFIC_FILE is set, which
-# report/src/main.ts normally does itself from upload_traffic_artifact -- set
+# report/src/main.ts normally does itself from upload_traffic_artifact; set
 # it directly here to reach the same path without a real GitHub Actions
 # runtime to upload through.
 BUILDER_CID=$(docker compose ps -q builder)
@@ -136,11 +129,12 @@ if [ -n "$TRAFFIC" ] \
   && echo "$TRAFFIC" | node -e '
       const rows = JSON.parse(require("fs").readFileSync(0, "utf8"));
       const requests = rows.filter((r) => r.protocol === "https" || r.protocol === "http");
-      // audit makes no allow decision, so saying "allow" would claim one.
+      // audit makes no allow decision, so saying "allow" would claim one. A
+      // discovery lookup is decided by no rule at all, in either mode.
       const ok = requests.some((r) => r.method === "POST")
         && requests.some((r) => (r.url || "").includes(":9080/"))
         && requests.every((r) => r.status === 200)
-        && rows.every((r) => r.action === "audit");
+        && rows.every((r) => r.action === "audit" || r.action === "discovery");
       process.exit(ok ? 0 : 1);
     '; then
   pass "valid JSON, every record audited, covering each method and port observed"
@@ -152,9 +146,4 @@ fi
 rm -rf "$SCRATCH_DIR"
 echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

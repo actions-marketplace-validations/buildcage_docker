@@ -1,23 +1,19 @@
 /**
- * verify-image.ts — Image provenance verification helpers
- *
  * Verifies the Docker image's Sigstore provenance bundle.
  *
- * Fail-closed policy:
- *   - Any failure for a verifiable ref (version tag / 40-char SHA) → throws
- *     VerifyImageError; the caller (main) is responsible for printing ::error::.
- *   - Unverifiable ref (branch / local ./setup) → returns null.
+ * Fail-closed:
+ *   - any failure for a verifiable ref (version tag, 40-char SHA) throws
+ *     VerifyImageError, and the caller is responsible for printing ::error::
+ *   - an unverifiable ref (branch, local ./setup) returns null
  */
 
-import {
-  fetchManifestDigest,
-  fetchRegistryToken,
-  fetchBundle,
-  readGhcrBasicAuth,
-} from "./oci-registry.ts";
+import { fetchManifestDigest, fetchRegistryToken, fetchImageConfigLabels } from "./oci-registry.ts";
+import { fetchBundle } from "./oci-bundle.ts";
+import { readGhcrBasicAuth } from "./docker-credentials.ts";
 import { verifyBundle } from "./sigstore.ts";
 import type { DsseBundle } from "./signed-digest.ts";
 import { imageTagFromRef } from "./image-tag.ts";
+import { checkImageEngine } from "./engine-label.ts";
 import { buildVerifyOptions, type VerifyImageIdentity } from "./verify-policy.ts";
 import { ProvenanceError, VerifyImageError } from "./errors.ts";
 import { errorMessage } from "../errors.ts";
@@ -38,10 +34,13 @@ export interface ResolvedImage {
  * Verify image provenance and return the verified manifest digest.
  *
  * Returns null for unverifiable refs (branch / local ./setup).
- * On failure, throws VerifyImageError — the caller is responsible for printing
+ * On failure, throws VerifyImageError; the caller is responsible for printing
  * the error message.
  *
+ * Untested by design: every step it calls is tested directly. The order they
+ * run in is not, so the reason for it is kept inline below.
  */
+/* v8 ignore start */
 export async function verifyImageDigest({
   actionRef,
   actionRepo,
@@ -56,9 +55,14 @@ export async function verifyImageDigest({
   const regToken = await fetchRegistryToken(REGISTRY, repoPath, readGhcrBasicAuth());
   const digest = await fetchManifestDigest(REGISTRY, repoPath, tag, regToken);
   const bundle = await fetchBundle(REGISTRY, repoPath, digest, regToken);
+  // Read before verifyBundle, whose TUF refresh can outlast the registry token.
+  const labels = await fetchImageConfigLabels(REGISTRY, repoPath, digest, regToken);
   await verifyBundle(bundle as DsseBundle, verifyOptions, digest);
+  // The bundle covers the digest, not the tag it was reached through.
+  checkImageEngine({ labels, proxyEngine, imageTag: tag });
   return digest;
 }
+/* v8 ignore stop */
 
 /** Maps a VerifyImageError (or any other thrown value) to the caller-facing ProvenanceError. */
 export function toProvenanceError(e: unknown): ProvenanceError {
@@ -69,9 +73,8 @@ export function toProvenanceError(e: unknown): ProvenanceError {
 }
 
 /**
- * verifyImageDigest returns null for an unverifiable ref (branch name,
- * local ./setup) rather than throwing — this turns that into the
- * caller-facing error.
+ * verifyImageDigest returns null for an unverifiable ref (branch name, local
+ * ./setup) rather than throwing. This turns that into the caller-facing error.
  */
 export function requireDigest(digest: string | null, actionRef: string): string {
   if (digest === null) {
@@ -88,7 +91,10 @@ export function requireDigest(digest: string | null, actionRef: string): string 
  * Like verifyImageDigest, but throws ProvenanceError (see errors.ts) instead
  * of the low-level VerifyImageError, so a caller gets one already-typed
  * error to catch rather than having to translate the result itself.
+ *
+ * Untested by design: toProvenanceError and requireDigest are tested directly.
  */
+/* v8 ignore start */
 export async function verifyImageDigestOrThrow({
   actionRef,
   actionRepo,
@@ -102,3 +108,4 @@ export async function verifyImageDigestOrThrow({
   }
   return requireDigest(digest, actionRef);
 }
+/* v8 ignore stop */

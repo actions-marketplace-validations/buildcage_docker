@@ -2,7 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { buildDockerCpArgs } from "./args.ts";
-import { parseDockerInspectEnv } from "./container-env.ts";
+import { parseDockerInspectEnv, parseDockerInspectLabels } from "./container-env.ts";
 
 /** `docker ps --format '{{.ID}}'` prints one ID per line, possibly with
  *  trailing blank lines. */
@@ -13,11 +13,20 @@ export function parseContainerIds(psOutput: string): string[] {
     .filter(Boolean);
 }
 
-export type RunCommand = (args: string[]) => string;
+/**
+ * `docker <args>` with stdout captured: the seam every module that reads a
+ * docker command's output injects. `env` is for the calls that compose one;
+ * a default that has nothing to compose leaves the process environment alone.
+ */
+export type RunDocker = (args: string[], env?: NodeJS.ProcessEnv) => string;
 export type SpawnCommand = (args: string[]) => ChildProcess;
 
-// 64MB, up from Node's 1MB default — `buildctl debug logs --progress=rawjson`
+// 64MB, up from Node's 1MB default: `buildctl debug logs --progress=rawjson`
 // output for a verbose build can exceed the default easily.
+//
+// Untested by design: the defaults behind createDocker's seams, which only
+// hand node:child_process what the tested caller decided.
+/* v8 ignore start */
 function defaultRunCommand(args: string[]): string {
   return execFileSync("docker", args, {
     encoding: "utf8",
@@ -29,10 +38,11 @@ function defaultRunCommand(args: string[]): string {
 function defaultSpawnCommand(args: string[]): ChildProcess {
   return spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
 }
+/* v8 ignore stop */
 
 /**
  * Drives a `docker <args>` child process and yields its stdout line by
- * line, never buffering more than the current line. Lazy — nothing spawns
+ * line, never buffering more than the current line. Lazy: nothing spawns
  * until the caller starts iterating.
  *
  * Throws `{status, stderr}` on a non-zero exit and Node's own
@@ -47,7 +57,7 @@ async function* streamDockerLines(
 ): AsyncGenerator<string, void, void> {
   const child = spawnDocker(args);
 
-  // Must be attached before any `await` — an EventEmitter with no 'error'
+  // Must be attached before any `await`: an EventEmitter with no 'error'
   // listener throws synchronously the instant one fires.
   let spawnError: NodeJS.ErrnoException | undefined;
   child.on("error", (err) => {
@@ -73,8 +83,9 @@ async function* streamDockerLines(
   const rl = createInterface({ input: child.stdout!, crlfDelay: Infinity });
 
   // True only if stdout was drained to EOF on its own, not if the consumer
-  // broke out early — that distinction decides whether reaching the end is
-  // a failure or a deliberate stop.
+  // broke out early: only then is the child worth killing. A consumer that
+  // stops early leaves the generator inside the finally, so nothing below it
+  // runs for that case.
   let exhausted = false;
   try {
     for await (const line of rl) {
@@ -87,8 +98,6 @@ async function* streamDockerLines(
       child.kill();
     }
   }
-
-  if (!exhausted) return;
 
   const { code, signal } = await closed;
   if (spawnError) throw spawnError;
@@ -107,12 +116,14 @@ export interface Docker {
   findContainers(filters: string[]): string[];
   /** `docker cp <containerId>:<containerPath> <hostPath>`. */
   copyFromContainer(containerId: string, containerPath: string, hostPath: string): void;
-  /** `docker exec <containerId> cat <path>`, streamed one line at a time —
+  /** `docker exec <containerId> cat <path>`, streamed one line at a time;
    *  see streamDockerLines() for the error-shape/cleanup contract. */
   readFileLines(containerId: string, path: string): AsyncIterable<string>;
   /** `docker inspect <containerId>`'s own env, as a lookup map. */
   readEnv(containerId: string): Record<string, string>;
-  /** `docker exec <containerId> <...args>` — raw stdout, for anything else
+  /** `docker inspect <containerId>`'s own labels, as a lookup map. */
+  readLabels(containerId: string): Record<string, string>;
+  /** `docker exec <containerId> <...args>`: raw stdout, for anything else
    *  (e.g. buildctl). */
   exec(containerId: string, args: string[]): string;
 }
@@ -120,7 +131,7 @@ export interface Docker {
 /** `run`/`spawnDocker` are injectable so tests can assert on argv instead of
  *  mocking node:child_process directly. */
 export function createDocker(
-  run: RunCommand = defaultRunCommand,
+  run: RunDocker = defaultRunCommand,
   spawnDocker: SpawnCommand = defaultSpawnCommand,
 ): Docker {
   return {
@@ -143,6 +154,11 @@ export function createDocker(
     readEnv(containerId) {
       return parseDockerInspectEnv(
         run(["inspect", containerId, "--format", "{{json .Config.Env}}"]),
+      );
+    },
+    readLabels(containerId) {
+      return parseDockerInspectLabels(
+        run(["inspect", containerId, "--format", "{{json .Config.Labels}}"]),
       );
     },
     exec(containerId, args) {

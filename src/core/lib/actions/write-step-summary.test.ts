@@ -1,0 +1,29 @@
+import { describe, it, expect, vi } from "vitest";
+import * as core from "@actions/core";
+import { writeStepSummary } from "./write-step-summary.ts";
+
+describe("writeStepSummary", () => {
+  it("writes through core.summary when there is a summary file", async () => {
+    const addRaw = vi.spyOn(core.summary, "addRaw").mockReturnValue(core.summary);
+    const write = vi.spyOn(core.summary, "write").mockResolvedValue(core.summary);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await writeStepSummary("# report", "/dev/null");
+
+    expect(addRaw.mock.calls[0][0]).toBe("# report");
+    expect(write.mock.calls.length).toBe(1);
+    expect(log.mock.calls.length).toBe(0);
+  });
+
+  // core.summary.write() throws when the variable is unset, so the fallback is
+  // what makes a local or manual run print anything at all.
+  it("falls back to stdout when there is none", async () => {
+    const write = vi.spyOn(core.summary, "write").mockResolvedValue(core.summary);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await writeStepSummary("# report", undefined);
+
+    expect(write.mock.calls.length).toBe(0);
+    expect(log.mock.calls).toStrictEqual([["# report"]]);
+  });
+});

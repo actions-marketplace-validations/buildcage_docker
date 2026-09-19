@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
@@ -33,6 +37,8 @@ jobs:
               - 'compose.yaml'
             workflow: &workflow
               - '.github/workflows/test-integration.yml'
+              # Every job below is a make target.
+              - 'Makefile'
 
             test:
               - *docker
@@ -46,7 +52,11 @@ jobs:
               - *docker
               - *workflow
               - 'test/Dockerfile.multiarch'
+              - 'test/assert-multiarch.sh'
 
+  # Every job here runs the same `make` target a developer runs, so the set CI
+  # covers and the set `make test_integration_buildkit` covers are one list,
+  # kept in the Makefile.
   test:
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
@@ -59,74 +69,39 @@ jobs:
       matrix:
         include:
           - mode: universal-audit
-            proxy_mode: audit
-            proxy_engine: universal
-            compose_file: compose.yaml:compose.test-universal.yaml
-            test_dockerfile: test/Dockerfile.universal-audit
-            assert_script: ./test/assert-universal-audit.sh
-            builder_name: buildcage-universal-audit
+            target: test_integration_buildkit_universal_audit
+            test_compose_file: compose.test-universal.yaml
           - mode: universal-restrict
-            proxy_mode: restrict
-            proxy_engine: universal
-            compose_file: compose.yaml:compose.test-universal.yaml
-            test_dockerfile: test/Dockerfile.universal-restrict
-            assert_script: ./test/assert-universal-restrict.sh
-            builder_name: buildcage-universal-restrict
+            target: test_integration_buildkit_universal_restrict
+            test_compose_file: compose.test-universal.yaml
+          - mode: universal-restrict-no-traffic
+            target: test_integration_buildkit_universal_restrict_no_traffic
+            test_compose_file: compose.test-universal.yaml
+          - mode: universal-known-blocked
+            target: test_integration_buildkit_universal_known_blocked
+            test_compose_file: compose.test-universal.yaml
           - mode: explicit-audit
-            proxy_mode: audit
-            proxy_engine: explicit
-            compose_file: compose.yaml:compose.test-explicit.yaml
-            test_dockerfile: test/Dockerfile.explicit-audit
-            assert_script: ./test/assert-explicit-audit.sh
-            builder_name: buildcage-explicit-audit
+            target: test_integration_buildkit_explicit_audit
+            test_compose_file: compose.test-explicit.yaml
           - mode: explicit-restrict
-            proxy_mode: restrict
-            proxy_engine: explicit
-            compose_file: compose.yaml:compose.test-explicit.yaml
-            test_dockerfile: test/Dockerfile.explicit-restrict
-            assert_script: ./test/assert-explicit-restrict.sh
-            builder_name: buildcage-explicit-restrict
-          - mode: inspect-audit
-            proxy_mode: audit
-            proxy_engine: inspect
-            compose_file: compose.yaml:compose.test-inspect.yaml
-            test_dockerfile: test/Dockerfile.inspect-audit
-            assert_script: ./test/assert-inspect-audit.sh
-            builder_name: buildcage-inspect-audit
-            # A second origin nothing resolves to, so a forged Host has
-            # somewhere to have reached if the proxy ever honoured one.
-            extra_services: test-server-impostor test-udp-echo
+            target: test_integration_buildkit_explicit_restrict
+            test_compose_file: compose.test-explicit.yaml
           - mode: inspect-restrict
-            proxy_mode: restrict
-            proxy_engine: inspect
-            compose_file: compose.yaml:compose.test-inspect.yaml
-            test_dockerfile: test/Dockerfile.inspect-restrict
-            assert_script: ./test/assert-inspect-restrict.sh
-            builder_name: buildcage-inspect-restrict
-            extra_services: test-server-impostor test-udp-echo
+            target: test_integration_buildkit_inspect_restrict
+            test_compose_file: compose.test-inspect.yaml
           - mode: inspect-debian-audit
-            proxy_mode: audit
-            proxy_engine: inspect
-            compose_file: compose.yaml:compose.test-inspect.yaml
-            test_dockerfile: test/Dockerfile.inspect-debian
-            assert_script: ./test/assert-inspect-debian.sh
-            builder_name: buildcage-inspect-debian-audit
+            target: test_integration_buildkit_inspect_debian_audit
+            test_compose_file: compose.test-inspect.yaml
           - mode: inspect-debian-restrict
-            proxy_mode: restrict
-            proxy_engine: inspect
-            compose_file: compose.yaml:compose.test-inspect.yaml
-            test_dockerfile: test/Dockerfile.inspect-debian
-            assert_script: ./test/assert-inspect-debian.sh
-            builder_name: buildcage-inspect-debian-restrict
+            target: test_integration_buildkit_inspect_debian_restrict
+            test_compose_file: compose.test-inspect.yaml
 
     name: "integration: test (${{ matrix.mode }})"
 
     env:
-      COMPOSE_FILE: ${{ matrix.compose_file }}
-      # Avoids replicating deriveProjectName's hashing in workflow YAML.
-      COMPOSE_PROJECT_NAME: buildcage-project
-      # Lets report trust COMPOSE_PROJECT_NAME above.
-      BUILDCAGE_BUILD_TEST_HOOKS: "1"
+      # The Makefile builds for the development machines' arm64; here the
+      # runner's own architecture is what these tests should exercise.
+      TEST_PLATFORM: linux/amd64
 
     steps:
       - name: Checkout
@@ -134,86 +109,27 @@ jobs:
         with:
           persist-credentials: false
 
-      # report/src/main.ts is run straight from source below (Show logs
-      # step) and now imports @actions/core, so node_modules must exist.
+      # The targets run report/src/main.ts and src/post.ts straight from
+      # source, and both import @actions/core, so node_modules must exist.
       - uses: ./.github/actions/setup-vp
 
-      - name: Build containers
-        env:
-          PROXY_ENGINE: ${{ matrix.proxy_engine }}
-          BUILDER_NAME: ${{ matrix.builder_name }}
-        # Scoped to the services this job needs: builder, plus the
-        # test-server/test-dns fixtures from matrix.compose_file's overlay.
-        run: docker compose build builder test-server test-dns ${{ matrix.extra_services }}
+      # These jobs test proxy enforcement, not the report action itself: only
+      # test-e2e.yml's real `uses: ./report` should produce a Job Summary, so
+      # the report the target runs prints to stdout instead.
+      - name: Run integration tests
+        run: GITHUB_STEP_SUMMARY= make ${{ matrix.target }}
 
-      - name: Start containers
-        env:
-          PROXY_MODE: ${{ matrix.proxy_mode }}
-          PROXY_ENGINE: ${{ matrix.proxy_engine }}
-          BUILDER_NAME: ${{ matrix.builder_name }}
-        run: docker compose up -d --wait builder test-server test-dns ${{ matrix.extra_services }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-        with:
-          # Without an explicit name, setup-buildx-action generates one, which
-          # doesn't match matrix.builder_name — harmless for steps that rely on
-          # the implicit default builder (e.g. Build test image below), but
-          # assert-explicit-source-policy-conflict.sh invokes `docker buildx
-          # build --builder "$BUILDER_NAME"` directly and needs the name to
-          # actually resolve.
-          name: ${{ matrix.builder_name }}
-          driver: remote
-          endpoint: docker-container://${{ matrix.builder_name }}
-
-      - name: Build test image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        env:
-          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
-        with:
-          context: test
-          file: ${{ matrix.test_dockerfile }}
-          push: false
-          no-cache: true
-          load: true
-          tags: buildcage-test
-
-      # Only the inspect engine's buildcage-runc wrapper injects a CA into
-      # each RUN step; universal never does and explicit uses BuildKit's
-      # own separate mechanism, so this only applies here.
-      - name: Verify no CA residue in the built image
-        if: contains(matrix.mode, 'inspect')
-        run: ./test/assert-inspect-no-ca-residue.sh buildcage-test
-
+      # The target prints the report itself before asserting; this covers a
+      # failure earlier than that, where nothing has printed the log yet.
       - name: Show logs
-        if: always()
-        env:
-          BUILDER_NAME: ${{ matrix.builder_name }}
-          INPUT_BUILDER_NAME: ${{ matrix.builder_name }}
-        # This job tests proxy enforcement directly, not the report action
-        # itself — only test_action's real `uses: ./report` should produce a
-        # Job Summary, so print to stdout here instead.
-        run: GITHUB_STEP_SUMMARY='' node report/src/main.ts || true
-
-      - name: Run assertions
-        env:
-          BUILDER_NAME: ${{ matrix.builder_name }}
-          INPUT_BUILDER_NAME: ${{ matrix.builder_name }}
-        run: ${{ matrix.assert_script }}
-
-      - name: Run source-policy conflict assertions
-        if: matrix.mode == 'explicit-restrict'
-        env:
-          BUILDER_NAME: ${{ matrix.builder_name }}
-        run: ./test/assert-explicit-source-policy-conflict.sh
+        if: failure()
+        run: GITHUB_STEP_SUMMARY= make report_buildkit || true
 
       - name: Cleanup
         if: always()
         env:
-          BUILDER_NAME: ${{ matrix.builder_name }}
-        run: docker compose down -v --rmi all 2>/dev/null || true
+          TEST_COMPOSE_FILE: ${{ matrix.test_compose_file }}
+        run: make clean_buildkit 2>/dev/null || true
 
   test_inspect_roundtrip:
     needs: changes
@@ -222,10 +138,6 @@ jobs:
     permissions:
       contents: read
     name: "integration: test (inspect round trip)"
-
-    env:
-      COMPOSE_PROJECT_NAME: buildcage-project
-      BUILDCAGE_BUILD_TEST_HOOKS: "1"
 
     steps:
       - name: Checkout
@@ -238,15 +150,73 @@ jobs:
       # Two phases, the second configured by the first, so this is one script
       # rather than a matrix entry: the rules an audit run generates are fed
       # straight back as restrict and must both permit what happened and
-      # refuse what did not.
-      - name: Learn rules from audit, then enforce them
-        run: ./test/run-inspect-roundtrip.sh
+      # refuse what did not. Phase 1 is also the suite's only build of
+      # test/Dockerfile.inspect-audit, so it carries the audit-mode
+      # assertions too.
+      - name: Assert the audit run, then enforce the rules it generated
+        run: make test_integration_buildkit_inspect_roundtrip
+
+      # The audit assertions read the proxy log without printing it, so this is
+      # the only place a failure in them shows what the build actually did.
+      - name: Show logs
+        if: failure()
+        run: GITHUB_STEP_SUMMARY= make report_buildkit || true
 
       - name: Cleanup
         if: always()
         env:
-          COMPOSE_FILE: compose.yaml:compose.test-inspect.yaml
-        run: docker compose down -v --rmi all 2>/dev/null || true
+          TEST_COMPOSE_FILE: compose.test-inspect.yaml
+        run: make clean_buildkit 2>/dev/null || true
+
+  test_inspect_byte_exact:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    name: "integration: test (inspect byte-exact)"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-vp
+
+      # Brings up inspect, then universal, one after the other (both use the
+      # same builder name), so this is one script rather than a matrix entry.
+      - name: Compare inspect and universal layer-for-layer
+        run: make test_integration_buildkit_inspect_byte_exact
+
+      - name: Cleanup
+        if: always()
+        env:
+          TEST_COMPOSE_FILE: compose.test-inspect.yaml
+        run: |
+          make clean_buildkit 2>/dev/null || true
+          rm -f /tmp/buildcage-byte-exact-inspect.tar /tmp/buildcage-byte-exact-universal.tar
+
+  # Separate job from the others: brings the builder up on its own, with no
+  # build running and no fixture network, so buildcage0 never exists, proving
+  # :10024/:53 stay unreachable from anywhere else rather than merely reachable
+  # from the one interface the jobs above exercise.
+  test_listener_scope:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    name: "integration: test (listener scope, both engines)"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run listener-scope integration tests
+        run: make test_integration_buildkit_listener_scope
 
   test_multiarch:
     needs: changes
@@ -262,72 +232,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # The cross-platform half of the target runs the built image, which
+      # needs the emulator registered on the runner.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
-      - name: Build containers
-        run: docker compose build builder
-
-      - name: Start containers
-        env:
-          PROXY_MODE: audit
-          BUILDER_NAME: buildcage-multiarch
-        run: docker compose up -d --wait builder
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-        with:
-          driver: remote
-          endpoint: docker-container://buildcage-multiarch
-
-      - name: Build without specifying platforms
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        env:
-          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
-        with:
-          context: test
-          file: test/Dockerfile.multiarch
-          push: false
-          load: true
-          no-cache: true
-          tags: buildcage-multiarch-test:default
-
-      - name: Verify default platform is arm64
-        run: |
-          ARCH=$(docker run --rm buildcage-multiarch-test:default uname -m)
-          echo "Default platform architecture: $ARCH"
-          [ "$ARCH" = "aarch64" ] || (echo "Expected aarch64 (native), got $ARCH" && exit 1)
-          echo "✓ Default platform is linux/arm64 (native runner architecture)"
-
-      - name: Build for linux/amd64
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        env:
-          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
-          DOCKER_BUILD_SUMMARY: false
-          DOCKER_BUILD_RECORD_UPLOAD: false
-        with:
-          context: test
-          file: test/Dockerfile.multiarch
-          platforms: linux/amd64
-          push: false
-          load: true
-          no-cache: true
-          tags: buildcage-multiarch-test:amd64
-
-      - name: Verify amd64 cross-platform build
-        run: |
-          ARCH=$(docker run --rm --platform linux/amd64 buildcage-multiarch-test:amd64 uname -m)
-          echo "linux/amd64 image architecture: $ARCH"
-          [ "$ARCH" = "x86_64" ] || (echo "Expected x86_64, got $ARCH" && exit 1)
-          echo "✓ linux/amd64 cross-platform build verified"
+      - name: Build for the default and the other platform
+        run: make test_integration_buildkit_multiarch
 
       - name: Cleanup
         if: always()
-        env:
-          BUILDER_NAME: buildcage-multiarch
-        run: docker compose down -v --rmi all 2>/dev/null || true
+        run: make clean_buildkit 2>/dev/null || true
 
   # Single, stably-named required status check for branch protection: the
   # `test` job's own name varies per matrix entry (test (universal-audit),
@@ -337,7 +252,15 @@ jobs:
   integration-tests-passed:
     name: Integration tests passed
     runs-on: ubuntu-latest
-    needs: [changes, test, test_inspect_roundtrip, test_multiarch]
+    needs:
+      [
+        changes,
+        test,
+        test_inspect_roundtrip,
+        test_inspect_byte_exact,
+        test_listener_scope,
+        test_multiarch,
+      ]
     if: always()
     permissions: {}
     steps:

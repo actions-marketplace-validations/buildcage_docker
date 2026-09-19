@@ -12,9 +12,9 @@ import { convertRule, buildRules, parseAndValidateRules } from "./wildcard-rules
 // convertRule / wildcardToRegex
 // ---------------------------------------------------------------------------
 
-describe("convertRule – properties", () => {
+describe("convertRule: properties", () => {
   // For a plain domain (no wildcards, no regex metacharacters), the generated
-  // regex must match the original pattern and must NOT match a subdomain prefix.
+  // regex must match the original pattern and must not match a subdomain prefix.
   it("exact pattern round-trips: regex matches original and rejects subdomain prefix", () => {
     const simplePattern = fc
       .tuple(
@@ -37,7 +37,7 @@ describe("convertRule – properties", () => {
   });
 
   // Domain labels may contain regex metacharacters in practice (e.g. from unusual
-  // hostnames). escapeRegex must neutralise them so the result always compiles.
+  // hostnames). domainToRegex must escape them so the result always compiles.
   it("patterns with regex metacharacters in the domain always produce a compilable regex", () => {
     const metaChar = fc.constantFrom(".", "+", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\");
     const patternWithMeta = fc
@@ -78,7 +78,7 @@ describe("convertRule – properties", () => {
 // buildRules
 // ---------------------------------------------------------------------------
 
-describe("buildRules – properties", () => {
+describe("buildRules: properties", () => {
   // N valid rules joined with any whitespace separator always produce length N.
   it("N valid rules joined by any whitespace always return an array of length N", () => {
     const validRule = fc
@@ -103,7 +103,7 @@ describe("buildRules – properties", () => {
 // parseAndValidateRules
 // ---------------------------------------------------------------------------
 
-describe("parseAndValidateRules – properties", () => {
+describe("parseAndValidateRules: properties", () => {
   it("returns the same tokens buildRules derives its length from, unconverted", () => {
     const validRule = fc
       .tuple(

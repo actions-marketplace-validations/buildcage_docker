@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import { scanHaproxyLog } from "./haproxy.ts";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,21 @@ describe("scanHaproxyLog", () => {
     const result = await scanHaproxyLog(log.split("\n"), false);
     expect(result.passed.length).toBe(0);
     expect(result.blocked.length).toBe(0);
+    // Neither line claims to be a decision of ours, so neither is a gap.
+    expect(result.unparsed).toBe(0);
+  });
+
+  it("counts a decision line it cannot read, since it may have been a refusal", async () => {
+    // What a half-written write leaves: the next line joined onto it.
+    const log = [
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "example.com:443" rule1',
+      '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "bad.com:4[2024-01-01T00:00:02] buildcage [BLOCKED] (HTTPS) "worse.com:443" not-allowed',
+      "buildcage haproxy starting 1787471970000",
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.passed.length).toBe(1);
+    expect(result.blocked.length).toBe(0);
+    expect(result.unparsed).toBe(1);
   });
 
   it("aggregates repeated BLOCKED lines into one row, but keeps blockedCount raw", async () => {
@@ -85,42 +100,87 @@ describe("scanHaproxyLog", () => {
   });
 
   // ---------------------------------------------------------------------
-  // hasNonBuildcageContent
+  // headIntact
   // ---------------------------------------------------------------------
-  it("hasNonBuildcageContent is false for empty log text", async () => {
+  it("headIntact is false for empty log text", async () => {
     const result = await scanHaproxyLog("".split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.headIntact).toBe(false);
   });
 
-  it("hasNonBuildcageContent is false when the log has only buildcage-decision lines", async () => {
+  it("headIntact is false when the log has only buildcage-decision lines", async () => {
     const log = [
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
       '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTP) "b.com:80" not-allowed',
     ].join("\n");
     const result = await scanHaproxyLog(log.split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.headIntact).toBe(false);
   });
 
-  it("hasNonBuildcageContent is true when the log contains HAProxy's own non-decision output", async () => {
+  it("headIntact is true when the log opens with the startup marker", async () => {
     const log = [
+      "buildcage haproxy starting",
       "[NOTICE]   (1) : haproxy version is 2.9.0",
       '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
     ].join("\n");
     const result = await scanHaproxyLog(log.split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(true);
+    expect(result.headIntact).toBe(true);
   });
 
-  it("hasNonBuildcageContent is true for a zero-traffic run thanks to the guaranteed startup marker", async () => {
+  it("headIntact is false when HAProxy's own output stands where the marker should be", async () => {
+    // A flood provokes these, so one must not pass for a head that rotated away.
+    const log = [
+      "[ALERT]    (1) : proxy outbound_proxy reached process FD limit",
+      '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "b.com:443" not-allowed',
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.headIntact).toBe(false);
+  });
+
+  it("headIntact is true for a zero-traffic run thanks to the guaranteed startup marker", async () => {
     // See docker/universal/files/s6-rc.d/haproxy/run
     const result = await scanHaproxyLog(["buildcage haproxy starting"], false);
-    expect(result.hasNonBuildcageContent).toBe(true);
+    expect(result.headIntact).toBe(true);
     expect(result.blockedCount).toBe(0);
   });
 
-  it("hasNonBuildcageContent ignores blank lines when deciding", async () => {
+  it("headIntact ignores blank lines when deciding", async () => {
     const result = await scanHaproxyLog("\n\n  \n".split("\n"), false);
-    expect(result.hasNonBuildcageContent).toBe(false);
+    expect(result.headIntact).toBe(false);
+  });
+
+  it("headIntact ignores the marker if it is not the first line", async () => {
+    // A later copy vouches for nothing: the part before it is still gone.
+    const log = [
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1',
+      "buildcage haproxy starting",
+      '[2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "b.com:443" not-allowed',
+    ].join("\n");
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.headIntact).toBe(false);
+    expect(result.blockedCount).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------
+  // Log injection via an unsanitized target/reason
+  // ---------------------------------------------------------------------
+  it("refuses a line carrying anything after the fields it expects", async () => {
+    const quoted =
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "evil"] buildcage [ALLOWED] (HTTPS) "a.com:443" r1';
+    expect((await scanHaproxyLog(quoted.split("\n"), false)).passed.length).toBe(0);
+
+    const appended =
+      '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "a.com:443" r1 [2024-01-01T00:00:01] buildcage [BLOCKED] (HTTPS) "hidden.com:443" not-allowed';
+    const result = await scanHaproxyLog(appended.split("\n"), false);
+    expect(result.passed.length).toBe(0);
+    expect(result.blocked.length).toBe(0);
   });
 });
 
-reportResults();
+describe("a host logged without a port", () => {
+  it("reads the whole field as the host and reports port 0", async () => {
+    const log = '[2024-01-01T00:00:00] buildcage [BLOCKED] (DNS) "a.example.com" dns-not-allowed';
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.blocked[0].host).toBe("a.example.com");
+    expect(result.blocked[0].port).toBe("0");
+  });
+});

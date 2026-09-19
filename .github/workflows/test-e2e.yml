@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
@@ -48,7 +52,7 @@ jobs:
 
   # Exercises the real setup/report actions end-to-end (uses: ./,
   # uses: ./report) against an image built from this branch, no registry
-  # involved — see docs/development.md#local-development.
+  # involved; see docs/development.md#local-development.
   test_action:
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
@@ -66,12 +70,12 @@ jobs:
             build_engine: explicit
           - proxy_engine: inspect
             build_engine: inspect
-          # `transparent` is universal's old name, kept working permanently
-          # as an alias (see resolveProxyEngine's ENGINE_ALIASES). No image
-          # is published under that name any more, so build_engine still
-          # resolves to the real (universal) Dockerfile -- what this proves
-          # is that the real action's own proxy_engine input still accepts
-          # and correctly normalizes the alias, not that compose.yaml does.
+          # `transparent` is a permanently supported alias for `universal`
+          # (see resolveProxyEngine's ENGINE_ALIASES). No image is published
+          # under that name, so build_engine still resolves to the real
+          # universal Dockerfile: what this proves is that the action's own
+          # proxy_engine input accepts and normalizes the alias, not that
+          # compose.yaml does.
           - proxy_engine: transparent
             build_engine: universal
 
@@ -103,6 +107,10 @@ jobs:
       # carry reliably, so it's built here instead. *, not **, so each rule
       # only matches its one path shape (package metadata / tarball) rather
       # than falling back to matching any path under the host.
+      #
+      # A scoped package needs its own pair: `*` does not cross a `/`, and
+      # `@hono/node-server` puts a second segment where the unscoped shape has
+      # one, both in the metadata path and before the `/-/` in the tarball.
       - name: Choose allowed_url_rules for this engine
         id: url_rules
         run: |
@@ -111,6 +119,8 @@ jobs:
               echo "value<<EOF"
               echo "GET|HEAD https://registry.npmjs.org/*"
               echo "GET|HEAD https://registry.npmjs.org/*/-/*"
+              echo "GET|HEAD https://registry.npmjs.org/@*/*"
+              echo "GET|HEAD https://registry.npmjs.org/@*/*/-/*"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           else
@@ -129,14 +139,14 @@ jobs:
           # wouldn't prove method/path enforcement actually happened.
           allowed_https_rules: ${{ matrix.proxy_engine != 'inspect' && 'registry.npmjs.org:443' || '' }}
           # inspect only; empty is a no-op for the other engines.
-          allow_tls_rules: ${{ matrix.proxy_engine == 'inspect' && 'github.com:443' || '' }}
+          allowed_tls_rules: ${{ matrix.proxy_engine == 'inspect' && 'github.com:443' || '' }}
           allowed_url_rules: ${{ steps.url_rules.outputs.value }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           driver: remote
-          # Matches action.yml's default builder_name — update together.
+          # Matches action.yml's default builder_name; update together.
           endpoint: docker-container://buildcage
 
       - name: Create test Dockerfile
@@ -149,7 +159,7 @@ jobs:
           # MITMs TLS); harmless for universal. inspect also terminates TLS
           # but needs nothing here, because its runc wrapper points
           # NODE_EXTRA_CA_CERTS at a store carrying the CA.
-          RUN npm init -y && NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts --no-audit express
+          RUN npm init -y && NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts --no-audit @hono/node-server@2.1.1
           # Refused by the rules above, so the report shows the full URL, not
           # just the host. Engines differ in exactly how the refusal shows up
           # (a proxy-level HTTP error under inspect, a rejected connection
@@ -198,12 +208,10 @@ jobs:
           upload_traffic_artifact: ${{ matrix.proxy_engine == 'inspect' }}
           traffic_artifact_retention_days: ${{ matrix.proxy_engine == 'inspect' && '1' || '' }}
 
-      # GITHUB_STEP_SUMMARY is a separate file per step -- a later step can't
-      # read what an earlier one wrote there -- so this instead downloads the
-      # artifact the report step above just uploaded. inspect only: it's the
-      # only engine upload_traffic_artifact does anything for. The Dockerfile's
-      # own wget step swallows its exit code (`|| true`), so this is what would
-      # actually catch example.com silently *not* being refused.
+      # GITHUB_STEP_SUMMARY is a separate file per step, so a later step can't
+      # read what an earlier one wrote there. This downloads the artifact the
+      # report step above just uploaded instead. inspect only: it's the only
+      # engine upload_traffic_artifact does anything for.
       - name: Download the traffic artifact
         if: matrix.proxy_engine == 'inspect'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -243,6 +251,85 @@ jobs:
       # No cleanup step: ephemeral runner, and setup's post-hook already
       # stops the container.
 
+  # Separate job from test_action: known_blocked_rules is a setup input, so it
+  # has to be named when the builder starts, and test_action's own report step
+  # turns fail_on_blocked off. Here fail_on_blocked stays at its default and
+  # the step has to pass anyway, which is the whole point of the input.
+  test_action_known_blocked:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    name: "e2e: test (action, known_blocked_rules)"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-vp
+
+      - name: Build local buildcage image
+        run: docker compose build builder
+
+      - name: Resolve local image ref
+        id: local_image
+        run: echo "ref=$(docker compose config --images builder)" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild setup action with the local-image test hook enabled
+        env:
+          BUILDCAGE_BUILD_TEST_HOOKS: "1"
+        run: vp run build
+
+      - name: Start Buildcage builder via the real setup action
+        uses: ./
+        env:
+          BUILDCAGE_LOCAL_IMAGE_REF: ${{ steps.local_image.outputs.ref }}
+        with:
+          proxy_mode: restrict
+          allowed_https_rules: registry.npmjs.org:443
+          known_blocked_rules: example.com:443
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver: remote
+          # Matches action.yml's default builder_name; update together.
+          endpoint: docker-container://buildcage
+
+      - name: Create test Dockerfile
+        run: |
+          mkdir -p /tmp/build-context
+          cat <<'EOF' > /tmp/build-context/Dockerfile
+          FROM node:24-alpine
+          # One ordinary allowed request, so the report has both kinds to judge.
+          RUN wget -q -O /dev/null --timeout=10 https://registry.npmjs.org/
+          # The only blocked connection, and the one known_blocked_rules names.
+          # The build fails if it is not refused, so the report step below
+          # cannot pass on a build that never had anything blocked.
+          RUN if wget -q -O /dev/null --timeout=5 https://example.com/; then \
+                echo "FAILED: example.com should have been refused" && exit 1; \
+              fi
+          EOF
+
+      - name: Build test image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: /tmp/build-context
+          push: false
+          no-cache: true
+
+      # fail_on_blocked left at its default (true). The step must still pass:
+      # every blocked connection matched known_blocked_rules.
+      - name: Show proxy report
+        uses: ./report
+
   # Single, stably-named required status check for branch protection: the
   # jobs above vary their own names by matrix entry (e2e: test (action,
   # universal), etc.), so branch protection can't target them directly
@@ -250,7 +337,7 @@ jobs:
   e2e-tests-passed:
     name: E2E tests passed
     runs-on: ubuntu-latest
-    needs: [changes, test_action]
+    needs: [changes, test_action, test_action_known_blocked]
     if: always()
     permissions: {}
     steps:

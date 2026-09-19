@@ -1,7 +1,12 @@
 import { describe, it, expect, reportResults } from "../test/test-shim.ts";
 import {
+  anchorRawRegex,
+  checkRawRegexHalf,
   domainToRegexPartial,
+  endsAnchored,
   pathToRegexPartial,
+  splitDomainFromPortPattern,
+  splitRawRegexHost,
   wildcardToRegexPartial,
 } from "./partial-wildcard.ts";
 
@@ -85,11 +90,8 @@ describe("wildcardToRegexPartial", () => {
     expect(wildcardToRegexPartial("a.example.com:*")).toBe("a\\.example\\.com:\\d+");
   });
 
-  it("rejects a pattern with no port", () => {
+  it("rejects a port that is missing or non-numeric", () => {
     expect(() => wildcardToRegexPartial("a.example.com")).toThrow();
-  });
-
-  it("rejects a non-numeric port", () => {
     expect(() => wildcardToRegexPartial("a.example.com:80x")).toThrow();
   });
 });
@@ -132,6 +134,136 @@ describe("paths", () => {
 
   it("returns an empty fragment for an empty path", () => {
     expect(pathToRegexPartial("")).toBe("");
+  });
+});
+
+describe("splitRawRegexHost host-half compilation", () => {
+  // The whole expression compiles, but the split at the port separator cuts a
+  // group open, so the host half alone does not.
+  it("refuses a rule whose host half does not compile on its own", () => {
+    expect(() => splitRawRegexHost("~(a\\.com:443)")).toThrow(/does not compile on its own/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pieces a `~` rule is built from. Each is used by several modules
+// (url-rules, wildcard-rules, haproxy-rules, source-policy), whose own tests
+// assert the output they produce; these fix what all of that rests on.
+// ---------------------------------------------------------------------------
+describe("checkRawRegexHalf", () => {
+  const check = (text: string, hostHalf: boolean) =>
+    checkRawRegexHalf(text, "expression", `~${text}`, hostHalf);
+
+  it("refuses a top-level alternation, which anchors would bind to one branch of", () => {
+    // `^a|b$` anchors a at the front and b at the back, leaving each branch
+    // open at its other end.
+    expect(() => check("a\\.com:443|b\\.com:443", false)).toThrow(/top-level "\|"/);
+    expect(() => check("a\\.com|b\\.com:443", false)).toThrow(/top-level "\|"/);
+  });
+
+  it("leaves an alternation inside a group or a character class alone", () => {
+    expect(() => check("a\\.com:(443|8443)", false)).not.toThrow();
+    expect(() => check("a\\.com:[4|8]443", false)).not.toThrow();
+  });
+
+  it("reads past an escaped delimiter rather than tracking it as one", () => {
+    // `\(` and `\[` are literals, so neither opens anything the `|` after it
+    // could be sitting inside.
+    expect(() => check("a\\(b|c", false)).toThrow(/top-level "\|"/);
+    expect(() => check("a\\[b|c", false)).toThrow(/top-level "\|"/);
+  });
+
+  it("refuses a literal bracket in the host half, an IPv6 authority above all", () => {
+    // One there means the ":" the rule was split at was not its port separator.
+    expect(() => check("\\[::1\\]", true)).toThrow(/no hostname can/);
+  });
+
+  it("keeps a character class, whose own `[` is not escaped", () => {
+    expect(() => check("web[0-9]\\.example\\.com", true)).not.toThrow();
+  });
+
+  it("looks for that bracket in the host half only", () => {
+    expect(() => check("\\[::1\\]", false)).not.toThrow();
+  });
+});
+
+describe("endsAnchored", () => {
+  it("is false for an expression that does not end in `$` at all", () => {
+    expect(endsAnchored("a\\.com:443")).toBe(false);
+  });
+
+  it("is true for a bare trailing `$`", () => {
+    expect(endsAnchored("a\\.com:443$")).toBe(true);
+  });
+
+  // The `$` is an anchor only when the backslashes before it pair off: `\$` is
+  // an escaped dollar, `\\$` is an escaped backslash followed by the anchor.
+  it("reads an escaped dollar as the literal it is", () => {
+    expect(endsAnchored("a\\.com:443\\$")).toBe(false);
+    expect(endsAnchored("a\\.com:443\\\\\\$")).toBe(false);
+  });
+
+  it("reads the anchor behind an escaped backslash as the anchor it is", () => {
+    expect(endsAnchored("a\\.com:443\\\\$")).toBe(true);
+    expect(endsAnchored("a\\.com:443\\\\\\\\$")).toBe(true);
+  });
+});
+
+describe("anchorRawRegex", () => {
+  // Both engines match a `~` rule as a search (HAProxy's `-m reg`, CEL's
+  // `matches`), so an unanchored `example\.com:443` would also admit
+  // `evil-example.com:4430`.
+  it("closes an expression the author left open at both ends", () => {
+    expect(anchorRawRegex("example\\.com:443")).toBe("^example\\.com:443$");
+  });
+
+  it("adds only the anchor that is missing", () => {
+    expect(anchorRawRegex("^example\\.com:443")).toBe("^example\\.com:443$");
+    expect(anchorRawRegex("example\\.com:443$")).toBe("^example\\.com:443$");
+  });
+
+  it("leaves an already-anchored expression as it stands", () => {
+    expect(anchorRawRegex("^example\\.com:443$")).toBe("^example\\.com:443$");
+  });
+
+  it("anchors past a trailing dollar that is a literal rather than an anchor", () => {
+    expect(anchorRawRegex("example\\.com:443\\$")).toBe("^example\\.com:443\\$$");
+  });
+});
+
+describe("splitDomainFromPortPattern", () => {
+  it("splits at a bare colon", () => {
+    expect(splitDomainFromPortPattern("^a\\.com:443")).toStrictEqual({
+      domain: "^a\\.com",
+      portPattern: ":443",
+    });
+  });
+
+  // Splitting at the last colon instead would cut the group open, leaving a
+  // dangling `(` in the host half and a dangling `)` in the port half.
+  it("splits at the `(` of a group opening on the colon, keeping both halves balanced", () => {
+    expect(splitDomainFromPortPattern("^a\\.com(:8443)?")).toStrictEqual({
+      domain: "^a\\.com",
+      portPattern: "(:8443)?",
+    });
+    expect(splitDomainFromPortPattern("^a\\.com(:443|:8443)")).toStrictEqual({
+      domain: "^a\\.com",
+      portPattern: "(:443|:8443)",
+    });
+  });
+
+  it("splits at the first port pattern, not at the last colon in the fragment", () => {
+    expect(splitDomainFromPortPattern("^a\\.com:44[0-9]:x")).toStrictEqual({
+      domain: "^a\\.com",
+      portPattern: ":44[0-9]:x",
+    });
+  });
+
+  it("reports no port pattern when the fragment names none", () => {
+    expect(splitDomainFromPortPattern("^a\\.com")).toStrictEqual({
+      domain: "^a\\.com",
+      portPattern: null,
+    });
   });
 });
 

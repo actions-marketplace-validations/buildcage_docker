@@ -37,6 +37,12 @@ describe("describeDockerFailure", () => {
     expect(msg).toMatch(/ubuntu-latest/);
   });
 
+  it("names the Docker Engine and Compose versions Buildcage needs", () => {
+    const msg = describeDockerFailure({ code: "ENOENT" }, noSlimRunner);
+    expect(msg).toMatch(/Docker Engine 25\.0 or later/);
+    expect(msg).toMatch(/Compose v2\.20\.2 or later/);
+  });
+
   it("defaults the operation label to 'docker' when omitted", () => {
     expect(describeDockerFailure({ code: "ENOENT" }, noSlimRunner)).toMatch(/running docker\./);
   });
@@ -57,15 +63,19 @@ describe("isLikelySlimRunner", () => {
     expect(isLikelySlimRunner({ ImageOS: "Linux" }, () => true)).toBe(true);
   });
 
-  it("returns false when ImageOS looks like a normal VM image", () => {
+  it("returns false unless ImageOS is Linux and the marker is there", () => {
     expect(isLikelySlimRunner({ ImageOS: "ubuntu24" }, () => true)).toBe(false);
-  });
-
-  it("returns false when the containerenv marker is missing", () => {
     expect(isLikelySlimRunner({ ImageOS: "Linux" }, () => false)).toBe(false);
-  });
-
-  it("returns false when ImageOS is unset", () => {
     expect(isLikelySlimRunner({}, () => true)).toBe(false);
+  });
+});
+
+describe("a thrown value that is not an object", () => {
+  it("still produces the guidance, with nothing quoted from it", () => {
+    const message = describeDockerFailure("docker: command not found", {
+      env: {},
+      exists: () => false,
+    });
+    expect(message).not.toContain("command not found");
   });
 });

@@ -1,10 +1,10 @@
 import { ActionError, errorMessage } from "../errors.ts";
-import { parseAndValidateRules } from "./wildcard-rules.ts";
+import { parseAndValidateKnownBlockedRules, parseAndValidateRules } from "./wildcard-rules.ts";
 
 /**
  * Thrown when an ACL rule input (allowed_https_rules/allowed_http_rules/
- * allowed_ip_rules/known_blocked_rules) fails to parse — shared by the
- * setup and run actions, which both accept the same rule syntax.
+ * allowed_ip_rules/known_blocked_rules) fails to parse. Shared by the setup
+ * and run actions, which both accept the same rule syntax.
  */
 export class InvalidRulesError extends ActionError<"INVALID_RULES"> {}
 
@@ -14,6 +14,18 @@ export class InvalidRulesError extends ActionError<"INVALID_RULES"> {}
 export function parseRulesOrThrow(rulesInput: string | undefined): string[] {
   try {
     return parseAndValidateRules(rulesInput);
+  } catch (e) {
+    throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
+  }
+}
+
+/**
+ * Same, for `known_blocked_rules`, whose missing ports are completed rather
+ * than rejected; see completeRulePort.
+ */
+export function parseKnownBlockedRulesOrThrow(rulesInput: string | undefined): string[] {
+  try {
+    return parseAndValidateKnownBlockedRules(rulesInput);
   } catch (e) {
     throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
   }

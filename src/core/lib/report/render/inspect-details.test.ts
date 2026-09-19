@@ -1,5 +1,5 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
-import { renderInspectDetails, renderInspectDetailsBody } from "./inspect-details.ts";
+import { describe, it, expect } from "vitest";
+import { renderInspectDetails } from "./inspect-details.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 
 const t = 1787471975;
@@ -56,8 +56,8 @@ describe("renderInspectDetails", () => {
     expect(lines[2].startsWith("🚫")).toBe(true);
   });
 
-  it("shows the full URL and method of a refused request", () => {
-    expect(md.includes("POST https://evil.example.com/exfil?token=SECRET")).toBe(true);
+  it("shows the URL and method of a refused request", () => {
+    expect(md.includes("POST https://evil.example.com/exfil?token=***")).toBe(true);
   });
 
   it("names the reason after the arrow instead of a status", () => {
@@ -131,14 +131,129 @@ describe("renderInspectDetails", () => {
     expect(md.includes("\\_")).toBe(false);
   });
 
+  it("names the record type a discovery lookup asked for, and says it got nothing", () => {
+    // SRV going unanswered costs apt nothing; TXT going unanswered is why a
+    // `mongodb+srv://` connection never got its options.
+    const md2 = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "discovery",
+          protocol: "dns",
+          host: "_http._tcp.deb.debian.org",
+          queryType: "SRV",
+        },
+      ],
+      t,
+    );
+    expect(md2.includes("DNS SRV _http._tcp.deb.debian.org")).toBe(true);
+    expect(md2.includes("no data (SRV is never served)")).toBe(true);
+    // Neither allowed nor refused, so it carries neither mark.
+    expect(md2.includes("🚫")).toBe(false);
+    expect(md2.includes("✅")).toBe(false);
+  });
+
+  it("shows a discovery lookup even though the host it belongs to connected", () => {
+    // Nothing connects to `_service._proto.<host>`, so this is not the
+    // connection to the plain name said twice.
+    const md2 = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "discovery",
+          protocol: "dns",
+          host: "_http._tcp.deb.debian.org",
+          queryType: "SRV",
+        },
+        {
+          time: t + 1,
+          action: "allow",
+          protocol: "http",
+          host: "deb.debian.org",
+          method: "GET",
+          url: "http://deb.debian.org/debian/InRelease",
+          status: 200,
+          bytes: 100,
+        },
+      ],
+      t,
+    );
+    expect((md2.split("```")[1] ?? "").trim().split("\n").length).toBe(2);
+  });
+
   it("renders nothing at all when there was no traffic", () => {
     expect(renderInspectDetails([], t)).toBe("");
   });
 
-  it("renders nothing when only resolved names were seen", () => {
-    expect(
-      renderInspectDetails([{ time: t, action: "allow", protocol: "dns", host: "a.com" }], t),
-    ).toBe("");
+  it("keeps a name that resolved and was never connected to", () => {
+    // Its own sole trace: a rule wide enough to cover something the build
+    // only looked at is exactly what an audit run is meant to surface.
+    const only = renderInspectDetails(
+      [{ time: t, action: "allow", protocol: "dns", host: "a.com" }],
+      t,
+    );
+    expect(only.includes("DNS a.com -> resolved")).toBe(true);
+  });
+
+  it('falls back to a bare "blocked" when a refusal names no reason', () => {
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "block",
+          protocol: "https",
+          host: "a.example.com",
+          port: 443,
+          method: "GET",
+          url: "https://a.example.com/pkg",
+        },
+      ],
+      t,
+    );
+    expect(rendered).toMatch(/blocked/);
+  });
+});
+
+describe("renderInspectDetails credential parameters", () => {
+  const subjectOf = (url: string) => {
+    const md = renderInspectDetails(
+      [{ time: t, action: "allow", protocol: "https", host: "h", port: 443, method: "GET", url }],
+      t,
+    );
+    const line = (md.split("```")[1] ?? "").trim();
+    return line.slice(line.indexOf("GET "), line.indexOf(" ->"));
+  };
+
+  it("replaces a presigned URL's signature and leaves the rest readable", () => {
+    // Which object was fetched and when the link expires are the whole point
+    // of the line; the signature is the only part that grants anything.
+    expect(subjectOf("https://h/x.tar.gz?X-Amz-Signature=abc123&X-Amz-Expires=3600")).toBe(
+      "GET https://h/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600",
+    );
+  });
+
+  it("matches the parameter name whatever its case", () => {
+    expect(subjectOf("https://h/v1?Api_Key=sk_live_1")).toBe("GET https://h/v1?Api_Key=***");
+  });
+
+  it("leaves a parameter nobody credentialled alone", () => {
+    // A refused request has to keep saying what it tried to send, and an
+    // exfiltration payload is named whatever its author chose.
+    expect(subjectOf("https://h/?d=BASE64PAYLOAD&page=2")).toBe(
+      "GET https://h/?d=BASE64PAYLOAD&page=2",
+    );
+  });
+
+  it("leaves an empty value empty rather than claiming a secret", () => {
+    expect(subjectOf("https://h/v1?token=&page=2")).toBe("GET https://h/v1?token=&page=2");
+  });
+
+  it("leaves a URL with no query of its own alone", () => {
+    expect(subjectOf("https://h/token/key")).toBe("GET https://h/token/key");
+  });
+
+  it("redacts the query of a URL that also carries a fragment", () => {
+    expect(subjectOf("https://h/x?token=secret#frag")).toBe("GET https://h/x?token=***#frag");
   });
 });
 
@@ -168,15 +283,3 @@ describe("renderInspectDetails elapsed time", () => {
     expect(md.includes("Z:")).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// wrapLogGroup skips emitting a ::group:: at all when handed "" -- the
-// property that actually matters here, not the tag shape of a non-empty one.
-// ---------------------------------------------------------------------------
-describe("renderInspectDetailsBody", () => {
-  it("renders nothing at all when there was no traffic", () => {
-    expect(renderInspectDetailsBody([], t)).toBe("");
-  });
-});
-
-reportResults();

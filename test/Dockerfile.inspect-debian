@@ -3,9 +3,15 @@
 # trusts whatever the OS provides. Debian's own slim image ships with none
 # until ca-certificates is installed, which the first RUN step below does.
 # That step itself gets no CA from the wrapper, because there is no store yet
-# for it to add to — but the real Debian archive is plain HTTP by default, so
+# for it to add to, but the real Debian archive is plain HTTP by default, so
 # nothing here needs one: apt authenticates packages by the archive's GPG key
 # (already present via debian-archive-keyring), never by TLS.
+#
+# Both modes build this same Dockerfile, so it is where the suite checks
+# that audit injects the CA too: audit enforces nothing, but it still
+# terminates TLS, so a package manager has to get past the handshake either
+# way. The Alpine images check the same thing under restrict alone, which
+# is the split no-ca-residue and no-layer-bloat already use.
 #
 # FROM is deliberately not governed by this engine (see docs/inspect-engine.md),
 # so this pull succeeds whatever the rules say.
@@ -35,5 +41,18 @@ RUN echo "=== [apt over the injected CA] ===" && \
         echo "FAILED: the injected CA was not trusted" && exit 1 ;; \
       *) echo "OK: reached the origin over TLS (exit=$CODE, a content error is expected)" ;; \
     esac
+
+# [apt against a path no rule covers]
+# The one request whose outcome depends on the mode: restrict refuses it at the
+# proxy, audit records it and lets it reach the origin. Both modes run this same
+# Dockerfile, so without it the two runs would assert nothing the other doesn't.
+# apt's own exit code is not the subject here: either way it gets a body it
+# cannot parse, so the assertions read the proxy log instead.
+RUN echo "=== [apt outside the rules] ===" && \
+    echo "deb [trusted=yes] https://allowed.example.com/private/debian ./" \
+      > /etc/apt/sources.list.d/inspect-outside.list && \
+    rm -f /etc/apt/sources.list.d/inspect-test.list && \
+    apt-get update 2>&1 | tail -5; \
+    echo "OK: request sent"
 
 RUN echo "=== End of test ==="

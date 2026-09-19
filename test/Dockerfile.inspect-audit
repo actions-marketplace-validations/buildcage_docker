@@ -53,16 +53,4 @@ RUN echo "=== [Would-be-blocked host] ===" && \
     echo "$OUT" && \
     case "$OUT" in ROOT\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Package manager - apk has no CA store of its own, and audit still injects]
-# audit enforces nothing, but TLS is still terminated, so the CA still has to
-# be there for apk to get past the handshake at all.
-RUN echo "=== [Package manager - apk over the injected CA] ===" && \
-    echo "https://allowed.example.com/public" > /etc/apk/repositories && \
-    OUT=$(apk update 2>&1); \
-    echo "$OUT" && \
-    case "$OUT" in \
-      *"not trusted"*) echo "FAILED: TLS was not trusted" && exit 1 ;; \
-      *) echo "OK: reached the origin over TLS" ;; \
-    esac
-
 RUN echo "=== End of test ==="

@@ -10,7 +10,22 @@
       "managerFilePatterns": ["/^docker/universal/Dockerfile$/", "/^docker/inspect/Dockerfile$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG CNI_VERSION=(?<currentValue>v[\\d.]+)",
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG COREDNS_VERSION=(?<currentValue>[\\d.]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG COREDNS_VERSION=(?<currentValue>[\\d.]+)",
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG HAPROXY_ALPINE_BRANCH=(?<currentValue>[\\d.]+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^test/helpers\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nTEST_ALPINE_IMAGE=\"[^:]+:(?<currentValue>[\\d.]+)@(?<currentDigest>sha256:[a-f0-9]+)\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^Makefile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nMOBY_PROFILES_SECCOMP_VERSION \\?= (?<currentValue>v[\\d.]+)"
       ]
     },
     {
@@ -25,9 +40,15 @@
   ],
   "packageRules": [
     {
-      "description": "Self-referencing actions (buildcage/docker*) are exempt from minimumReleaseAge, matching the previous Dependabot cooldown exclusion.",
+      "description": "Self-referencing actions (buildcage/docker*) are exempt from minimumReleaseAge, matching the previous Dependabot cooldown exclusion, and from the weekly schedule, so a new release lands right away.",
       "matchPackageNames": ["/^buildcage\\/docker/"],
-      "minimumReleaseAge": "0 days"
+      "minimumReleaseAge": "0 days",
+      "schedule": ["at any time"]
+    },
+    {
+      "description": "vite-plus asserts that @vitest/coverage-v8 matches the vitest version it bundles, so bumping either one alone breaks the unit test job.",
+      "matchPackageNames": ["vite-plus", "@vitest/coverage-v8"],
+      "groupName": "vite-plus toolchain"
     }
   ]
 }

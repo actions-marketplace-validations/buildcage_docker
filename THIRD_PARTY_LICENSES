@@ -57,23 +57,21 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
-runc (used only by the `run` action's proxy image, docker/Dockerfile)
-  Website : https://github.com/opencontainers/runc
-  License : Apache License 2.0 (Apache-2.0)
-  Source  : https://github.com/opencontainers/runc
-  Note    : Official pre-built release binary, checksum-pinned. Extracted
-            onto the runner host at `run` action startup and used by
-            run-isolated.sh to execute the isolated command.
+@actions/core (bundled into /opt/buildcage/scripts/report-action.js)
+  Website : https://github.com/actions/toolkit/tree/main/packages/core
+  License : MIT License
+  Source  : https://github.com/actions/toolkit
 
 ------------------------------------------------------------------------------
 
-run/scripts/seccomp.json (used only by the `run` action)
+docker/seccomp/builder.json
 
-  This file is not part of the Docker image; it ships as part of the
-  action's own source and is loaded directly by run/src/lib/isolated-exec.js.
-  It is generated offline (not at image build time) from moby/profiles'
-  default seccomp profile, resolved against an empty capability set with
-  the exported `LoadProfile` function.
+  This file is not part of any Docker image; it ships as part of the action's
+  own source and is read by the Docker client on the runner, via the
+  `security_opt: seccomp=` entry in docker/compose.action.yaml. It is a
+  verbatim copy of moby/profiles' default seccomp profile, re-vendored offline
+  by `make seccomp_profile`, with entries appended for the syscalls runc needs
+  and that profile refuses at every capability.
 
   moby/profiles
     License : Apache License 2.0 (Apache-2.0)
@@ -139,3 +137,9 @@ Full license texts for these modules are available from their respective
 source repositories. The buildkit-proxy binary is statically compiled from
 source at image build time (see docker/explicit/buildkit-proxy/); no Go
 toolchain remains in the published image.
+
+------------------------------------------------------------------------------
+
+The Actions themselves bundle their npm dependencies into dist/*.cjs and
+report/dist/main.cjs. Those licenses are reproduced in full in
+THIRD_PARTY_LICENSES_NPM.

@@ -2,8 +2,8 @@
  * Unit tests for core/lib/provenance/signed-digest.ts
  *
  * assertSignedDigest() is pure synchronous logic and is fully unit-tested here.
- * sigstore.ts's verifyBundle() requires a live TUF network call; that path
- * is covered by end-to-end / integration tests instead.
+ * sigstore.ts's verifyBundle(), which calls it, is covered in sigstore.test.ts
+ * against a mocked trust root and verifier.
  *
  * Run with: vp test run core/lib/provenance/signed-digest.test.ts
  */
@@ -58,7 +58,7 @@ function makeBundle(signedDigest: string, { payloadType, subjects }: MakeBundleO
   return { dsseEnvelope: dsse };
 }
 
-describe("assertSignedDigest — simple-signing (legacy)", () => {
+describe("assertSignedDigest: simple-signing (legacy)", () => {
   it("passes when the signed digest matches the expected digest", () => {
     expect(() => assertSignedDigest(makeBundle(DIGEST), DIGEST)).not.toThrow();
   });
@@ -122,7 +122,7 @@ describe("assertSignedDigest — simple-signing (legacy)", () => {
 
 const IN_TOTO = "application/vnd.in-toto+json";
 
-describe("assertSignedDigest — in-toto Statement v1 (cosign --new-bundle-format)", () => {
+describe("assertSignedDigest: in-toto Statement v1 (cosign --new-bundle-format)", () => {
   it("passes when subject[0].digest.sha256 matches the expected digest", () => {
     expect(() =>
       assertSignedDigest(makeBundle(DIGEST, { payloadType: IN_TOTO }), DIGEST),
@@ -175,5 +175,15 @@ describe("assertSignedDigest — in-toto Statement v1 (cosign --new-bundle-forma
       expect(err).toBeInstanceOf(VerifyImageError);
       expect((err as VerifyImageError).code).toBe("VERIFY_FAILED");
     }
+  });
+});
+
+describe("an in-toto payload with no subject at all", () => {
+  it("refuses it rather than treating the empty list as a match", () => {
+    const payload = Buffer.from(JSON.stringify({}), "utf8").toString("base64");
+    const bundle = {
+      dsseEnvelope: { payloadType: "application/vnd.in-toto+json", payload },
+    };
+    expect(() => assertSignedDigest(bundle, DIGEST)).toThrow(/does not match/);
   });
 });

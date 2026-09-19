@@ -8,6 +8,12 @@ ARG COREDNS_VERSION=1.14.7
 ARG COREDNS_SHA256_AMD64=9a09356438c6d9591cb80011a2a7a52f87fc3a113f6690e41f243f98b98faac9
 ARG COREDNS_SHA256_ARM64=bf26782d19b5340e3e6cb50f1ed6df72f58e4a30932c79d167f0f0a8b1e92e16
 
+# The BuildKit base is a release behind and carries HAProxy 3.2, whose resolver
+# defaults are not the ones the generated config is written against.
+# renovate: datasource=docker depName=alpine
+ARG HAPROXY_ALPINE_BRANCH=3.24
+ARG HAPROXY_BRANCH=3.4
+
 # Prepare dependencies
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS deps
 ARG CNI_VERSION
@@ -33,7 +39,7 @@ RUN apk add --no-cache curl && \
 # Build the runc wrapper (statically linked). --platform=$BUILDPLATFORM keeps
 # the Go toolchain on the build host's own architecture; GOOS/GOARCH then
 # cross-compile for the target.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS runc-wrapper-build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS runc-wrapper-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -52,7 +58,6 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
 COPY rolldown.scripts.config.js ./
 COPY src/core/ ./src/core/
-COPY docker/lib/ ./docker/lib/
 COPY docker/inspect/scripts/ ./docker/inspect/scripts/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm run build:scripts
@@ -65,23 +70,52 @@ LABEL org.opencontainers.image.title="buildcage (inspect proxy engine)" \
       org.opencontainers.image.licenses="MIT AND Apache-2.0 AND GPL-2.0-or-later AND ISC" \
       org.opencontainers.image.source="https://github.com/buildcage/docker" \
       io.github.buildcage.report-source="true"
-# report finds this container by this label — must match src/core/lib/docker/report-source.ts.
+# report finds this container by this label; must match src/core/lib/docker/report-source.ts.
+
+RUN apk add --no-cache \
+      s6-overlay \
+      openssl \
+      iptables \
+      curl \
+      quickjs-ng \
+      rsync
 
 # haproxy carries what this engine needs in one binary: it tells a TLS
 # handshake from a plain request by its first bytes, generates certificates for
 # an SNI, resolves names itself, and normalises a path before matching it.
+#
+# Its own apk call so the extra repository serves this package alone; naming the
+# branch is what makes apk fail rather than warn and fall back to the base's
+# own. Drop the repository once the base's Alpine carries this branch.
+ARG HAPROXY_ALPINE_BRANCH
+ARG HAPROXY_BRANCH
 RUN apk add --no-cache \
-      s6-overlay \
-      haproxy \
-      openssl \
-      iptables \
-      quickjs-ng
+      --repository https://dl-cdn.alpinelinux.org/alpine/v${HAPROXY_ALPINE_BRANCH}/main \
+      "haproxy~${HAPROXY_BRANCH}"
 
 ENV S6_KEEP_ENV=1
 ENV S6_LOGGING=0
+# Every oneshot here sets something up that the cage depends on, so a failed one
+# has to take the container down rather than leave it running and apparently
+# healthy while buildkitd is silently absent.
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+# Bounds the start transition itself, which otherwise waits forever on a service
+# that never reports ready.
+ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=90000
+# Shutdown sleeps this long unconditionally between its SIGTERM and SIGKILL, so
+# the default 3000 costs every teardown 3s. The services stop in under 1s.
+ENV S6_KILL_GRACETIME=500
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
+
+# CoreDNS answers queries the build controls, so it must not run as root.
+# setcap keeps :53 bindable once it has dropped.
+RUN apk add --no-cache --virtual .setcap libcap-utils && \
+    addgroup -S coredns && adduser -S -D -H -G coredns coredns && \
+    setcap cap_net_bind_service=+ep /usr/local/bin/coredns && \
+    apk del .setcap
+
 COPY --from=runc-wrapper-build /out/buildcage-runc /opt/buildcage/bin/buildcage-runc
 
 RUN mkdir -p /etc/buildkit /etc/coredns /etc/haproxy /var/log/haproxy \
@@ -92,7 +126,7 @@ COPY docker/inspect/files/cni.conflist   /etc/buildkit/cni.conflist
 # Generated at startup from the rule inputs, both by the same run.
 COPY --from=scripts-build /build/dist/qjs/docker/inspect/scripts/gen-configs.js /opt/buildcage/scripts/gen-configs.js
 
-# report-action.js — the runner-side report generator `docker cp`'d out by
+# report-action.js is the runner-side report generator `docker cp`'d out by
 # the report action itself (never staged elsewhere); see its own header
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/inspect/scripts/report-action.js /opt/buildcage/scripts/report-action.js

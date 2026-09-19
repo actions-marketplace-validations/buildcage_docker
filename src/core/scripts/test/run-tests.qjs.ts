@@ -1,6 +1,6 @@
 /**
  * Runs every *.test.js file found (non-recursively) in each given
- * directory, in a single qjs process — qjs itself only accepts one file
+ * directory, in a single qjs process. qjs itself only accepts one file
  * argument, so this replaces invoking qjs once per test file.
  *
  * Usage: qjs --std -m run-tests.qjs.js <dir> [<dir> ...]

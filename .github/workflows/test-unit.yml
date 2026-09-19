@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
@@ -25,6 +29,9 @@ jobs:
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
+          # dist/**, THIRD_PARTY_LICENSES_NPM and action.yml are listed as what
+          # unit_test verifies, not as inputs to it: this job holds the only
+          # check that the committed bundles match the source.
           filters: |
             unit_test:
               - 'package.json'
@@ -35,13 +42,18 @@ jobs:
               - 'tsconfig.json'
               - 'tsconfig.qjs.json'
               - 'vite.config.ts'
+              - '.glf.jsonc'
               - '.dockerignore'
-              - '.github/actions/setup-vp/**'
+              - '.github/actions/**'
               - '.github/workflows/test-unit.yml'
               - 'src/**'
               - 'docker/**'
               - 'report/**'
+              - 'licenses/**'
               - 'Makefile'
+              - 'dist/**'
+              - 'THIRD_PARTY_LICENSES_NPM'
+              - 'action.yml'
 
   unit_test:
     needs: changes
@@ -58,30 +70,57 @@ jobs:
 
       - uses: ./.github/actions/setup-vp
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          # setup-go looks for go.mod at the workspace root by default and
+          # warns that it found none. buildcage-runc and covfilter have no
+          # dependencies at all, so buildkit-proxy's go.sum is the whole cache key.
+          cache-dependency-path: docker/explicit/buildkit-proxy/go.sum
+
+      - name: Test buildcage-runc (inspect engine)
+        run: make test_unit_go_coverage
+
+      - name: Test covfilter
+        working-directory: test/covfilter
+        run: go test ./...
+
+      # No -cover here: vet rejects the cover tool's rewrite of the two
+      # //go:build-constrained files in this package ("possible malformed
+      # +build comment"), and -vet=off would cost more than the number is
+      # worth for a deprecated engine.
+      - name: Test buildkit-proxy (explicit engine)
+        working-directory: docker/explicit/buildkit-proxy
+        run: go test ./...
+
       - name: Typecheck
         run: vp run typecheck
 
       - name: Check (lint/format)
         run: vp check
 
-      - name: Build
-        run: vp run build
+      - uses: ./.github/actions/verify-dist
 
-      - name: Check dist is up to date
-        run: git diff --exit-code
-
-      - name: Check dist is free of the BUILDCAGE_BUILD_TEST_HOOKS test hooks
+      - name: Check the builder's seccomp profile matches its pin
         run: |
-          for f in dist/main.cjs dist/post.cjs report/dist/main.cjs; do
-            if grep -q 'process\.env\.BUILDCAGE_BUILD_TEST_HOOKS' "$f"; then
-              echo "::error::$f still contains a live process.env.BUILDCAGE_BUILD_TEST_HOOKS read — rolldown's replacePlugin failed to substitute it (see rolldown.config.js), leaving a test-only hook reachable in a published action. Do not merge until this passes."
-              exit 1
-            fi
-            echo "confirmed: $f has no live BUILDCAGE_BUILD_TEST_HOOKS read — its test hooks are unreachable in this build."
-          done
+          make seccomp_profile
+          git diff --exit-code -- docker/seccomp/builder.json
 
-      - name: Run unit tests
-        run: make test_unit
+      - name: Run unit tests (with coverage)
+        run: make test_unit_coverage
+
+      - name: Publish the coverage summary
+        run: |
+          {
+            echo '### Unit test coverage'
+            echo
+            echo '```'
+            cat coverage/summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run unit tests under QuickJS
+        run: make test_unit_qjs
 
   # Single, stably-named required status check for branch protection: the
   # matrix-based integration/e2e jobs live in their own workflow files (see

@@ -1,13 +1,14 @@
 import type { AllowedRequest } from "#core/lib/log/proxy-request-text.ts";
 import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
 import type { DeniedEntry } from "../types.ts";
+import { wrapCommunicationDetails } from "./communication-section.ts";
 
 /**
  * Render the explicit engine's communication detail as a collapsed markdown
  * section, or "" if there's nothing to show. Allowed Urls is listed before
  * Blocked Urls, matching the Allowed Hosts / Blocked Hosts tables above.
  *
- * Blocked entries aren't attributed to a specific RUN step — buildkitd's
+ * Blocked entries aren't attributed to a specific RUN step: buildkitd's
  * denial log carries no vertex/span identifier to attribute it with. A
  * "Build N" item separates builds only when there's more than one, since
  * step labels like "[2/15] RUN ..." repeat across builds.
@@ -21,12 +22,12 @@ export function renderCommunicationDetails(
 ): string {
   const body = renderCommunicationDetailsBody(builds, deniedTimeline);
   if (!body) return "";
-  return `\n<details>\n<summary>💬 Communication details</summary>\n\n${body}</details>\n`;
+  return wrapCommunicationDetails(body);
 }
 
 /**
  * The same content with no `<details>`/`<summary>` wrapper, or "" if
- * there's nothing to show -- for a plain-text destination like the job log,
+ * there's nothing to show, for a plain-text destination like the job log,
  * where those HTML tags render as literal text rather than a collapsible
  * section (unlike the Job Summary, which is what the wrapper is for).
  */
@@ -87,7 +88,7 @@ function renderRequestLine({ method, url, status }: AllowedRequest): string {
 // Escapes the markdown syntax characters that could actually alter rendering
 // in the contexts this module embeds text into (bold headers, list items,
 // italic captions): backslash (escaped first, so it can't double-escape the
-// others), backtick (code spans), asterisk/underscore (emphasis — the text
+// others), backtick (code spans), asterisk/underscore (emphasis: the text
 // is already wrapped in "**...**" here, so an embedded one could prematurely
 // close it), square brackets and angle brackets (link/autolink/HTML syntax).
 // Deliberately narrower than a "full" markdown escaper (e.g. doesn't touch
@@ -98,7 +99,7 @@ function escapeMarkdown(text: string): string {
 }
 
 // Whole-second precision, matching what buildkitd's own denial log records
-// (no fractional seconds) — used for vertex started times too, for consistency.
+// (no fractional seconds), used for vertex started times too, for consistency.
 function formatSeconds(iso: string): string {
   return new Date(iso).toISOString().slice(11, 19) + "Z";
 }

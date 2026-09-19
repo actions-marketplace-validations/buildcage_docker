@@ -2,16 +2,17 @@
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 
+LOGS=$(builder_log haproxy)
+
 echo ""
 echo "=== Zero-Traffic Restrict Mode Assertions ==="
 echo ""
 
 echo "[haproxy log] no traffic, but the guaranteed startup marker is present:"
 if grep -qF "buildcage haproxy starting" <<< "$LOGS"; then
-  echo "  PASS  startup marker found"
+  pass "startup marker found"
 else
-  echo "  FAIL  startup marker not found in haproxy log"
-  FAILURES=$((FAILURES + 1))
+  fail "startup marker not found in haproxy log"
 fi
 echo ""
 
@@ -31,23 +32,22 @@ REPORT_OUTPUT=$(GITHUB_STEP_SUMMARY= INPUT_FAIL_ON_BLOCKED=true node report/src/
 
 echo "[report action] exits successfully despite zero traffic:"
 if [ "$REPORT_EXIT_CODE" -eq 0 ]; then
-  echo "  PASS  report exited 0"
+  pass "report exited 0"
 else
-  echo "  FAIL  report exited $REPORT_EXIT_CODE"
+  fail "report exited $REPORT_EXIT_CODE"
   echo "$REPORT_OUTPUT"
-  FAILURES=$((FAILURES + 1))
 fi
 echo ""
 
 echo "[report action] no false-positive blocked-connection error:"
-if grep -qF "blocked connection(s) detected" <<< "$REPORT_OUTPUT"; then
-  echo "  FAIL  unexpected blocked-connection message in report output"
+# Both annotations the head check can produce: the blocked-connection one and
+# the incomplete-log one it is replaced by when the marker is missing.
+if grep -qE "blocked connection\(s\) detected|logs are incomplete" <<< "$REPORT_OUTPUT"; then
+  fail "unexpected blocked-connection or incomplete-log message in report output"
   echo "$REPORT_OUTPUT"
-  FAILURES=$((FAILURES + 1))
 else
-  echo "  PASS  no blocked-connection message"
+  pass "no blocked-connection or incomplete-log message"
 fi
 echo ""
 
 assert_results
-echo ""

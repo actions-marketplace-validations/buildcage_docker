@@ -6,8 +6,7 @@
  * old content into a new `@<timestamp>.<letter>` file in the same
  * directory (see the haproxy-log/coredns-log `run` scripts). Reading only
  * `current` silently drops everything before the last rotation once a build
- * produces enough log traffic to cross that threshold — this is what report
- * generation did before this file existed.
+ * produces enough log traffic to cross that threshold.
  */
 import type { Docker } from "./client.ts";
 

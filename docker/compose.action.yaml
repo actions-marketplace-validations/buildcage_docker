@@ -2,9 +2,10 @@ services:
   builder:
     container_name: ${BUILDER_NAME:-buildcage}
     image: ${BUILDCAGE_IMAGE_REF:-placeholder}
-    # Instead of privileged: true, grant only the minimum privileges required
-    # to run BuildKit and iptables. This avoids granting full device access
-    # and unrestricted /sys write permissions that privileged mode includes.
+    # Not privileged, unlike docker/setup-buildx-action's own builder: these
+    # three are all BuildKit needs, and a writable host /proc and /sys stay out.
+    # Devices are refused by the device cgroup, which only a step that has
+    # escaped runc could lift; privileged allows them outright.
     #
     # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
     # iptables and CNI networking require NET_ADMIN.
@@ -13,17 +14,17 @@ services:
       - SYS_ADMIN
       - NET_ADMIN
       - SYS_PTRACE
-    # BuildKit/runc needs syscalls (mount, unshare, pivot_root) blocked by
-    # default seccomp and AppArmor profiles.
+    # AppArmor has to be off: docker-default refuses every mount regardless of
+    # capabilities, and a replacement profile would have to be loaded into the
+    # host kernel. Seccomp does not: builder.json is Docker's own default plus
+    # what runc needs (see docker/seccomp/gen-profile.mjs).
     security_opt:
-      - seccomp=unconfined
+      - seccomp=./seccomp/builder.json
       - apparmor=unconfined
-    # Share the host's cgroup namespace so BuildKit can manage cgroups for
-    # build containers. The volume mount makes /sys/fs/cgroup writable
-    # (read-only by default in non-privileged containers).
-    cgroup: host
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    # Pinned, not left to the daemon's default-cgroupns-mode: under `host` the
+    # remount in each engine's init-cgroup would land on the host's own cgroup
+    # tree.
+    cgroup: private
     environment:
       - PROXY_MODE=${PROXY_MODE:-restrict}
       - ALLOWED_HTTPS_RULES=${ALLOWED_HTTPS_RULES:-}
@@ -31,8 +32,20 @@ services:
       - ALLOWED_IP_RULES=${ALLOWED_IP_RULES:-}
       # inspect only: it is the one engine that can see a method or a path.
       - ALLOWED_URL_RULES=${ALLOWED_URL_RULES:-}
-      - ALLOW_TLS_RULES=${ALLOW_TLS_RULES:-}
+      - ALLOWED_TLS_RULES=${ALLOWED_TLS_RULES:-}
       - KNOWN_BLOCKED_RULES=${KNOWN_BLOCKED_RULES:-}
-      - EXTERNAL_RESOLVER=${EXTERNAL_RESOLVER:-}
+      # Runner addresses the engine refuses as a resolved destination.
+      - HOST_ADDRESSES=${HOST_ADDRESSES:-}
       - PROXY_ENGINE=${PROXY_ENGINE:-universal}
-    restart: unless-stopped
+    # `--wait` would otherwise return on "running" alone, which says nothing
+    # about buildkitd. buildctl works in all three engines. No restart policy
+    # goes with it: a container that stopped itself has to stay stopped for the
+    # wait to see it.
+    healthcheck:
+      test: ["CMD", "buildctl", "debug", "workers"]
+      interval: 5s
+      # Every start pays this before the first probe, and buildkitd answers in ~1.2s.
+      start_interval: 250ms
+      timeout: 10s
+      retries: 3
+      start_period: 120s

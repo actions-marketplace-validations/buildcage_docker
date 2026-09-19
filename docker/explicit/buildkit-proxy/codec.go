@@ -12,8 +12,8 @@ import (
 const rawCodecName = "proxy"
 
 // rawCodec lets a single grpc.Server handle both a fully-typed method (Solve,
-// using real generated proto types, so fields we never touch — like the LLB
-// Definition graph — round-trip byte-for-byte automatically) and a generic
+// using real generated proto types, so fields it never touches, such as the
+// LLB Definition graph, round-trip byte-for-byte automatically) and a generic
 // passthrough for every other method (using *frame, which carries the raw
 // wire bytes untouched).
 type rawCodec struct{}

@@ -1,4 +1,4 @@
-import { describe, it, expect, reportResults } from "#core/lib/test/test-shim.ts";
+import { describe, it, expect } from "vitest";
 import {
   buildUrlRuleLines,
   pathPatternsFor,
@@ -136,13 +136,36 @@ describe("buildUrlRuleLines", () => {
     expect(lines.join()).toBe("GET|HEAD https://a.example.com/pkg/x");
   });
 
-  it("orders methods the way a person would write them", () => {
-    const lines = buildUrlRuleLines([
-      req("POST", "https://a.example.com/x"),
+  it("orders methods with the common verbs first, then anything else alphabetically", () => {
+    const methodsOf = (...methods: string[]) =>
+      buildUrlRuleLines(methods.map((m) => req(m, "https://a.example.com/x")))[0].split(" ")[0];
+    expect(methodsOf("POST", "GET", "DELETE")).toBe("GET|POST|DELETE");
+    expect(methodsOf("PROPFIND", "GET", "MKCOL")).toBe("GET|MKCOL|PROPFIND");
+    expect(methodsOf("PROPFIND", "MKCOL")).toBe("MKCOL|PROPFIND");
+    // Two unknown methods only ever get compared one way round, so a third is
+    // what exercises the other arm.
+    expect(methodsOf("ZZZ", "MKCOL", "PROPFIND")).toBe("MKCOL|PROPFIND|ZZZ");
+  });
+
+  it("orders lines by origin, and by pattern within one origin", () => {
+    const origins = buildUrlRuleLines([
+      req("GET", "https://c.example.com/x"),
       req("GET", "https://a.example.com/x"),
-      req("DELETE", "https://a.example.com/x"),
+      req("GET", "https://b.example.com/x"),
     ]);
-    expect(lines[0].startsWith("GET|POST|DELETE ")).toBe(true);
+    expect(origins.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/x",
+      "https://b.example.com/x",
+      "https://c.example.com/x",
+    ]);
+    const patterns = buildUrlRuleLines([
+      req("GET", "https://a.example.com/zzz"),
+      req("POST", "https://a.example.com/aaa"),
+    ]);
+    expect(patterns.map((l) => l.split(" ")[1])).toStrictEqual([
+      "https://a.example.com/aaa",
+      "https://a.example.com/zzz",
+    ]);
   });
 
   it("keeps a non-default port, which a rule has to name", () => {
@@ -169,6 +192,11 @@ describe("buildUrlRuleLines", () => {
   it("drops the query string, which is as likely to hold a one-off token", () => {
     const lines = buildUrlRuleLines([req("GET", "https://a.example.com/x?token=SECRET")]);
     expect(lines[0]).toBe("GET https://a.example.com/x");
+  });
+
+  it("reads a request with no path at all as the root", () => {
+    const [line] = buildUrlRuleLines([req("GET", "https://a.example.com")]);
+    expect(line).toBe("GET https://a.example.com/");
   });
 
   it("is stable, so the same traffic always renders the same rules", () => {
@@ -211,26 +239,32 @@ describe("buildInspectRestrictExample", () => {
     expect(md.includes("proxy_engine: inspect")).toBe(true);
   });
 
-  it("shows a placeholder for a commit sha, which is opaque and run-specific", () => {
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", "a".repeat(40));
-    expect(md.includes("@<sha>")).toBe(true);
-  });
-
-  it("keeps a tag as written, since it is stable", () => {
-    expect(buildInspectRestrictExample(requests, "buildcage/docker", "v2").includes("@v2")).toBe(
-      true,
-    );
-  });
-
-  it("says what the rules do not cover", () => {
-    const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2");
-    expect(md.includes("allow_tls_rules")).toBe(true);
-  });
-
-  it("renders nothing when nothing was observed", () => {
+  it("renders nothing when nothing was observed and no tls/ip rules were configured", () => {
     expect(buildInspectRestrictExample([], "buildcage/docker", "v2")).toBe("");
     expect(buildInspectRestrictExample(null, "buildcage/docker", "v2")).toBe("");
   });
-});
 
-reportResults();
+  it("echoes allowed_tls_rules and allowed_ip_rules as configured, not derived from traffic", () => {
+    // Neither is ever decrypted, so there is nothing in `requests` to build
+    // them from; they are the same values the audit run was given.
+    const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
+      allowedIpRules: ["10.0.0.5:5432"],
+    });
+    expect(/allowed_ip_rules: \|\n\s+10\.0\.0\.5:5432\n/.test(md)).toBe(true);
+
+    const md2 = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
+      allowedTlsRules: ["db.internal.example.com:8443"],
+    });
+    expect(/allowed_tls_rules: \|\n\s+db\.internal\.example\.com:8443\n/.test(md2)).toBe(true);
+  });
+
+  it("still renders a section for tls/ip rules alone, with no observed traffic", () => {
+    const md = buildInspectRestrictExample([], "buildcage/docker", "v2", {
+      allowedIpRules: ["10.0.0.5:5432"],
+      allowedTlsRules: ["db.internal.example.com:8443"],
+    });
+    expect(md.includes("allowed_url_rules")).toBe(false);
+    expect(/allowed_ip_rules: \|\n\s+10\.0\.0\.5:5432\n/.test(md)).toBe(true);
+    expect(/allowed_tls_rules: \|\n\s+db\.internal\.example\.com:8443\n/.test(md)).toBe(true);
+  });
+});

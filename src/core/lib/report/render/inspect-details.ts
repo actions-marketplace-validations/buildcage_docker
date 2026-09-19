@@ -1,67 +1,119 @@
-import { isRedundantBlockedDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { formatElapsedVariable } from "../elapsed-time.ts";
+import { wrapCommunicationDetails } from "./communication-section.ts";
 
 /**
  * Render the communication detail as a collapsed markdown section, or "" if
- * empty. One timeline, allowed and refused interleaved. Name lookups that only
- * resolved are dropped (the request that followed already shows the name); a
- * refused name is kept only while it is its own sole trace, and dropped once
- * a refused request for the same name shows up too.
+ * empty. One timeline, allowed and refused interleaved. A name lookup is kept
+ * only while it is its own sole trace, and dropped once a connection to the
+ * same name shows up too. A discovery lookup is always its own sole trace,
+ * since nothing connects to `_service._proto.<host>`, so it always shows.
+ *
+ * A URL keeps its query, except for the parameters named in
+ * CREDENTIAL_PARAMS, whose values are replaced.
  *
  * `startedAt` is when the proxy itself started (seconds since the epoch),
  * so every event reads as time elapsed since then rather than an absolute
  * clock reading nobody has a reference point for. Undefined only when the
- * log never showed a startup marker at all (logLooksPlausible false) --
- * that rare case falls back to the old absolute-time rendering rather than
- * inventing a start time it does not have.
+ * log never showed a startup marker at all; that rare case falls back to
+ * absolute-time rendering rather than inventing a start time it does not
+ * have.
  */
 export function renderInspectDetails(
   timeline: TrafficEvent[],
   startedAt: number | undefined,
 ): string {
-  const body = renderInspectDetailsBody(timeline, startedAt);
-  if (!body) return "";
+  const connected = connectedHosts(timeline);
+  const shown = timeline.filter((e) => !isRedundantDns(e, connected));
+  if (shown.length === 0) return "";
+
+  const body = shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
   // A fenced block, so URLs need no markdown escaping and stay copy-pastable.
-  return `\n<details>\n<summary>💬 Communication details</summary>\n\n\`\`\`\n${body}\`\`\`\n\n</details>\n`;
+  return wrapCommunicationDetails(`\`\`\`\n${body}\`\`\`\n\n`);
+}
+
+const MARK: Record<string, string> = { block: "🚫", discovery: "ℹ️" };
+
+function renderEvent(event: TrafficEvent, startedAt: number | undefined): string {
+  const mark = MARK[event.action] ?? "✅";
+  return `${mark} ${formatTime(event.time, startedAt)}: ${subject(event)} -> ${outcome(event)}`;
 }
 
 /**
- * The same content with no `<details>`/`<summary>` wrapper and no fenced
- * code block, or "" if there's nothing to show -- for a plain-text
- * destination like the job log, where both would render as literal text
- * rather than the collapsible, syntax-highlighted section they give the
- * Job Summary.
+ * Query parameters whose value is a credential often enough that printing it
+ * is the greater risk: a presigned URL's signature or an API key reaches
+ * everyone who can read the run, and GitHub masks only values registered as
+ * workflow secrets.
+ *
+ * Matched on the name alone, case-insensitively, so a parameter this does not
+ * name keeps its value. That covers most of what a refused request was trying
+ * to send, but not an exfiltration payload the sender happened to call `code`
+ * or `key`; the traffic artifact and the proxy's own log keep every value
+ * verbatim, and are where a suspected payload is read.
  */
-export function renderInspectDetailsBody(
-  timeline: TrafficEvent[],
-  startedAt: number | undefined,
-): string {
-  const shown = timeline.filter(
-    (e) => (e.protocol !== "dns" || e.action === "block") && !isRedundantBlockedDns(e, timeline),
-  );
-  if (shown.length === 0) return "";
+const CREDENTIAL_PARAMS = new Set([
+  "access_token",
+  "api_key",
+  "apikey",
+  "auth",
+  "client_secret",
+  "code",
+  "id_token",
+  "key",
+  "password",
+  "private_token",
+  "refresh_token",
+  "secret",
+  "sig",
+  "signature",
+  "token",
+  "x-amz-security-token",
+  "x-amz-signature",
+  "x-goog-signature",
+]);
 
-  return shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
-}
+/**
+ * The URL with those values replaced and everything else left alone, so the
+ * host, the path and the parameter names still read as they were sent. An
+ * empty value stays empty rather than becoming `***`, which would claim a
+ * secret that was never there.
+ */
+function redactCredentialQuery(url: string): string {
+  const start = url.indexOf("?");
+  if (start === -1) return url;
+  const hash = url.indexOf("#", start);
+  const end = hash === -1 ? url.length : hash;
 
-function renderEvent(event: TrafficEvent, startedAt: number | undefined): string {
-  const mark = event.action === "block" ? "🚫" : "✅";
-  return `${mark} ${formatTime(event.time, startedAt)}: ${subject(event)} -> ${outcome(event)}`;
+  const query = url
+    .slice(start + 1, end)
+    .split("&")
+    .map((param) => {
+      const eq = param.indexOf("=");
+      if (eq === -1 || eq === param.length - 1) return param;
+      const name = param.slice(0, eq);
+      return CREDENTIAL_PARAMS.has(name.toLowerCase()) ? `${name}=***` : param;
+    })
+    .join("&");
+
+  return url.slice(0, start + 1) + query + url.slice(end);
 }
 
 /** What was asked for, in the most specific form available. */
 function subject(event: TrafficEvent): string {
+  // The type is what tells a fallback nobody notices from an outright failure.
+  if (event.queryType !== undefined) return `DNS ${event.queryType} ${event.host}`;
   if (event.protocol === "dns") return `DNS ${event.host}`;
   // A passthrough is never decrypted, so a name and a port is all there is.
   if (event.url === undefined) {
     return `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
   }
-  return `${event.method} ${event.url}`;
+  return `${event.method} ${redactCredentialQuery(event.url)}`;
 }
 
 /** What came of it: a refusal names its reason, anything else its result. */
 function outcome(event: TrafficEvent): string {
   if (event.action === "block") return event.reason ?? "blocked";
+  if (event.action === "discovery") return `no data (${event.queryType} is never served)`;
   const parts: string[] = [];
   if (event.status !== undefined) parts.push(String(event.status));
   if (event.bytes !== undefined) parts.push(`(${formatBytes(event.bytes)})`);
@@ -70,7 +122,7 @@ function outcome(event: TrafficEvent): string {
 }
 
 /**
- * Elapsed since the proxy started, to the millisecond -- several requests
+ * Elapsed since the proxy started, to the millisecond: several requests
  * routinely land in the same second, and only this engine's log carries the
  * resolution to tell them apart. Falls back to absolute UTC only when there
  * is no start time to be relative to.

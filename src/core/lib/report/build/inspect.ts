@@ -1,5 +1,5 @@
 import { scanInspectLog, scanInspectDnsLog } from "#core/lib/log/inspect.ts";
-import { isRedundantBlockedDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { aggregate, type LogEntry } from "#core/lib/log/aggregate.ts";
 import { annotateKnownBlocked } from "./aggregate.ts";
 import type { GenReportParameters, InspectReportData } from "../types.ts";
@@ -26,7 +26,7 @@ function toHostRow(event: TrafficEvent): LogEntry {
 }
 
 /**
- * Build the report data from the proxy and resolver logs. Pure -- the caller
+ * Build the report data from the proxy and resolver logs. Pure: the caller
  * fetches both logs and the parameters.
  *
  * The resolver log matters because a refused name never reached the proxy, so
@@ -41,9 +41,12 @@ export async function buildInspectReportData(
 ): Promise<InspectReportData> {
   const isAudit = parameters.mode === "audit";
   // Independent inputs (separate `docker exec` log streams, no data
-  // dependency between them) -- read concurrently rather than paying their
+  // dependency between them), so read concurrently rather than paying their
   // combined latency serially.
-  const [{ events: proxyEvents, startedAt }, dnsEvents] = await Promise.all([
+  const [
+    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact, unparsed },
+    { events: dnsEvents, headIntact: dnsHeadIntact },
+  ] = await Promise.all([
     scanInspectLog(proxyLines, isAudit),
     scanInspectDnsLog(dnsLines, isAudit),
   ]);
@@ -52,13 +55,14 @@ export async function buildInspectReportData(
 
   const passedRows: LogEntry[] = [];
   const blockedRows: LogEntry[] = [];
+  const connected = connectedHosts(timeline);
   for (const event of timeline) {
-    // A name that merely resolved is not traffic; the request that followed it
-    // is already in the table, and listing both would double every row. The
-    // same holds for a blocked name once a blocked request for it also
-    // appears.
-    if (event.protocol === "dns" && event.action !== "block") continue;
-    if (isRedundantBlockedDns(event, timeline)) continue;
+    // Decided by no rule, so it belongs in neither table. The timeline keeps it.
+    if (event.action === "discovery") continue;
+    // A lookup the build then connected on only doubles the connection's row.
+    // One with no connection behind it is the sole trace of a name reached for
+    // and never used, in audit as much as in restrict.
+    if (isRedundantDns(event, connected)) continue;
     (event.action === "block" ? blockedRows : passedRows).push(toHostRow(event));
   }
 
@@ -72,7 +76,10 @@ export async function buildInspectReportData(
     // Every blocked event is counted, not just the distinct hosts the table
     // collapses them into.
     blockedCount: blockedRows.length,
-    logLooksPlausible: startedAt !== undefined,
+    // A refused name is only ever in the resolver log, so either log losing
+    // its beginning loses evidence the other cannot vouch for. A line this
+    // cannot read is the same gap mid-log: it may well have been a refusal.
+    logLooksPlausible: proxyHeadIntact && dnsHeadIntact && unparsed === 0,
     startedAt,
     timeline,
   };

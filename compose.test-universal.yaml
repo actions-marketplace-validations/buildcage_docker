@@ -2,9 +2,21 @@ services:
   # Point builder's resolver to test-dns + configure test rules
   builder:
     environment:
+      - TEST_NET_ADDR=10.200.0.2/24
+      - TEST_NET_SUBNET=${TEST_NET_SUBNET:-10.210.0.0/24}
       - EXTERNAL_RESOLVER=10.200.0.53
-      - ALLOWED_HTTPS_RULES=allowed.example.com:443 allowed.example.com:8443 *.wildcard.example.com:443 *.wildcard.example.com:8443 registry.npmjs.org:443
+      # These tests drive compose directly, so this stands in for what the
+      # action computes. Nothing answers on it, so only the guard can block it.
+      - HOST_ADDRESSES=10.200.0.199
+      # The first `~` rule is deliberately written without anchors, so a build
+      # reaching `not-ok.regex.example.com` proves they are supplied.
+      - ALLOWED_HTTPS_RULES=allowed.example.com:443 allowed.example.com:8443 *.wildcard.example.com:443 *.wildcard.example.com:8443 ~ok\.regex\.example\.com:443 ~^ports\.regex\.example\.com:(443|8443)$
       - ALLOWED_HTTP_RULES=allowed.example.com:80 allowed.example.com:8080 *.wildcard.example.com:80 *.wildcard.example.com:8080
+    # Wrapped here rather than in the image: the builder is the product image
+    # and carries no test-only setup.
+    entrypoint: ["/test-hooks/attach-test-net-addr.sh", "/init"]
+    volumes:
+      - ./test/test-net-addr/attach.sh:/test-hooks/attach-test-net-addr.sh:ro
     networks:
       default:
       test-net:
@@ -12,19 +24,27 @@ services:
   # Test HTTP server (with self-signed certificate)
   test-server:
     build: test/test-server
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.100/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.100
 
   # DNS used by builder (resolves all domains to test-server)
   test-dns:
     build: test/test-dns
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TEST_NET_ADDR=10.200.0.53/24
     networks:
       test-net:
-        ipv4_address: 10.200.0.53
 
 networks:
+  # Pinned rather than auto-assigned: Docker's pool includes 172.20.0.0/16,
+  # which collides with the builder's CNI bridge inside its netns.
   test-net:
     ipam:
       config:
-        - subnet: 10.200.0.0/24
+        - subnet: ${TEST_NET_SUBNET:-10.210.0.0/24}

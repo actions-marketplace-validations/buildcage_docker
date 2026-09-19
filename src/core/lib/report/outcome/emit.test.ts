@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { emitBlockedOutcome } from "./emit.ts";
 import { annotateKnownBlocked } from "../build/aggregate.ts";
-import type { ReportDataCommon, GenReportParameters } from "../types.ts";
+import type { ReportDataCommon } from "../types.ts";
+import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 let prevExitCode: number | string | null | undefined;
 
@@ -15,20 +16,9 @@ afterEach(() => {
   process.exitCode = prevExitCode;
 });
 
-function parameters(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: [],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
-
 function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
   return {
-    parameters: parameters(),
+    parameters: reportParams(),
     passed: [],
     blocked: [],
     blockedCount: 0,
@@ -37,108 +27,75 @@ function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
   };
 }
 
-// The decision matrix itself is tested elsewhere; these only verify the
-// exit-code/annotation wiring.
+/** A report carrying the one blocked connection no rule accounts for. */
+function blockedReport(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
+  return report({
+    blockedCount: 1,
+    blocked: annotateKnownBlocked(
+      [
+        {
+          host: "bad.example.com",
+          port: "443",
+          ruleType: "HTTPS",
+          reason: "not in allowlist",
+          count: 1,
+        },
+      ],
+      [],
+    ),
+    ...overrides,
+  });
+}
+
+/** The annotations this call wrote to the job log, by level. */
+function captureAnnotations(run: () => void): { notices: string[]; errors: string[] } {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  run();
+  const lines = log.mock.calls.map((c) => c[0] as string);
+  return {
+    notices: lines.filter((s) => s.startsWith("::notice::")),
+    errors: lines.filter((s) => s.startsWith("::error::")),
+  };
+}
+
+// The decision matrix is blocked-outcome.ts's (tested there), and emitting the
+// decision is annotate.ts's (tested there). What is left here is the mapping
+// from a report to that decision, and the gate on summaryFile.
 describe("emitBlockedOutcome", () => {
-  it("leaves exitCode untouched when there are no blocked connections", () => {
-    emitBlockedOutcome(report(), { failOnBlocked: true, summaryFile: undefined });
+  it("leaves exitCode untouched and says nothing when there are no blocked connections", () => {
+    const { notices, errors } = captureAnnotations(() =>
+      emitBlockedOutcome(report(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
+    );
     expect(process.exitCode).toBe(undefined);
+    expect([...notices, ...errors]).toStrictEqual([]);
   });
 
-  it("sets exitCode=1 when an unexpected blocked connection is found and failOnBlocked is true", () => {
-    const r = report({
-      blockedCount: 1,
-      blocked: annotateKnownBlocked(
-        [
-          {
-            host: "bad.example.com",
-            port: "443",
-            ruleType: "HTTPS",
-            reason: "not in allowlist",
-            count: 1,
-          },
-        ],
-        [],
-      ),
-    });
-    emitBlockedOutcome(r, { failOnBlocked: true, summaryFile: undefined });
+  it("fails the step with an ::error:: for a blocked connection in restrict mode", () => {
+    const { notices, errors } = captureAnnotations(() =>
+      emitBlockedOutcome(blockedReport(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
+    );
     expect(process.exitCode).toBe(1);
+    expect(errors.length).toBe(1);
+    expect(notices.length).toBe(0);
   });
 
-  it("emits ::notice:: (not ::error::) when console output is enabled and outcome level is notice", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const r = report({
-      parameters: parameters({ mode: "audit" }),
-      blockedCount: 1,
-      blocked: annotateKnownBlocked(
-        [
-          {
-            host: "bad.example.com",
-            port: "443",
-            ruleType: "HTTPS",
-            reason: "not in allowlist",
-            count: 1,
-          },
-        ],
-        [],
-      ),
-    });
-    emitBlockedOutcome(r, { failOnBlocked: true, summaryFile: "/tmp/summary.md" });
-    const notices = log.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => s.startsWith("::notice::"));
-    const errors = log.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => s.startsWith("::error::"));
+  it("reads the report's own mode, so audit gets a ::notice:: and no failure", () => {
+    const { notices, errors } = captureAnnotations(() =>
+      emitBlockedOutcome(blockedReport({ parameters: reportParams({ mode: "audit" }) }), {
+        failOnBlocked: true,
+        summaryFile: "/tmp/summary.md",
+      }),
+    );
+    expect(process.exitCode).toBe(undefined);
     expect(notices.length).toBe(1);
     expect(errors.length).toBe(0);
   });
 
-  it("emits ::error:: when console output is enabled and outcome level is error", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const r = report({
-      blockedCount: 1,
-      blocked: annotateKnownBlocked(
-        [
-          {
-            host: "bad.example.com",
-            port: "443",
-            ruleType: "HTTPS",
-            reason: "not in allowlist",
-            count: 1,
-          },
-        ],
-        [],
-      ),
-    });
-    emitBlockedOutcome(r, { failOnBlocked: true, summaryFile: "/tmp/summary.md" });
-    const errors = log.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => s.startsWith("::error::"));
-    expect(errors.length).toBe(1);
-  });
-
-  it("suppresses annotation output when summaryFile is undefined (not running as the real action)", () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const r = report({
-      blockedCount: 1,
-      blocked: annotateKnownBlocked(
-        [
-          {
-            host: "bad.example.com",
-            port: "443",
-            ruleType: "HTTPS",
-            reason: "not in allowlist",
-            count: 1,
-          },
-        ],
-        [],
-      ),
-    });
-    emitBlockedOutcome(r, { failOnBlocked: true, summaryFile: undefined });
-    const annotations = log.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => s.startsWith("::notice::") || s.startsWith("::error::"));
-    expect(annotations.length).toBe(0);
+  it("still fails the step with no summaryFile, which only suppresses the annotation", () => {
+    const { notices, errors } = captureAnnotations(() =>
+      emitBlockedOutcome(blockedReport(), { failOnBlocked: true, summaryFile: undefined }),
+    );
+    expect(process.exitCode).toBe(1);
+    expect([...notices, ...errors]).toStrictEqual([]);
   });
 });

@@ -1,33 +1,41 @@
 /**
  * Log parsing library for HAProxy buildcage logs. aggregate() lives
- * separately in core/lib/log/aggregate.js and is not re-exported here.
+ * separately in core/lib/log/aggregate.ts and is not re-exported here.
  */
 import { createIncrementalAggregator, type AggregatedEntry } from "./aggregate.ts";
+import { splitHostPort } from "./authority.ts";
+import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export interface HaproxyLogScanResult {
-  /** ALLOWED entries in restrict mode, AUDIT entries in audit mode — never
+  /** ALLOWED entries in restrict mode, AUDIT entries in audit mode, never
    *  both (see `isAudit`). */
   passed: AggregatedEntry[];
   blocked: AggregatedEntry[];
-  /** Raw BLOCKED line count, pre-aggregation — distinct from blocked.length. */
+  /** Raw BLOCKED line count, pre-aggregation: distinct from blocked.length. */
   blockedCount: number;
-  /** True iff a non-blank line didn't match the buildcage decision format —
-   *  see the module doc below for what this signals. */
-  hasNonBuildcageContent: boolean;
+  /** True iff the log opens with the startup marker. Anything else means its
+   *  beginning is gone, rotated away or erased. Only the marker counts:
+   *  HAProxy's own output appears mid-run and could stand in for it. */
+  headIntact: boolean;
+  /** Lines carrying the decision marker yet matching none of the formats
+   *  below. Each is a decision the report cannot account for. */
+  unparsed: number;
 }
 
+// The quoted field and reason are restricted to the charset the generators
+// actually emit (host/IP/port, and a kebab-case reason), and the line is
+// anchored at both ends, so a forged target or reason is never parsed as a
+// decision.
 const logPattern =
-  /^\[.*?\]\s+buildcage\s+\[(AUDIT|ALLOWED|BLOCKED)\]\s+\((\w+)\)\s+"([^"]+)"\s*(\S*)/;
+  /^\[[^\]]*\]\s+buildcage\s+\[(AUDIT|ALLOWED|BLOCKED)\]\s+\((\w+)\)\s+"([A-Za-z0-9._:-]+)"\s*([A-Za-z0-9-]*)\s*$/;
+
+/** What a decision line carries and nothing else does: the startup marker has
+ *  no bracket after the name. A cut line keeps it, only its tail being lost. */
+const DECISION_MARKER = "buildcage [";
 
 /**
  * Single forward pass over the log: matching lines fold directly into
- * incremental aggregators (never collected into a flat array first), and
- * non-matching, non-blank lines flip hasNonBuildcageContent.
- *
- * A genuine HAProxy process always emits some non-buildcage-format output
- * of its own before any traffic occurs. A log with nothing but
- * forged/replayed decision lines — or nothing at all — lacks that, which is
- * a signal (not a guarantee) of tampering.
+ * incremental aggregators (never collected into a flat array first).
  *
  * `isAudit` picks which decision counts as "passed" (AUDIT vs ALLOWED); the
  * other one, if it somehow appears, is dropped rather than aggregated.
@@ -40,26 +48,22 @@ export async function scanHaproxyLog(
   const blocked = createIncrementalAggregator();
   const passedDecision = isAudit ? "AUDIT" : "ALLOWED";
   let blockedCount = 0;
-  let hasNonBuildcageContent = false;
+  let headIntact: boolean | undefined;
+  let unparsed = 0;
 
   for await (const line of lines) {
     const m = line.match(logPattern);
     if (!m) {
-      if (line.trim() !== "") hasNonBuildcageContent = true;
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      headIntact ??= trimmed.startsWith(PROXY_START_MARKER);
+      if (trimmed.includes(DECISION_MARKER)) unparsed++;
       continue;
     }
+    headIntact ??= false;
     const [, decision, ruleType, hostPort, reason] = m;
-    const colonIdx = hostPort.lastIndexOf(":");
-    let host: string;
-    let port: string;
-    if (colonIdx > 0) {
-      host = hostPort.substring(0, colonIdx);
-      port = hostPort.substring(colonIdx + 1);
-    } else {
-      host = hostPort;
-      port = "0";
-    }
-    const entry = { host, port, ruleType, reason: reason || "-" };
+    const { host, port } = splitHostPort(hostPort);
+    const entry = { host, port: port ?? "0", ruleType, reason: reason || "-" };
 
     if (decision === passedDecision) {
       passed.add(entry);
@@ -73,6 +77,7 @@ export async function scanHaproxyLog(
     passed: passed.toSortedArray(),
     blocked: blocked.toSortedArray(),
     blockedCount,
-    hasNonBuildcageContent,
+    headIntact: headIntact ?? false,
+    unparsed,
   };
 }

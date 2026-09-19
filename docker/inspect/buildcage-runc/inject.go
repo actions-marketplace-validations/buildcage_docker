@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // File the container is pointed at when a variable was not already set and the
@@ -23,7 +21,7 @@ const ownCAPath = "/etc/buildcage-ca.pem"
 // carries those roots, so they fall back to the same proxy-CA-only file
 // NODE_EXTRA_CA_CERTS/DENO_CERT use. That covers ordinary HTTP(S) traffic
 // (inspect re-signs all of it with this same CA) but not a passthrough
-// connection's real certificate — see "No system CA store" in
+// connection's real certificate; see "No system CA store" in
 // docs/inspect-engine.md for exactly which requests that leaves unable to
 // verify.
 type unsetBehaviour int
@@ -54,99 +52,26 @@ var caVariables = []struct {
 	{"SSL_CERT_FILE", pointAtSystemStore},
 }
 
-type spec struct {
-	raw    map[string]any
-	path   string
-	rootfs string
-	env    map[string]string
+// caPlan is what the variable pass settled on: the files the CA has to be
+// appended to, the variables to add to the process spec, and the proxy-CA-only
+// file it wrote, if any variable needed one.
+type caPlan struct {
+	targets      map[string]bool
+	env          map[string]string
+	createdOwnCA string
 }
 
-func loadSpec(bundle string) (*spec, error) {
-	path := filepath.Join(bundle, "config.json")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(content, &raw); err != nil {
-		return nil, err
-	}
-
-	rootfs := "rootfs"
-	if root, ok := raw["root"].(map[string]any); ok {
-		if p, ok := root["path"].(string); ok && p != "" {
-			rootfs = p
-		}
-	}
-	if !filepath.IsAbs(rootfs) {
-		rootfs = filepath.Join(bundle, rootfs)
-	}
-
-	s := &spec{raw: raw, path: path, rootfs: rootfs, env: map[string]string{}}
-	if proc, ok := raw["process"].(map[string]any); ok {
-		if env, ok := proc["env"].([]any); ok {
-			for _, entry := range env {
-				kv, ok := entry.(string)
-				if !ok {
-					continue
-				}
-				// runc keeps the last of a repeated key, so later wins here too.
-				if i := strings.IndexByte(kv, '='); i > 0 {
-					s.env[kv[:i]] = kv[i+1:]
-				}
-			}
-		}
-	}
-	return s, nil
-}
-
-// setEnv adds variables to the process spec and writes it back.
-func (s *spec) setEnv(extra map[string]string) error {
-	if len(extra) == 0 {
-		return nil
-	}
-	proc, ok := s.raw["process"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	env, _ := proc["env"].([]any)
-	for key, value := range extra {
-		// Appending is enough: runc de-duplicates and keeps the last entry.
-		env = append(env, key+"="+value)
-	}
-	proc["env"] = env
-	s.raw["process"] = proc
-	out, err := json.Marshal(s.raw)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, out, 0o644)
-}
-
-// inject makes the step trust the proxy's CA and returns the undo.
-func inject(bundle string, ca []byte) (func(), error) {
-	s, err := loadSpec(bundle)
-	if err != nil {
-		return nil, err
-	}
-
-	// A store's absence is not fatal: the store itself is simply not an
-	// append target, and every otherwise-unset variable falls back to the
-	// proxy-CA-only file instead (see the unsetBehaviour comment above).
-	systemStore, systemStorePath, storeErr := findSystemStore(s.rootfs)
-	haveSystemStore := storeErr == nil
-	if !haveSystemStore {
-		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
-	}
-
+// planCATrust walks caVariables and decides, per variable, whether the CA goes
+// into the file it already names, whether to point it at the system store, or
+// whether to give it a file holding only this CA. See the unsetBehaviour
+// comment above for why each variable falls where it does.
+func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 	// Every bundle the CA has to go into, keyed by resolved path so a file
 	// named by two variables is only written once.
-	targets := map[string]bool{}
-	if haveSystemStore {
-		targets[systemStore] = true
+	plan := caPlan{targets: map[string]bool{}, env: map[string]string{}}
+	if store.found {
+		plan.targets[store.hostPath] = true
 	}
-	newEnv := map[string]string{}
-	createdOwnCA := ""
 
 	// setOwnCA points variableName at ownCAPath, writing it once and sharing
 	// it across every variable that falls back to it.
@@ -158,7 +83,7 @@ func inject(bundle string, ca []byte) (func(), error) {
 		}
 		// More than one variable can take this path, and all of them share
 		// the file: only the first to get here writes it.
-		if createdOwnCA == "" {
+		if plan.createdOwnCA == "" {
 			if _, err := os.Stat(resolved); err == nil {
 				logf("%s already exists; not setting %s", ownCAPath, variableName)
 				return
@@ -167,9 +92,9 @@ func inject(bundle string, ca []byte) (func(), error) {
 				logf("cannot write %s: %v", ownCAPath, err)
 				return
 			}
-			createdOwnCA = resolved
+			plan.createdOwnCA = resolved
 		}
-		newEnv[variableName] = ownCAPath
+		plan.env[variableName] = ownCAPath
 	}
 
 	for _, variable := range caVariables {
@@ -183,17 +108,17 @@ func inject(bundle string, ca []byte) (func(), error) {
 					variable.name, value, err)
 				continue
 			}
-			targets[resolved] = true
+			plan.targets[resolved] = true
 			continue
 		}
 		switch variable.whenUnset {
 		case leaveUnset:
-			if !haveSystemStore {
+			if !store.found {
 				setOwnCA(variable.name)
 			}
 		case pointAtSystemStore:
-			if haveSystemStore {
-				newEnv[variable.name] = systemStorePath
+			if store.found {
+				plan.env[variable.name] = store.containerPath
 			} else {
 				setOwnCA(variable.name)
 			}
@@ -201,32 +126,99 @@ func inject(bundle string, ca []byte) (func(), error) {
 			setOwnCA(variable.name)
 		}
 	}
+	return plan
+}
 
-	appended := make([]string, 0, len(targets))
-	for target := range targets {
-		if err := appendCA(target, ca); err != nil {
-			logf("cannot add the CA to %s: %v", target, err)
+// injection is what a completed inject leaves to be undone once the step has
+// exited: the mirrored directories to reconcile, and the proxy-CA-only file to
+// remove if one was written.
+type injection struct {
+	binds        []*dirBind
+	createdOwnCA string
+}
+
+// finish diffs each mirrored directory against its pre-step state and writes
+// back only what changed. A non-nil error means the write-back itself failed
+// and the build must not proceed with a possibly half-written layer.
+func (in *injection) finish() error {
+	var firstErr error
+	for _, b := range in.binds {
+		if err := b.finish(); err != nil {
+			logf("CA write-back failed for %s: %v", b.containerDir, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		b.cleanup()
+	}
+	if in.createdOwnCA != "" {
+		if err := os.Remove(in.createdOwnCA); err != nil && !os.IsNotExist(err) {
+			logf("cannot remove %s: %v", in.createdOwnCA, err)
+		}
+	}
+	return firstErr
+}
+
+// inject makes the step trust the proxy's CA, returning what finishes the
+// injection once the step has exited.
+func inject(bundle string, ca []byte) (*injection, error) {
+	s, err := loadSpec(bundle)
+	if err != nil {
+		return nil, err
+	}
+
+	// A store's absence is not fatal: the store itself is simply not an
+	// append target, and every otherwise-unset variable falls back to the
+	// proxy-CA-only file instead (see the unsetBehaviour comment above).
+	store, storeErr := findSystemStore(s.rootfs)
+	if !store.found {
+		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
+	}
+
+	plan := planCATrust(s, ca, store)
+
+	var binds []*dirBind
+	for hostDir, files := range groupTargetsByDir(plan.targets) {
+		containerDir := containerPathOf(s.rootfs, hostDir)
+		if containerDir == "/" {
+			logf("refusing to bind the container root; skipping CA injection for %v", files)
 			continue
 		}
-		appended = append(appended, target)
+		if s.mountConflicts(containerDir) {
+			logf("a mount already covers %s; skipping CA injection there", containerDir)
+			continue
+		}
+
+		scratch, err := newScratchDir(bundle)
+		if err != nil {
+			logf("cannot create a scratch directory for %s: %v", containerDir, err)
+			continue
+		}
+		names := make([]string, len(files))
+		for i, f := range files {
+			names[i] = filepath.Base(f)
+		}
+		b := &dirBind{
+			rootfs:       s.rootfs,
+			hostDir:      hostDir,
+			containerDir: containerDir,
+			scratchDir:   scratch,
+			bundleFiles:  names,
+			custom:       !(store.found && hostDir == store.dir()),
+		}
+		if err := b.prepare(ca); err != nil {
+			logf("cannot prepare CA injection for %s: %v", containerDir, err)
+			b.cleanup()
+			continue
+		}
+		s.addBindMount(containerDir, scratch)
+		binds = append(binds, b)
 	}
 
-	if err := s.setEnv(newEnv); err != nil {
-		logf("cannot update the process environment: %v", err)
+	s.setEnv(plan.env)
+	if err := s.save(); err != nil {
+		logf("cannot update the process spec: %v", err)
 	}
 
-	return func() {
-		// The environment lives only in config.json, which is not part of the
-		// snapshot, so only the files have to be undone.
-		for _, target := range appended {
-			if err := removeCA(target); err != nil {
-				logf("cannot remove the CA from %s: %v", target, err)
-			}
-		}
-		if createdOwnCA != "" {
-			if err := os.Remove(createdOwnCA); err != nil && !os.IsNotExist(err) {
-				logf("cannot remove %s: %v", createdOwnCA, err)
-			}
-		}
-	}, nil
+	return &injection{binds: binds, createdOwnCA: plan.createdOwnCA}, nil
 }

@@ -50,6 +50,13 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
+@actions/core (bundled into /opt/buildcage/scripts/report-action.js)
+  Website : https://github.com/actions/toolkit/tree/main/packages/core
+  License : MIT License
+  Source  : https://github.com/actions/toolkit
+
+------------------------------------------------------------------------------
+
 Note on GPL components (HAProxy, dnsmasq):
 
 These components are installed from the Alpine Linux official package

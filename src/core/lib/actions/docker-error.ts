@@ -14,22 +14,33 @@ interface DescribeDockerFailureOptions {
 }
 
 const REQUIREMENT =
-  "Buildcage requires a working Docker installation (client and daemon) on the runner. " +
+  "Buildcage requires a working Docker installation (client and daemon) on the runner, on " +
+  "Docker Engine 25.0 or later with Compose v2.20.2 or later. " +
   'Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no ' +
-  'daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a ' +
-  "full Docker install) instead. See README.md and docs/security.md for details.";
+  'daemon and are not supported for this action. Use "ubuntu-latest", or another runner with a ' +
+  "full Docker install, instead. See README.md and docs/security.md for details.";
 
 export const SLIM_RUNNER_DETECTED_PREFIX =
   ' Detected a container-based GitHub-hosted runner image (e.g. "ubuntu-slim")';
 
-const SLIM_RUNNER_NOTE = `${SLIM_RUNNER_DETECTED_PREFIX} — these ship a Docker client with no daemon and are not supported for this action.`;
+const SLIM_RUNNER_NOTE = `${SLIM_RUNNER_DETECTED_PREFIX}: these ship a Docker client with no daemon and are not supported for this action.`;
+
+/**
+ * The stderr a caught child-process error carried, trimmed, or "" when it
+ * carried none. Every message built from a failed spawn needs exactly this,
+ * and the shape it has to reach through is the same each time.
+ */
+export function capturedStderr(e: unknown): string {
+  const err = (e && typeof e === "object" ? e : {}) as DockerErrorLike;
+  return typeof err.stderr === "string" ? err.stderr.trim() : "";
+}
 
 /**
  * Turns a caught `docker` invocation error into an actionable message,
  * pointing at the runner requirement instead of surfacing execFileSync's
  * opaque "Command failed: docker ...args..." text. Deliberately doesn't
  * echo `e.message` when stderr was inherited (already visible live in the
- * Actions log) — only captured stderr (e.g. from a piped call) is included,
+ * Actions log): only captured stderr (e.g. from a piped call) is included,
  * since otherwise nothing points the reader back to it.
  */
 export function describeDockerFailure(
@@ -47,7 +58,7 @@ export function describeDockerFailure(
   if (err.code === "ENOENT") {
     whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
   } else {
-    const captured = typeof err.stderr === "string" ? err.stderr.trim() : "";
+    const captured = capturedStderr(e);
     const detail = captured
       ? `: ${captured}`
       : " (see the Docker output above for the underlying error)";
@@ -59,7 +70,7 @@ export function describeDockerFailure(
 
 /**
  * Best-effort detection of GitHub's container-based hosted runner images
- * (currently: ubuntu-slim) — these run jobs inside a container rather than
+ * (currently: ubuntu-slim), which run jobs inside a container rather than
  * a dedicated VM, so unlike VM-based ubuntu-latest/22.04/24.04/26.04 they
  * ship a Docker client with no daemon.
  *
@@ -67,7 +78,7 @@ export function describeDockerFailure(
  * "ubuntu24" etc. on VM images) and /run/.containerenv is baked into the
  * image at build time by GitHub's own Dockerfile
  * (github.com/actions/runner-images/blob/main/images/ubuntu-slim/Dockerfile).
- * Both signals could change without notice — failing to detect just falls
+ * Both signals could change without notice, and failing to detect just falls
  * back to the generic message in describeDockerFailure, so this is safe to
  * get wrong.
  */

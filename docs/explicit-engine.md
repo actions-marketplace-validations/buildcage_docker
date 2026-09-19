@@ -3,13 +3,12 @@
 > [!WARNING]
 > `explicit` is **deprecated**. It still works and existing workflows keep running, but it receives
 > no further development. If you chose it to see full URL paths in the report, use
-> [`inspect`](./inspect-engine.md) instead: it enforces on the method and the path as well, and it
+> [`inspect`](../README.md#engines) instead: it enforces on the method and the path as well, and it
 > sees every tool rather than only the ones that respect `HTTP_PROXY`/`HTTPS_PROXY`.
-> `universal` remains the default and recommended engine.
 
 `proxy_engine` selects how Buildcage intercepts and enforces traffic. It is independent of
 `proxy_mode`: either engine works with either mode, and both use the same
-[rule syntax](../README.md#rule-syntax).
+[rule syntax](./reference.md#rule-syntax).
 
 - **`universal`** (default; `transparent` is accepted as an alias): traffic is intercepted at the
   network level, with no proxy configuration or CA trust needed inside the build
@@ -25,7 +24,7 @@ build request.
 
 ```yaml
 - name: Start Buildcage
-  uses: buildcage/docker@0387f9e87afc1776ca811dc36ae23dc4b14d98dc # v3.1.3
+  uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
   with:
     proxy_engine: explicit
     proxy_mode: restrict

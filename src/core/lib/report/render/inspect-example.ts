@@ -5,27 +5,26 @@
  *
  * A generated rule must never permit more than was observed:
  *
- * - **Hosts are enumerated, never generalised** into `*.example.com`: the
+ * - Hosts are enumerated, never generalised into `*.example.com`: the
  *   resolver's scope follows these patterns, so a widened host is leakable.
- * - **Methods are listed exactly**, never `*`.
- * - **A path keeps its longest unchanging prefix**; only what varied becomes
+ * - Methods are listed exactly, never `*`.
+ * - A path keeps its longest unchanging prefix; only what varied becomes
  *   `**`, and a single observed path stays exact.
  *
- * A host reached at many unrelated paths therefore collapses to `/**` -- the
+ * A host reached at many unrelated paths therefore collapses to `/**`, the
  * honest answer, since clustering would invent permissions nobody observed. The
  * rule still constrains the method, which no host-level rule can.
  */
 
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
-
-/** Ports a URL rule may leave unwritten, because the scheme implies them. */
-const DEFAULT_PORT: Record<string, string> = { https: "443", http: "80" };
+import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
+import { DEFAULT_PORT, parseObservedUrl } from "#core/lib/log/authority.ts";
 
 /** Conventional ordering, so a rule reads the way a person would write it. */
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
 interface ParsedRequest {
-  /** `https://host` or `https://host:9443` — what a rule is written against. */
+  /** `https://host` or `https://host:9443`: what a rule is written against. */
   origin: string;
   method: string;
   /** Path only. The query is deliberately dropped: rules match the path, and
@@ -36,25 +35,21 @@ interface ParsedRequest {
 
 function parseRequest(request: TrafficEvent): ParsedRequest | null {
   if (request.url === undefined || request.method === undefined) return null;
-  const match = /^(https?):\/\/([^/?#]+)([^?#]*)/.exec(request.url);
-  if (!match) return null;
-  const [, scheme, authority, rawPath] = match;
+  const parsed = parseObservedUrl(request.url);
+  if (!parsed) return null;
+  const { scheme, host, port, path } = parsed;
 
   // Drop a port the scheme already implies, so the common case reads plainly.
-  const colon = authority.lastIndexOf(":");
-  const port = colon > 0 ? authority.slice(colon + 1) : "";
   const origin =
-    port && port === DEFAULT_PORT[scheme]
-      ? `${scheme}://${authority.slice(0, colon)}`
-      : `${scheme}://${authority}`;
+    port === DEFAULT_PORT[scheme] ? `${scheme}://${host}` : `${scheme}://${host}:${port}`;
 
-  return { origin, method: request.method, path: rawPath || "/" };
+  return { origin, method: request.method, path };
 }
 
 /** The segments every path shares, from the left. */
 function commonPrefixSegments(paths: string[]): string[] {
+  // Two or more: pathPatternsFor has already answered the shorter cases.
   const split = paths.map((p) => p.split("/").filter((s) => s !== ""));
-  if (split.length === 0) return [];
   let prefix = split[0];
   for (const segments of split.slice(1)) {
     let i = 0;
@@ -93,7 +88,7 @@ function sortMethods(methods: Iterable<string>): string[] {
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
-    return a < b ? -1 : a > b ? 1 : 0;
+    return a < b ? -1 : 1;
   });
 }
 
@@ -142,43 +137,58 @@ export function buildUrlRuleLines(requests: TrafficEvent[]): string[] {
     .map(({ origin, pattern, methods }) => `${sortMethods(methods).join("|")} ${origin}${pattern}`);
 }
 
+export interface BuildInspectRestrictExampleOptions {
+  /** Version to annotate the `uses:` line with, if known, as `# 3.1.4`. */
+  actionVersion?: string;
+  /** Not derived from `requests`: a passthrough is never decrypted, so there
+   *  is nothing in the traffic to build these from. They are the same values
+   *  the audit run was configured with, echoed back as-is,
+   *  since they apply unchanged under `restrict` (only enforcement
+   *  differs). */
+  allowedIpRules?: string[];
+  allowedTlsRules?: string[];
+}
+
 /**
- * Render the rules as a collapsed markdown section, or "" if nothing was
- * observed.
+ * Render the rules as a collapsed markdown section, or "" if there is
+ * nothing to show.
  *
- * `actionRef` is the ref this action was invoked with. A 40-character SHA is
- * specific to this run and opaque to the reader, so it is shown as a
- * placeholder; a tag is stable and useful as written.
+ * `actionRef` is the ref this action was invoked with.
  */
 export function buildInspectRestrictExample(
   requests: TrafficEvent[] | null | undefined,
   actionRepo: string,
   actionRef?: string,
+  {
+    actionVersion,
+    allowedIpRules = [],
+    allowedTlsRules = [],
+  }: BuildInspectRestrictExampleOptions = {},
 ): string {
   const lines = buildUrlRuleLines(requests ?? []);
-  if (lines.length === 0) return "";
+  if (lines.length === 0 && allowedIpRules.length === 0 && allowedTlsRules.length === 0) return "";
 
-  const ref = actionRef && /^[0-9a-f]{40}$/i.test(actionRef) ? "<sha>" : actionRef;
-
-  let yaml = "- name: Start Buildcage in restrict mode\n";
-  yaml += `  uses: ${actionRepo}@${ref}\n`;
+  let yaml = "- name: Start Buildcage\n";
+  yaml += usesLine(actionRepo, actionRef, actionVersion);
   yaml += "  with:\n";
   yaml += "    proxy_mode: restrict\n";
   yaml += "    proxy_engine: inspect\n";
   // A literal block, not a folded one: a URL rule contains a space, so the
   // rules are separated by newlines and folding would join them into one.
-  yaml += "    allowed_url_rules: |\n";
-  for (const line of lines) yaml += `      ${line}\n`;
+  if (lines.length > 0) {
+    yaml += "    allowed_url_rules: |\n";
+    for (const line of lines) yaml += `      ${line}\n`;
+  }
+  if (allowedTlsRules.length > 0) {
+    yaml += "    allowed_tls_rules: |\n";
+    for (const rule of allowedTlsRules) yaml += `      ${rule}\n`;
+  }
+  if (allowedIpRules.length > 0) {
+    yaml += "    allowed_ip_rules: |\n";
+    for (const rule of allowedIpRules) yaml += `      ${rule}\n`;
+  }
 
-  let md = "\n<details>\n";
-  md += "<summary>🛡️ Switch to restrict mode</summary>\n\n";
-  md += "```yaml\n";
-  md += yaml;
-  md += "```\n\n";
-  md +=
-    "These rules permit exactly what this build did, so read them before using them: a URL that\n";
-  md += "carried a version or a date will not match the next run, and anything reached through\n";
-  md += "`allow_tls_rules` or `allowed_ip_rules` is not here, because it was never inspected.\n\n";
-  md += "</details>\n";
-  return md;
+  return restrictExampleBlock(yaml, {
+    footnote: "Permits exactly what this build did; a versioned or dated URL may drift.",
+  });
 }

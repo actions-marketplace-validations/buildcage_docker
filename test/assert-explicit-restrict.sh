@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
-FAILURES=0
-LOGS=$(docker compose exec builder cat /var/log/buildkitd/current 2>/dev/null)
+LOGS=$(builder_log buildkitd)
 
 # BuildKit's exec-proxy identifier omits an explicit ":443"/":80" when the
 # original request didn't specify a port (see docs/security.md), so callers
@@ -11,10 +11,9 @@ LOGS=$(docker compose exec builder cat /var/log/buildkitd/current 2>/dev/null)
 assert_denied() {
   local target="$1"
   if grep -qF "ref=\"${target}\"" <<< "$LOGS"; then
-    echo "  PASS  [BLOCKED] $target"
+    pass "[BLOCKED] $target"
   else
-    echo "  FAIL  [BLOCKED] $target -- not found in logs"
-    FAILURES=$((FAILURES + 1))
+    fail "[BLOCKED] $target -- not found in logs"
   fi
 }
 
@@ -26,10 +25,9 @@ assert_no_denials_for() {
   escaped=$(printf '%s' "$needle" | sed 's/[.]/\\./g')
   count=$(echo "$LOGS" | grep -F "denied by policy" | grep -cE "://${escaped}[:/]" || true)
   if [ "$count" -eq 0 ]; then
-    echo "  PASS  no denial entries for \"$needle\""
+    pass "no denial entries for \"$needle\""
   else
-    echo "  FAIL  found $count unexpected denial entries for \"$needle\""
-    FAILURES=$((FAILURES + 1))
+    fail "found $count unexpected denial entries for \"$needle\""
   fi
 }
 
@@ -54,10 +52,9 @@ echo ""
 echo "[FROM pull] must not be denied (docker-image:// is out of the ^https?:// policy scope):"
 FROM_DENIALS=$(echo "$LOGS" | grep -F "denied by policy" | grep -cF "docker-image://" || true)
 if [ "$FROM_DENIALS" -eq 0 ]; then
-  echo "  PASS  no denial entries for docker-image:// sources"
+  pass "no denial entries for docker-image:// sources"
 else
-  echo "  FAIL  found $FROM_DENIALS unexpected denial entries for docker-image:// sources"
-  FAILURES=$((FAILURES + 1))
+  fail "found $FROM_DENIALS unexpected denial entries for docker-image:// sources"
 fi
 echo ""
 
@@ -70,10 +67,9 @@ echo "[report action] Allowed Hosts table (rendered markdown, from buildctl aggr
 if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| allowed.example.com:443 | HTTPS | 1 |" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| sub.wildcard.example.com:443 | HTTPS | 1 |" <<< "$REPORT_MARKDOWN"; then
-  echo "  PASS  rendered markdown has an Allowed Hosts table incl. allowed.example.com and sub.wildcard.example.com"
+  pass "rendered markdown has an Allowed Hosts table incl. allowed.example.com and sub.wildcard.example.com"
 else
-  echo "  FAIL  rendered markdown missing expected Allowed Hosts table content"
-  FAILURES=$((FAILURES + 1))
+  fail "rendered markdown missing expected Allowed Hosts table content"
 fi
 echo ""
 
@@ -82,15 +78,14 @@ if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed | 1 |" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| deep.sub.wildcard.example.com:443 | HTTPS | not-allowed | 1 |" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| 10.200.0.100:80" <<< "$REPORT_MARKDOWN"; then
-  echo "  PASS  rendered markdown has a Blocked Hosts table incl. blocked.example.com, deep.sub.wildcard.example.com, and 10.200.0.100"
+  pass "rendered markdown has a Blocked Hosts table incl. blocked.example.com, deep.sub.wildcard.example.com, and 10.200.0.100"
 else
-  echo "  FAIL  rendered markdown missing expected Blocked Hosts table content"
-  FAILURES=$((FAILURES + 1))
+  fail "rendered markdown missing expected Blocked Hosts table content"
 fi
 echo ""
 
 # Step-counter brackets are escaped in the rendered markdown (see
-# command-log.ts's escapeMarkdown) — "* \[ 3/15\] RUN ...".
+# communication-details.ts's escapeMarkdown): "* \[ 3/15\] RUN ...".
 echo "[report action] per-command communication detail (rendered markdown):"
 if grep -qF "Communication details" <<< "$REPORT_MARKDOWN" \
   && grep -qF "Allowed Urls" <<< "$REPORT_MARKDOWN" \
@@ -99,16 +94,9 @@ if grep -qF "Communication details" <<< "$REPORT_MARKDOWN" \
   && grep -qE -- '- GET https://allowed\.example\.com/ -> 200' <<< "$REPORT_MARKDOWN" \
   && grep -qF "Blocked Urls" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://blocked.example.com/" <<< "$REPORT_MARKDOWN"; then
-  echo "  PASS  rendered markdown has per-command breakdown, (no communication), and a Blocked Urls list"
+  pass "rendered markdown has per-command breakdown, (no communication), and a Blocked Urls list"
 else
-  echo "  FAIL  rendered markdown missing expected Communication details content"
-  FAILURES=$((FAILURES + 1))
+  fail "rendered markdown missing expected Communication details content"
 fi
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

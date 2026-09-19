@@ -4,7 +4,7 @@ import { derUtf8 } from "./signed-digest.ts";
 const EXPECTED_ISSUER = "https://token.actions.githubusercontent.com";
 const RELEASE_WORKFLOW = ".github/workflows/docker-publish.yml";
 
-// Fulcio OID: Source Repository Digest — the commit SHA of the build source.
+// Fulcio OID: Source Repository Digest, the commit SHA of the build source.
 // Value encoding: DER UTF8String ([0x0C, len, ...utf8bytes]) inside OCTET STRING.
 const OID_SOURCE_REPO_DIGEST = "1.3.6.1.4.1.57264.1.13";
 
@@ -19,7 +19,7 @@ export interface VerifyImageIdentity {
  * Build verify options encoding the expected certificate identity.
  *
  * The SAN URI pattern uses `(\.|$)` boundary anchors for version tags so that
- * e.g. @v2.1 matches v2.1.0 and v2.1.3 but NOT v2.10.0.
+ * e.g. @v2.1 matches v2.1.0 and v2.1.3 but not v2.10.0.
  *
  * For SHA pins, OID 1.13 (Source Repository Digest) pins the exact commit
  * while the SAN accepts any release tag.
@@ -37,9 +37,9 @@ export function buildVerifyOptions({
     ctLogThreshold: 1,
   };
 
-  // SHA pin: the SAN accepts any v*-prefixed release tag — the exact commit is
-  // pinned by OID 1.13 (Source Repository Digest), which enforces a strict byte
-  // match against the pinned SHA and cannot be satisfied by any other commit.
+  // SHA pin: the SAN accepts any v*-prefixed release tag, and the exact commit
+  // is pinned by OID 1.13 (Source Repository Digest), which enforces a strict
+  // byte match against the pinned SHA and cannot be met by any other commit.
   if (/^[0-9a-f]{40}$/i.test(actionRef)) {
     return {
       ...base,
@@ -58,5 +58,5 @@ export function buildVerifyOptions({
     };
   }
 
-  return null; // branch name, local ./setup, etc. — no verifiable release bundle
+  return null; // branch name, local ./setup, etc: no verifiable release bundle
 }
