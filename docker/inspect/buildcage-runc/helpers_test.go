@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -53,6 +54,72 @@ func mustMakeReadOnly(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, info.Mode().Perm()) })
+}
+
+// brokenFile is a real bundle file with one operation made to fail. Embedding
+// bundleFile means only the failing method has to be written out; everything
+// else still happens for real, so the test observes what the code does with a
+// half-finished file rather than with a stub.
+type brokenFile struct {
+	bundleFile
+	failReadAt  int  // fail the nth ReadAt, counting from 1
+	failWriteAt int  // likewise for WriteAt
+	failStat    bool // fail Stat outright
+	notRegular  bool // succeed, but report something other than a regular file
+	reads       int
+	writes      int
+}
+
+var errBrokenFile = errors.New("simulated I/O failure")
+
+func (b *brokenFile) ReadAt(p []byte, off int64) (int, error) {
+	b.reads++
+	if b.reads == b.failReadAt {
+		return 0, errBrokenFile
+	}
+	return b.bundleFile.ReadAt(p, off)
+}
+
+func (b *brokenFile) WriteAt(p []byte, off int64) (int, error) {
+	b.writes++
+	if b.writes == b.failWriteAt {
+		return 0, errBrokenFile
+	}
+	return b.bundleFile.WriteAt(p, off)
+}
+
+func (b *brokenFile) Stat() (fs.FileInfo, error) {
+	if b.failStat {
+		return nil, errBrokenFile
+	}
+	info, err := b.bundleFile.Stat()
+	if err != nil || !b.notRegular {
+		return info, err
+	}
+	return notRegularInfo{info}, nil
+}
+
+// notRegularInfo is a real FileInfo reporting a mode appendCA and removeCA
+// refuse, which on a real filesystem only a device file would have.
+type notRegularInfo struct{ fs.FileInfo }
+
+func (n notRegularInfo) Mode() fs.FileMode { return n.FileInfo.Mode() | fs.ModeDevice }
+
+// useBrokenBundleFile makes the next bundle opened fail the way broken says.
+// The file itself is opened for real, so the failure lands partway through
+// whatever the caller was doing with it.
+func useBrokenBundleFile(t *testing.T, broken *brokenFile) {
+	t.Helper()
+	old := openBundle
+	openBundle = func(path string, flag int, perm os.FileMode) (bundleFile, error) {
+		f, err := old(path, flag, perm)
+		if err != nil {
+			return nil, err
+		}
+		broken.bundleFile = f
+		return broken, nil
+	}
+	t.Cleanup(func() { openBundle = old })
 }
 
 func mustMkdirAll(t *testing.T, path string) {
