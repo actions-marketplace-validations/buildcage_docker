@@ -3,8 +3,8 @@
 // This file is a test-only escape hatch and is physically absent from the
 // published image: it is compiled in only when the Docker build passes
 // `--build-arg BUILDKIT_PROXY_BUILD_TAGS=testhooks` (see compose.test-explicit.yaml),
-// which the real setup/docker/explicit/Dockerfile build used for releases never
-// does. It exists because BuildKit's own internal MITM proxy (--proxy-network)
+// which the release build from docker/explicit/Dockerfile never does. It exists
+// because BuildKit's own internal MITM proxy (--proxy-network)
 // validates its upstream TLS connection with Go's default certificate
 // verification and has no flag or config to relax that (verified against
 // util/network/proxyprovider/provider_linux.go's newProxyTransport(), which

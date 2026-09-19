@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 /**
  * An explicit, deterministic Compose project name, so concurrent
- * `up`/`down`/`ps` from different steps in the same job never collide on
+ * `up`/`down`/`logs` from different steps in the same job never collide on
  * Compose's shared, directory-derived default.
  *
  * Hashed rather than used verbatim: Compose project names are constrained

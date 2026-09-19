@@ -6,7 +6,7 @@ import { ReportError } from "./errors.ts";
 
 // stderr is piped, not inherited, so describeDockerFailure can quote it.
 //
-// Untested by design: the default behind the seam above, which only hands
+// Untested by design: the default behind the seam below, which only hands
 // execFileSync what the tested caller decided.
 /* v8 ignore start */
 const runDocker: RunDocker = (args) =>

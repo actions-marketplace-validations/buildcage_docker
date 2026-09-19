@@ -133,7 +133,7 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
 /**
  * Split a `~` rule's raw regex into a host half and a path half: the
  * `inspect` engine matches a URL rule's host and path as two separate
- * expressions, never as one full-URL regex (see haproxy-config.ts's
+ * expressions, never as one full-URL regex (see haproxy-rule-block.ts's
  * ruleBlock), so the regex has to be cut at the first `/` after `://`.
  *
  * Only the anchors the author cannot write are supplied. The host half gets

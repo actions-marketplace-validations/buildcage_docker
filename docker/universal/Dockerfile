@@ -26,8 +26,7 @@ RUN apk add --no-cache curl gettext && \
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
 # the QuickJS scripts and report-action.node.ts. Architecture-independent
 # output, so pinned to --platform=$BUILDPLATFORM like the `deps` stage
-# above (no QEMU). Keep byte-identical to the same stage in
-# docker/explicit/Dockerfile. Needs both engines' scripts/ dirs:
+# above (no QEMU). Needs both engines' scripts/ dirs:
 # gen-source-policy.qjs.ts only exists under explicit/, report-action.node.ts
 # under this engine's own dir.
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:11@sha256:e26f380828856f205feaaf42abd157df9ce41bc8e17b662eeaa3379a9638dee0 AS scripts-build

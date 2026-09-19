@@ -26,8 +26,7 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
 # the QuickJS scripts and report-action.node.ts. Architecture-independent
 # output, so pinned to --platform=$BUILDPLATFORM like buildkit-proxy-build
-# above (no QEMU). Keep byte-identical to the same stage in
-# docker/universal/Dockerfile.
+# above (no QEMU).
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:11@sha256:e26f380828856f205feaaf42abd157df9ce41bc8e17b662eeaa3379a9638dee0 AS scripts-build
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

@@ -1,6 +1,6 @@
 /**
  * Log parsing library for HAProxy buildcage logs. aggregate() lives
- * separately in core/lib/log/aggregate.js and is not re-exported here.
+ * separately in core/lib/log/aggregate.ts and is not re-exported here.
  */
 import { createIncrementalAggregator, type AggregatedEntry } from "./aggregate.ts";
 import { splitHostPort } from "./authority.ts";
@@ -17,8 +17,8 @@ export interface HaproxyLogScanResult {
    *  beginning is gone, rotated away or erased. Only the marker counts:
    *  HAProxy's own output appears mid-run and could stand in for it. */
   headIntact: boolean;
-  /** Lines carrying the marker below yet matching no format above. Each is a
-   *  decision the report cannot account for. */
+  /** Lines carrying the decision marker yet matching none of the formats
+   *  below. Each is a decision the report cannot account for. */
   unparsed: number;
 }
 

@@ -8,8 +8,8 @@ import fc from "fast-check";
 
 import { imageTagFromRef } from "./image-tag.ts";
 
-// Only the `explicit` engine appends a suffix; `universal` (the default)
-// publishes the plain tag, matching the pre-multi-engine tagging scheme.
+// `universal` (the default) publishes the plain tag; every other engine
+// appends `-<engine>`. These properties exercise `explicit`.
 const suffixFor = (engine: string) => (engine === "explicit" ? "-explicit" : "");
 
 describe("imageTagFromRef: properties", () => {

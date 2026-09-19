@@ -128,7 +128,7 @@ const CASES: Record<string, ReportData> = {
   "universal-incomplete": { ...universal, logLooksPlausible: false },
   // Nothing happened at all: the "(no communication)" note, no tables.
   "universal-empty": { ...universal, passed: [], blocked: [], blockedCount: 0 },
-  // The Expected column plus the folded known_blocked_rules row.
+  // The Expected column, with the known_blocked_rules rows left unfolded.
   "universal-expected": {
     ...universal,
     parameters: params({ knownBlockedRules: ["*.sury.org:*"] }),
