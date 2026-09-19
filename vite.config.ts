@@ -45,8 +45,8 @@ export default defineConfig({
     },
     overrides: [{ files: annotateCallers, rules: { "no-restricted-imports": "off" } }],
     options: {
-      // typescript already at v7 (typescript-go), so tsgolint's type-aware
-      // rules apply directly. `pnpm typecheck` (tsc) stays the authoritative
+      // typescript is already at v7 (typescript-go), so tsgolint's type-aware
+      // rules apply directly. `vp run typecheck` (tsc) stays the authoritative
       // full type check; typeCheck (still experimental) is left off here.
       typeAware: true,
     },

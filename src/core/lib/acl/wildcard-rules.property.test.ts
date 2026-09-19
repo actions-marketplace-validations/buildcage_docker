@@ -37,7 +37,7 @@ describe("convertRule: properties", () => {
   });
 
   // Domain labels may contain regex metacharacters in practice (e.g. from unusual
-  // hostnames). escapeRegex must neutralise them so the result always compiles.
+  // hostnames). domainToRegex must escape them so the result always compiles.
   it("patterns with regex metacharacters in the domain always produce a compilable regex", () => {
     const metaChar = fc.constantFrom(".", "+", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\");
     const patternWithMeta = fc

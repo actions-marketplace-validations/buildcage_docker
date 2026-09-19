@@ -1,9 +1,7 @@
 #!/bin/bash
-# Verifies setup/src/post.ts (run by the caller beforehand) removed the
-# builder container. Checks only "buildcage", not "buildcage-proxy":
-# post.ts's own down only knows setup/compose.yaml's "builder" service;
-# buildcage-proxy is started separately by the Makefile's dev-only root
-# compose.yaml and isn't post.ts's responsibility.
+# Verifies src/post.ts (run by the caller beforehand) removed the builder
+# container: post.ts's own down only knows docker/compose.action.yaml's
+# "builder" service.
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 

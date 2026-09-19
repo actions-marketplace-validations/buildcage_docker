@@ -3,10 +3,10 @@
  * what this action reads is answerable from one file rather than by grepping
  * the entry points. The report action has its own (report/src/lib/inputs.ts).
  *
- * Read in two calls rather than one because main() needs the engine before it
- * resolves the image and the rules only after: folding them together would
- * move rule validation ahead of image verification, changing which error a
- * run with both problems reports.
+ * Read in two calls rather than one because the setup step needs the engine
+ * before it resolves the image and the rules only after: folding them together
+ * would move rule validation ahead of image verification, changing which error
+ * a run with both problems reports.
  */
 import * as core from "@actions/core";
 

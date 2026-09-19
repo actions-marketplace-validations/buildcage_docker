@@ -9,7 +9,7 @@ import (
 )
 
 // loadPolicy reads a sourcepolicy.pb.Policy encoded as protobuf-JSON, exactly
-// as produced by setup/docker/explicit/scripts/gen-source-policy.js.
+// as produced by docker/explicit/scripts/gen-source-policy.qjs.ts.
 func loadPolicy(path string) (*sourcepolicypb.Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

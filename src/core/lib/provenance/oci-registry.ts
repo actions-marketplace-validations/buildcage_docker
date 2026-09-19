@@ -53,9 +53,9 @@ export type RegistryFailure = "TRANSIENT" | "NOT_FOUND";
  * The response-status ladder every registry call needs, in one place.
  *
  * `subject` names what was being fetched ("bundle blob", "fallback tag") and
- * goes into each message. `onFailure` classifies a response that failed for
- * none of the reasons above: TRANSIENT where a retry could still succeed,
- * NOT_FOUND where the thing asked for is simply absent. A caller that reads a
+ * goes into each message. `onFailure` classifies a response the ladder below
+ * has no more specific reading for: TRANSIENT where a retry could still
+ * succeed, NOT_FOUND where the thing asked for is absent. A caller that reads a
  * particular status as something more specific checks for it before calling
  * this.
  */

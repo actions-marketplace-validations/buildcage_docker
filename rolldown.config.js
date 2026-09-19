@@ -2,11 +2,11 @@ import { defineConfig } from "rolldown";
 import { replacePlugin } from "rolldown/plugins";
 
 // Plugin required to substitute BUILDCAGE_BUILD_TEST_HOOKS at build time.
-// Applied to src/main.js and report/src/main.js only.
+// Applied to src/main.ts and report/src/main.ts only.
 //
 // replacePlugin() substitutes BUILDCAGE_BUILD_TEST_HOOKS with the value from
 // this build's own env, not the resulting action's runtime env; see
-// LOCAL_IMAGE_OVERRIDE_ENABLED in src/main.js.
+// the gate in src/lib/local-image.ts.
 const mainPlugins = [
   replacePlugin({
     "process.env.BUILDCAGE_BUILD_TEST_HOOKS": JSON.stringify(

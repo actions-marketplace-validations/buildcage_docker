@@ -211,9 +211,7 @@ jobs:
       # GITHUB_STEP_SUMMARY is a separate file per step, so a later step can't
       # read what an earlier one wrote there. This downloads the artifact the
       # report step above just uploaded instead. inspect only: it's the only
-      # engine upload_traffic_artifact does anything for. The Dockerfile's own
-      # wget step swallows its exit code (`|| true`), so this is what would
-      # actually catch example.com silently not being refused.
+      # engine upload_traffic_artifact does anything for.
       - name: Download the traffic artifact
         if: matrix.proxy_engine == 'inspect'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

@@ -33,7 +33,8 @@ MULTIARCH_CROSS_PLATFORM ?= $(if $(filter arm64 aarch64,$(shell uname -m)),linux
 
 # Compose project name, trusted by report/src/main.ts and
 # src/post.ts via their own BUILDCAGE_BUILD_TEST_HOOKS-gated overrides
-# instead of deriveProjectName("buildcage") (src/core/lib/docker/container.ts).
+# instead of deriveProjectName("buildcage")
+# (src/core/lib/docker/compose-project-name.ts).
 # Scoped to the targets that touch this Compose project; test_unit_* is
 # excluded on purpose (see its own section below).
 setup_buildkit_% test_integration_buildkit_% example_% clean_buildkit report_buildkit: export COMPOSE_PROJECT_NAME := buildcage-project$(BUILDCAGE_WORKTREE_SUFFIX)
@@ -235,9 +236,9 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 .PHONY: test_integration_buildkit
 test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
-# The target that verifies post.ts removed the builder. Every target below
-# runs post.ts as part of its teardown, but the removal does not depend on
-# the engine or the mode, so only this one asserts it.
+# The target that verifies post.ts removed the builder. The targets below run
+# post.ts as part of their own teardown where they have one, but the removal
+# does not depend on the engine or the mode, so only this one asserts it.
 .PHONY: test_integration_buildkit_universal_audit
 test_integration_buildkit_universal_audit: ## Run universal-engine audit mode tests
 	@echo "Running universal-engine audit mode tests..."

@@ -1,6 +1,6 @@
 /**
  * Parsers for the `inspect` engine's two logs, whose formats are emitted by
- * haproxy-config.ts and coredns-config.ts. Four kinds of line:
+ * haproxy-config.ts and coredns-config.ts. Six kinds of line:
  *
  *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> reason=<r> dst=<addr>:<port> <url>
  *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> reason=<r> dst=<addr>:<port> sni=<name|->
@@ -18,8 +18,8 @@
  * names are service names is decided in the Corefile alone, so nothing here
  * recognises the shape.
  *
- * A fifth, `buildcage dns reverse name=<name>.`, is deliberately none of them:
- * no rule can name a reverse zone, so an event for it would be a report row no
+ * `buildcage dns reverse name=<name>.` is deliberately not on that list: no
+ * rule can name a reverse zone, so an event for it would be a report row no
  * rule could ever take away. It stays in the resolver log alone.
  *
  * <ms> is milliseconds since the epoch (HAProxy's date(0,ms), or qjs's
