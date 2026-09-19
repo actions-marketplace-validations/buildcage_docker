@@ -97,9 +97,15 @@ func parseArgs(args []string) (sub, bundle string) {
 	return sub, bundle
 }
 
+// Untested by design: os.Exit, which a test can never be inside. Every
+// decision it makes is in run, which returns the code instead.
+//
+//coverage:ignore start
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
+
+//coverage:ignore stop
 
 // run wraps one runc invocation and returns the code to exit with, so a test
 // can observe both that code and what the write-back does to it.
@@ -127,10 +133,16 @@ func run(args []string) int {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			code = exitErr.ExitCode()
+			// Untested by design, the else below: Wait returns an *exec.ExitError or
+			// nil while the wrapper hands runc the three streams directly and copies
+			// none of them itself. Kept because that is a property of these few lines
+			// rather than of os/exec.
+			//coverage:ignore start
 		} else {
 			logf("cannot run %s: %v", realRunc, err)
 			code = 1
 		}
+		//coverage:ignore stop
 	}
 	if injected != nil {
 		if err := injected.finish(); err != nil {
@@ -177,9 +189,14 @@ func forwardSignals(cmd *exec.Cmd) (stop func()) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 	go func() {
+		// Untested by design: reaching this means sending the test process a real
+		// signal and racing cmd.Wait for it. What it does -- forward and carry on
+		// -- is one line, and a flaky test would say less about it than the line.
+		//coverage:ignore start
 		for s := range signals {
 			_ = cmd.Process.Signal(s)
 		}
+		//coverage:ignore stop
 	}()
 	return func() { signal.Stop(signals) }
 }

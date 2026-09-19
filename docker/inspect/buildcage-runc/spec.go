@@ -76,9 +76,13 @@ func (s *spec) setEnv(extra map[string]string) {
 
 func (s *spec) save() error {
 	out, err := json.Marshal(s.raw)
+	// Untested by design: s.raw came out of json.Unmarshal and is only ever
+	// added to with strings and maps, so it holds nothing Marshal can refuse.
+	//coverage:ignore start
 	if err != nil {
 		return err
 	}
+	//coverage:ignore stop
 	return os.WriteFile(s.path, out, 0o644)
 }
 

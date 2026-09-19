@@ -95,16 +95,15 @@ test_unit_go: ## Run buildcage-runc's and covfilter's unit tests
 
 # buildcage-runc's coverage, with the statements a //coverage:ignore marker
 # excuses taken out first (see test/covfilter for why Go needs a second tool for
-# that at all). The threshold is a ratchet: raise it as gaps close, never lower
-# it.
+# that at all). 100 is not a number to admire: it is what makes a new untested
+# statement fail the run instead of sinking into a percentage nobody reads.
 #
-# It trails the reading by a point or so on purpose. How cmd/cover splits a
-# function into blocks changes between Go releases -- the same source reports
-# 85.3% under 1.26.5 and 86.4% under 1.27.1 -- so a number taken from one
-# toolchain fails under another. Only the destination is exact: at 100 every
-# statement is either reached or marked, whichever toolchain counts them.
+# It is also the only number that holds across Go releases. cmd/cover splits a
+# function into blocks differently between them -- the same source reports 98.1%
+# under 1.26.5 and 98.2% under 1.27.1 -- but at 100 every statement is either
+# reached or marked, whichever toolchain counted them.
 RUNC_COVERAGE := coverage/buildcage-runc.cov
-RUNC_COVERAGE_THRESHOLD := 98
+RUNC_COVERAGE_THRESHOLD := 100
 
 .PHONY: test_unit_go_coverage
 test_unit_go_coverage: ## Run buildcage-runc's tests with coverage and check the threshold
