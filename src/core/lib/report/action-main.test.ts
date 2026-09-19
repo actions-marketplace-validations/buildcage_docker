@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 import { runReportAction, type ReportActionSpec } from "./action-main.ts";
 import type { Docker } from "#core/lib/docker/client.ts";
-import type { GenReportParameters, InspectReportData, UniversalReportData } from "./types.ts";
+import type { InspectReportData, UniversalReportData } from "./types.ts";
+import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 function fakeDocker(overrides: Partial<Docker> = {}): Docker {
   return {
@@ -19,15 +20,7 @@ function fakeDocker(overrides: Partial<Docker> = {}): Docker {
   };
 }
 
-const parameters: GenReportParameters = {
-  mode: "restrict",
-  allowedHttpsRules: [],
-  allowedHttpRules: [],
-  allowedIpRules: [],
-  allowedTlsRules: [],
-  knownBlockedRules: [],
-};
-
+const parameters = reportParams();
 const universal: UniversalReportData = {
   engine: "universal",
   parameters,

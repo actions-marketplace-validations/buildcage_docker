@@ -1,19 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildExplicitReportData } from "./explicit.ts";
-import type { GenReportParameters } from "../types.ts";
 import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
-
-function params(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: [],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    allowedTlsRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
+import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 const deniedLine =
   'time="2026-01-01T00:00:00Z" level=debug msg="Evaluated source policy" ' +
@@ -34,7 +22,7 @@ const builds: VertexAllowedEntry[][] = [
 
 describe("buildExplicitReportData", () => {
   it("aggregates passed from builds and blocked from the buildkitd log", async () => {
-    const result = await buildExplicitReportData(deniedLine.split("\n"), builds, params());
+    const result = await buildExplicitReportData(deniedLine.split("\n"), builds, reportParams());
     expect(result.engine).toBe("explicit");
     expect(result.passed.length).toBe(1);
     expect(result.passed[0].host).toBe("good.example.com");
@@ -45,7 +33,7 @@ describe("buildExplicitReportData", () => {
 
   it("blockedCount equals blocked.length (aggregated, not raw event count)", async () => {
     const twoDenials = [deniedLine, deniedLine].join("\n");
-    const result = await buildExplicitReportData(twoDenials.split("\n"), [], params());
+    const result = await buildExplicitReportData(twoDenials.split("\n"), [], reportParams());
     expect(result.blocked.length).toBe(1);
     expect(result.blockedCount).toBe(1);
   });
@@ -54,25 +42,29 @@ describe("buildExplicitReportData", () => {
     const result = await buildExplicitReportData(
       deniedLine.split("\n"),
       [],
-      params({ knownBlockedRules: ["blocked.example.com:443"] }),
+      reportParams({ knownBlockedRules: ["blocked.example.com:443"] }),
     );
     expect(result.blocked[0].expected).toBe(true);
   });
 
   it("populates proxyLogs.builds and proxyLogs.denied", async () => {
-    const result = await buildExplicitReportData(deniedLine.split("\n"), builds, params());
+    const result = await buildExplicitReportData(deniedLine.split("\n"), builds, reportParams());
     expect(result.proxyLogs.builds).toBe(builds);
     expect(result.proxyLogs.denied.length).toBe(1);
     expect(result.proxyLogs.denied[0].url).toBe("https://blocked.example.com/");
   });
 
   it("uses AUDIT decision for passed when mode is audit", async () => {
-    const result = await buildExplicitReportData("".split("\n"), builds, params({ mode: "audit" }));
+    const result = await buildExplicitReportData(
+      "".split("\n"),
+      builds,
+      reportParams({ mode: "audit" }),
+    );
     expect(result.passed.length).toBe(1);
   });
 
   it("returns empty passed/blocked and blockedCount 0 for empty inputs", async () => {
-    const result = await buildExplicitReportData("".split("\n"), [], params());
+    const result = await buildExplicitReportData("".split("\n"), [], reportParams());
     expect(result.passed).toStrictEqual([]);
     expect(result.blocked).toStrictEqual([]);
     expect(result.blockedCount).toBe(0);
@@ -81,7 +73,7 @@ describe("buildExplicitReportData", () => {
 
   it("logLooksPlausible is true for a genuinely quiet run (buildkitd's own startup noise, zero denials)", async () => {
     const log = 'time="2026-01-01T00:00:00Z" level=info msg="found worker" builder=0';
-    const result = await buildExplicitReportData(log.split("\n"), [], params());
+    const result = await buildExplicitReportData(log.split("\n"), [], reportParams());
     expect(result.blockedCount).toBe(0);
     expect(result.logLooksPlausible).toBe(true);
   });

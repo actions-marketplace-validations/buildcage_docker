@@ -1,24 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderReportMarkdown } from "./render-report-markdown.ts";
-import type {
-  GenReportParameters,
-  UniversalReportData,
-  ExplicitReportData,
-  InspectReportData,
-} from "../types.ts";
+import type { UniversalReportData, ExplicitReportData, InspectReportData } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
-
-function params(overrides: Partial<GenReportParameters> = {}): GenReportParameters {
-  return {
-    mode: "restrict",
-    allowedHttpsRules: [],
-    allowedHttpRules: [],
-    allowedIpRules: [],
-    allowedTlsRules: [],
-    knownBlockedRules: [],
-    ...overrides,
-  };
-}
+import { reportParams, expectedRows } from "#core/lib/test/report-data.node.ts";
 
 const allowedRow = { host: "good.com", port: "443", ruleType: "HTTPS", reason: "-", count: 1 };
 const blockedRow = {
@@ -30,31 +14,10 @@ const blockedRow = {
   expected: false,
 };
 
-const expectedRows = [
-  {
-    host: "a.sury.org",
-    port: "443",
-    ruleType: "HTTPS",
-    reason: "https-not-allowed",
-    count: 1,
-    expected: true,
-    expectedBy: "*.sury.org:*",
-  },
-  {
-    host: "b.sury.org",
-    port: "443",
-    ruleType: "HTTPS",
-    reason: "https-not-allowed",
-    count: 1,
-    expected: true,
-    expectedBy: "*.sury.org:*",
-  },
-];
-
 describe("renderReportMarkdown — universal", () => {
   const base: UniversalReportData = {
     engine: "universal",
-    parameters: params(),
+    parameters: reportParams(),
     passed: [],
     blocked: [],
     blockedCount: 0,
@@ -93,7 +56,7 @@ describe("renderReportMarkdown — universal", () => {
 
   it("renders the audit-mode heading and Audited Hosts table, plus a restrict-mode example", () => {
     const md = renderReportMarkdown(
-      { ...base, parameters: params({ mode: "audit" }), passed: [allowedRow] },
+      { ...base, parameters: reportParams({ mode: "audit" }), passed: [allowedRow] },
       "buildcage/docker",
       "v2",
     );
@@ -156,7 +119,11 @@ describe("renderReportMarkdown — universal", () => {
 
   it("adds an Expected column marking known_blocked_rules matches when set", () => {
     const md = renderReportMarkdown(
-      { ...base, parameters: params({ knownBlockedRules: ["bad.com:80"] }), blocked: [blockedRow] },
+      {
+        ...base,
+        parameters: reportParams({ knownBlockedRules: ["bad.com:80"] }),
+        blocked: [blockedRow],
+      },
       "buildcage/docker",
       "v2",
     );
@@ -172,7 +139,7 @@ describe("renderReportMarkdown — universal", () => {
     const md = renderReportMarkdown(
       {
         ...base,
-        parameters: params({ knownBlockedRules: ["*.sury.org:*"] }),
+        parameters: reportParams({ knownBlockedRules: ["*.sury.org:*"] }),
         blocked: expectedRows,
       },
       "buildcage/docker",
@@ -187,7 +154,7 @@ describe("renderReportMarkdown — universal", () => {
 describe("renderReportMarkdown — explicit", () => {
   const base: ExplicitReportData = {
     engine: "explicit",
-    parameters: params(),
+    parameters: reportParams(),
     passed: [allowedRow],
     blocked: [blockedRow],
     blockedCount: 1,
@@ -219,7 +186,7 @@ describe("renderReportMarkdown — explicit", () => {
     const md = renderReportMarkdown(
       {
         ...base,
-        parameters: params({ knownBlockedRules: ["*.sury.org:*"] }),
+        parameters: reportParams({ knownBlockedRules: ["*.sury.org:*"] }),
         blocked: [blockedRow, ...expectedRows],
       },
       "buildcage/docker",
@@ -248,7 +215,7 @@ describe("renderReportMarkdown — inspect", () => {
 
   const base: InspectReportData = {
     engine: "inspect",
-    parameters: params(),
+    parameters: reportParams(),
     passed: [],
     blocked: [],
     blockedCount: 0,
@@ -267,7 +234,7 @@ describe("renderReportMarkdown — inspect", () => {
   // than one built from hosts alone.
   it("builds the audit example from the requests rather than from the hosts", () => {
     const md = renderReportMarkdown(
-      { ...base, parameters: params({ mode: "audit" }) },
+      { ...base, parameters: reportParams({ mode: "audit" }) },
       "buildcage/docker",
       "v2",
     );
