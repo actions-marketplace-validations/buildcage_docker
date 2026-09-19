@@ -236,13 +236,13 @@ function capturedStderr(e) {
 	return typeof err.stderr == "string" ? err.stderr.trim() : "";
 }
 function describeDockerFailure(e, { operation = "docker", env = process.env, exists = node_fs.existsSync } = {}) {
-	let err = e && typeof e == "object" ? e : {}, slimNote = isLikelySlimRunner(env, exists) ? " Detected a container-based GitHub-hosted runner image (e.g. \"ubuntu-slim\") — these ship a Docker client with no daemon and are not supported for this action." : "", whatHappened;
+	let err = e && typeof e == "object" ? e : {}, slimNote = isLikelySlimRunner(env, exists) ? " Detected a container-based GitHub-hosted runner image (e.g. \"ubuntu-slim\"): these ship a Docker client with no daemon and are not supported for this action." : "", whatHappened;
 	if (err.code === "ENOENT") whatHappened = `The "docker" command was not found on this runner's PATH while running ${operation}.`;
 	else {
 		let captured = capturedStderr(e);
 		whatHappened = `${operation} failed${captured ? `: ${captured}` : " (see the Docker output above for the underlying error)"}.`;
 	}
-	return `${whatHappened}${slimNote} Buildcage requires a working Docker installation (client and daemon) on the runner, on Docker Engine 25.0 or later with Compose v2.20.2 or later. Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no daemon and are not supported for this action — use "ubuntu-latest" (or another runner with a full Docker install) instead. See README.md and docs/security.md for details.`;
+	return `${whatHappened}${slimNote} Buildcage requires a working Docker installation (client and daemon) on the runner, on Docker Engine 25.0 or later with Compose v2.20.2 or later. Lightweight runner images such as GitHub-hosted "ubuntu-slim" ship a Docker client but no daemon and are not supported for this action. Use "ubuntu-latest", or another runner with a full Docker install, instead. See README.md and docs/security.md for details.`;
 }
 function isLikelySlimRunner(_env = process.env, _exists = node_fs.existsSync) {
 	return _env.ImageOS === "Linux" && _exists("/run/.containerenv");

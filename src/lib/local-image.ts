@@ -26,7 +26,7 @@ export async function readLocalImageOverride(
   // message nor the module it describes.
   if (override) {
     log(
-      `BUILDCAGE_LOCAL_IMAGE_REF is set (${JSON.stringify(override.imageRef)}) — ` +
+      `BUILDCAGE_LOCAL_IMAGE_REF is set (${JSON.stringify(override.imageRef)}): ` +
         `skipping image provenance verification and registry tag resolution entirely. ` +
         `This bypass exists only for buildcage's own CI self-tests and local development and is ` +
         `dead-code-eliminated from every published release build.`,

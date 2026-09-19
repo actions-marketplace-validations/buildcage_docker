@@ -37,8 +37,8 @@ export function checkUrlAndTlsRuleSupport(
   const list = unsupported.join(" and ");
   const verb = unsupported.length > 1 ? "have" : "has";
   const reason =
-    `${list} ${verb} no effect with proxy_engine: ${proxyEngine} — this engine only sees the ` +
-    `host and port, never a method or a path.`;
+    `${list} ${verb} no effect with proxy_engine: ${proxyEngine}, which only sees the host ` +
+    `and port, never a method or a path.`;
 
   if (proxyMode === "audit") {
     warn(
@@ -49,9 +49,9 @@ export function checkUrlAndTlsRuleSupport(
   }
 
   throw new SetupError(
-    `${reason} In restrict mode that means ${list} would not actually be enforced — the build ` +
-      `would look protected but isn't. Switch to proxy_engine: inspect, or remove ${list} from ` +
-      `your workflow.`,
+    `${reason} In restrict mode that means ${list} would not actually be enforced, so the ` +
+      `build would look protected but isn't. Switch to proxy_engine: inspect, or remove ` +
+      `${list} from your workflow.`,
     "INVALID_PROXY_ENGINE",
   );
 }
