@@ -24,11 +24,11 @@ var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDes
 	enumerable: !0
 }) : target, mod));
 //#endregion
-let node_fs = require("node:fs");
+let node_url = require("node:url"), node_fs = require("node:fs");
 node_fs = __toESM(node_fs, 1);
 let node_os = require("node:os");
 node_os = __toESM(node_os, 1);
-let node_path = require("node:path"), node_url = require("node:url"), node_crypto = require("node:crypto"), node_child_process = require("node:child_process"), node_events = require("node:events"), node_readline = require("node:readline"), os = require("os");
+let node_path = require("node:path"), node_crypto = require("node:crypto"), node_child_process = require("node:child_process"), node_events = require("node:events"), node_readline = require("node:readline"), os = require("os");
 os = __toESM(os, 1);
 let crypto = require("crypto");
 crypto = __toESM(crypto, 1);
@@ -62,6 +62,44 @@ let stream = require("stream");
 stream = __toESM(stream, 1);
 let buffer = require("buffer"), fs_promises = require("fs/promises");
 fs_promises = __toESM(fs_promises, 1);
+//#region src/core/lib/errors.ts
+var ActionError = class extends Error {
+	code;
+	constructor(message, code) {
+		super(message), this.name = new.target.name, this.code = code;
+	}
+};
+function errorMessage(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+//#endregion
+//#region src/core/lib/actions/annotation.ts
+function createAnnotation(enabled) {
+	return enabled ? {
+		notice(message) {
+			console.log(`::notice::${message}`);
+		},
+		warning(message) {
+			console.log(`::warning::${message}`);
+		},
+		error(message) {
+			console.log(`::error::${message}`);
+		}
+	} : {
+		notice() {},
+		warning() {},
+		error() {}
+	};
+}
+const annotate = createAnnotation(!0);
+//#endregion
+//#region src/core/lib/actions/fatal.ts
+function exitOnFatalError(context) {
+	return (err) => {
+		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
+	};
+}
+//#endregion
 //#region src/core/lib/docker/compose-project-name.ts
 function deriveProjectName(containerName) {
 	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
@@ -191,44 +229,6 @@ function createDocker(run = defaultRunCommand, spawnDocker = defaultSpawnCommand
 				...args
 			]);
 		}
-	};
-}
-//#endregion
-//#region src/core/lib/actions/annotation.ts
-function createAnnotation(enabled) {
-	return enabled ? {
-		notice(message) {
-			console.log(`::notice::${message}`);
-		},
-		warning(message) {
-			console.log(`::warning::${message}`);
-		},
-		error(message) {
-			console.log(`::error::${message}`);
-		}
-	} : {
-		notice() {},
-		warning() {},
-		error() {}
-	};
-}
-const annotate = createAnnotation(!0);
-//#endregion
-//#region src/core/lib/errors.ts
-var ActionError = class extends Error {
-	code;
-	constructor(message, code) {
-		super(message), this.name = new.target.name, this.code = code;
-	}
-};
-function errorMessage(e) {
-	return e instanceof Error ? e.message : String(e);
-}
-//#endregion
-//#region src/core/lib/actions/fatal.ts
-function exitOnFatalError(context) {
-	return (err) => {
-		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
 	};
 }
 function capturedStderr(e) {
@@ -56189,22 +56189,37 @@ async function uploadTrafficArtifact(file, builderName, warn, { retentionDays, r
 		warn(`Could not upload the traffic artifact: ${errorMessage(e)}`);
 	}
 }
-//#endregion
-//#region report/src/main.ts
-async function main() {
-	let builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(annotate.warning), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
+const realDeps = {
+	readBuilderName,
+	readTrafficArtifactInputs,
+	createDocker,
+	findReportSourceContainer,
+	copyFromContainerImage,
+	runReportScript,
+	uploadTrafficArtifact,
+	makeScratchDir: () => (0, node_fs.mkdtempSync)((0, node_path.join)((0, node_os.tmpdir)(), "buildcage-report-")),
+	removeScratchDir: (dir) => (0, node_fs.rmSync)(dir, {
+		recursive: !0,
+		force: !0
+	}),
+	warn: annotate.warning
+};
+async function runReportStep(env, overrides = {}) {
+	let { readBuilderName, readTrafficArtifactInputs, createDocker, findReportSourceContainer, copyFromContainerImage, runReportScript, uploadTrafficArtifact, makeScratchDir, removeScratchDir, warn } = {
+		...realDeps,
+		...overrides
+	}, builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(warn), projectName = resolveProjectName(builderName, env.BUILDCAGE_BUILD_TEST_HOOKS === "1" ? env.COMPOSE_PROJECT_NAME : void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = makeScratchDir(), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile }), reportScriptFinished = !0;
 	} finally {
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, annotate.warning, {
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, warn, {
 			retentionDays: trafficArtifact.retentionDays,
 			reportScriptFinished
-		}), (0, node_fs.rmSync)(scratchDir, {
-			recursive: !0,
-			force: !0
-		});
+		}), removeScratchDir(scratchDir);
 	}
 }
-process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch(exitOnFatalError("report"));
+//#endregion
+//#region report/src/main.ts
+process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && runReportStep(process.env).catch(exitOnFatalError("report"));
 //#endregion
