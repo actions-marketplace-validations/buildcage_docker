@@ -19,7 +19,7 @@ const vendored = ["docker/seccomp/builder.json"];
 // (see src/core/lib/actions/annotation.ts).
 const annotateCallers = [
   "src/lib/setup-step.ts",
-  "report/src/main.ts",
+  "report/src/lib/report-step.ts",
   "src/core/lib/actions/fatal.ts",
   "src/core/lib/actions/annotation.test.ts",
 ];
