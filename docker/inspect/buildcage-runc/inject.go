@@ -66,17 +66,16 @@ func inject(bundle string, ca []byte) (func() error, error) {
 	// A store's absence is not fatal: the store itself is simply not an
 	// append target, and every otherwise-unset variable falls back to the
 	// proxy-CA-only file instead (see the unsetBehaviour comment above).
-	systemStore, systemStorePath, storeErr := findSystemStore(s.rootfs)
-	haveSystemStore := storeErr == nil
-	if !haveSystemStore {
+	store, storeErr := findSystemStore(s.rootfs)
+	if !store.found {
 		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
 	}
 
 	// Every bundle the CA has to go into, keyed by resolved path so a file
 	// named by two variables is only written once.
 	targets := map[string]bool{}
-	if haveSystemStore {
-		targets[systemStore] = true
+	if store.found {
+		targets[store.hostPath] = true
 	}
 	newEnv := map[string]string{}
 	createdOwnCA := ""
@@ -121,12 +120,12 @@ func inject(bundle string, ca []byte) (func() error, error) {
 		}
 		switch variable.whenUnset {
 		case leaveUnset:
-			if !haveSystemStore {
+			if !store.found {
 				setOwnCA(variable.name)
 			}
 		case pointAtSystemStore:
-			if haveSystemStore {
-				newEnv[variable.name] = systemStorePath
+			if store.found {
+				newEnv[variable.name] = store.containerPath
 			} else {
 				setOwnCA(variable.name)
 			}
@@ -162,7 +161,7 @@ func inject(bundle string, ca []byte) (func() error, error) {
 			containerDir: containerDir,
 			scratchDir:   scratch,
 			bundleFiles:  names,
-			custom:       !(haveSystemStore && hostDir == filepath.Dir(systemStore)),
+			custom:       !(store.found && hostDir == store.dir()),
 		}
 		if err := b.prepare(ca); err != nil {
 			logf("cannot prepare CA injection for %s: %v", containerDir, err)
