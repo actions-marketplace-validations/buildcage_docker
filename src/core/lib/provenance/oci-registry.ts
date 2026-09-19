@@ -288,7 +288,7 @@ export async function fetchRegistryToken(
     throw new VerifyImageError(
       basicAuth
         ? `Registry authentication failed: HTTP ${resp.status}. ` +
-            `The credentials in Docker config may be expired — run \`docker login ${registry}\` again.`
+            `The credentials in Docker config may be expired. Run \`docker login ${registry}\` again.`
         : `Failed to get registry token: HTTP ${resp.status}. ` +
             `The package may be private. Run \`docker login ${registry}\` ` +
             `(or use docker/login-action with 'packages: read') before this action.`,
