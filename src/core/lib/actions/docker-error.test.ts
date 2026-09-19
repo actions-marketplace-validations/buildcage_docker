@@ -63,15 +63,9 @@ describe("isLikelySlimRunner", () => {
     expect(isLikelySlimRunner({ ImageOS: "Linux" }, () => true)).toBe(true);
   });
 
-  it("returns false when ImageOS looks like a normal VM image", () => {
+  it("returns false unless ImageOS is Linux and the marker is there", () => {
     expect(isLikelySlimRunner({ ImageOS: "ubuntu24" }, () => true)).toBe(false);
-  });
-
-  it("returns false when the containerenv marker is missing", () => {
     expect(isLikelySlimRunner({ ImageOS: "Linux" }, () => false)).toBe(false);
-  });
-
-  it("returns false when ImageOS is unset", () => {
     expect(isLikelySlimRunner({}, () => true)).toBe(false);
   });
 });
