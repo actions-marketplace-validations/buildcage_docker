@@ -106,9 +106,15 @@ type fileEntry struct {
 	sha256    [32]byte
 }
 
+// walkDir is a var so a test can hand the manifest an entry whose own metadata
+// cannot be read, or a directory read that fails halfway. Both happen when a
+// step deletes something between the listing and the stat of it, and neither is
+// arrangeable from a fixture on a real filesystem.
+var walkDir = filepath.WalkDir
+
 func captureManifest(root string) ([]fileEntry, error) {
 	var entries []fileEntry
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := walkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || path == root {
 			return err
 		}
@@ -178,7 +184,7 @@ func manifestsEqual(a, b []fileEntry) bool {
 }
 
 func sizeAndCount(root string) (bytes int64, files int, err error) {
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = walkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

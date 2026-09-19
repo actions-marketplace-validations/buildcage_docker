@@ -122,6 +122,70 @@ func useBrokenBundleFile(t *testing.T, broken *brokenFile) {
 	t.Cleanup(func() { openBundle = old })
 }
 
+var errBrokenWalk = errors.New("simulated directory read failure")
+
+// walkStep is one call a stubbed walk makes to the manifest's callback, in
+// place of something it would have found on disk.
+type walkStep struct {
+	path string
+	d    fs.DirEntry
+	err  error
+}
+
+// useStubWalk makes the nth walk of dir hand the manifest these steps instead
+// of reading the directory. Walks of anywhere else, and later walks of the same
+// place, still run for real, so a test breaks only the one it means to.
+func useStubWalk(t *testing.T, dir string, nth int, steps ...walkStep) {
+	t.Helper()
+	seen := 0
+	old := walkDir
+	walkDir = func(root string, fn fs.WalkDirFunc) error {
+		if root != dir {
+			return old(root, fn)
+		}
+		if seen++; seen != nth {
+			return old(root, fn)
+		}
+		for _, step := range steps {
+			if err := fn(step.path, step.d, step.err); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	t.Cleanup(func() { walkDir = old })
+}
+
+// failWalkOn makes the nth walk of dir fail before it reports anything.
+func failWalkOn(t *testing.T, dir string, nth int) {
+	t.Helper()
+	useStubWalk(t, dir, nth, walkStep{path: dir, err: errBrokenWalk})
+}
+
+// unreadableEntry is a directory entry whose own metadata cannot be read,
+// which is what a listing returns for a file deleted since it was made.
+type unreadableEntry struct{ fs.DirEntry }
+
+func (unreadableEntry) Info() (fs.FileInfo, error) { return nil, errBrokenWalk }
+
+// realEntry reads a directory entry the operating system actually made, so a
+// stubbed walk can hand out one whose Info is genuine while pointing the
+// callback at a different path.
+func realEntry(t *testing.T, dir, name string) fs.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return e
+		}
+	}
+	t.Fatalf("no entry named %s in %s", name, dir)
+	return nil
+}
+
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {

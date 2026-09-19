@@ -577,3 +577,196 @@ func TestFinishWritesNothingBackWhenTheStripFails(t *testing.T) {
 		t.Error("the scratch mirror was left untouched; this proves nothing about containment")
 	}
 }
+
+// The manifest is what decides whether the real store is written to at all, so
+// an entry it cannot read is a refusal rather than an entry left out. Leaving
+// one out would make an unchanged store look changed, or a changed one look
+// untouched.
+func TestCaptureManifestRefusesAnEntryItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, dir+"/regular.pem", "ROOTS")
+	mustSymlink(t, "regular.pem", dir+"/alias.pem")
+	gone := filepath.Join(t.TempDir(), "gone.pem")
+
+	cases := map[string]walkStep{
+		"a path outside the root it was given": {
+			path: "relative/not/under/the/root",
+			d:    realEntry(t, dir, "regular.pem"),
+		},
+		"an entry whose metadata cannot be read": {
+			path: filepath.Join(dir, "regular.pem"),
+			d:    unreadableEntry{realEntry(t, dir, "regular.pem")},
+		},
+		"a symlink whose target cannot be read": {
+			path: gone,
+			d:    realEntry(t, dir, "alias.pem"),
+		},
+		"a file whose contents cannot be hashed": {
+			path: gone,
+			d:    realEntry(t, dir, "regular.pem"),
+		},
+	}
+	for name, step := range cases {
+		t.Run(name, func(t *testing.T) {
+			useStubWalk(t, dir, 1, step)
+			if _, err := captureManifest(dir); err == nil {
+				t.Fatal("expected captureManifest to refuse the entry")
+			}
+		})
+	}
+}
+
+// The size check is the bound on how far a Dockerfile-chosen path can drag the
+// mirror, so an entry it cannot measure has to stop it rather than count as
+// nothing.
+func TestSizeAndCountRefusesAnEntryItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, dir+"/regular.pem", "ROOTS")
+	useStubWalk(t, dir, 1, walkStep{
+		path: filepath.Join(dir, "regular.pem"),
+		d:    unreadableEntry{realEntry(t, dir, "regular.pem")},
+	})
+
+	if _, _, err := sizeAndCount(dir); err == nil {
+		t.Fatal("expected sizeAndCount to refuse the entry")
+	}
+}
+
+// A path that opens but cannot be read is a directory, which a step can leave
+// where the bundle was.
+func TestHashFileReportsAReadThatFails(t *testing.T) {
+	if _, err := hashFile(t.TempDir()); err == nil {
+		t.Fatal("expected hashFile to fail on a directory")
+	}
+}
+
+// prepare records the directory twice: once before the CA goes in, once after.
+// Either failing means there is no baseline to compare the step's work against,
+// so the bind is refused rather than set up without one.
+func TestPrepareRefusesADirectoryItCannotRecord(t *testing.T) {
+	for _, nth := range []int{1, 2} {
+		t.Run(fmt.Sprintf("the %s manifest", map[int]string{1: "first", 2: "second"}[nth]), func(t *testing.T) {
+			useFakeRsync(t)
+			rootfs := t.TempDir()
+			hostDir := filepath.Join(rootfs, "etc/ssl/certs")
+			mustMkdirAll(t, hostDir)
+			mustWriteFile(t, filepath.Join(hostDir, "ca-certificates.crt"), "ORIGINAL-ROOTS\n")
+			scratch, err := newScratchDir("bundle")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := &dirBind{
+				rootfs:       rootfs,
+				hostDir:      hostDir,
+				containerDir: "/etc/ssl/certs",
+				scratchDir:   scratch,
+				bundleFiles:  []string{"ca-certificates.crt"},
+			}
+			failWalkOn(t, scratch, nth)
+
+			if err := b.prepare([]byte("BUILDCAGE-CA")); !errors.Is(err, errBrokenWalk) {
+				t.Fatalf("got %v, want the failed manifest to refuse the bind", err)
+			}
+		})
+	}
+}
+
+// An unopenable bundle file is skipped, but a failure that is not about the
+// file's kind is the wrapper's own and stops the bind.
+func TestPrepareRefusesABundleFileItCannotStat(t *testing.T) {
+	useFakeRsync(t)
+	rootfs := t.TempDir()
+	hostDir := filepath.Join(rootfs, "etc/ssl/certs")
+	mustMkdirAll(t, hostDir)
+	mustWriteFile(t, filepath.Join(hostDir, "ca-certificates.crt"), "ORIGINAL-ROOTS\n")
+	scratch, err := newScratchDir("bundle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &dirBind{
+		rootfs:       rootfs,
+		hostDir:      hostDir,
+		containerDir: "/etc/ssl/certs",
+		scratchDir:   scratch,
+		bundleFiles:  []string{"ca-certificates.crt"},
+	}
+	useBrokenBundleFile(t, &brokenFile{failStat: true})
+
+	if err := b.prepare([]byte("BUILDCAGE-CA")); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want the stat failure to refuse the bind", err)
+	}
+}
+
+// finish reads the directory twice as well, and the same rule applies: without
+// both manifests there is no way to tell what the step changed, so nothing is
+// written back.
+func TestFinishWritesNothingBackWhenItCannotRecordTheDirectory(t *testing.T) {
+	for _, nth := range []int{1, 2} {
+		t.Run(fmt.Sprintf("the %s manifest", map[int]string{1: "first", 2: "second"}[nth]), func(t *testing.T) {
+			useFakeRsync(t)
+			b, rootfs := newCAStoreBind(t)
+			mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
+			failWalkOn(t, b.scratchDir, nth)
+			calls := countRsync(t)
+
+			if err := b.finish(); !errors.Is(err, errBrokenWalk) {
+				t.Fatalf("got %v, want the failed manifest to fail the step", err)
+			}
+			if *calls != 0 {
+				t.Errorf("got %d rsync invocations, want none", *calls)
+			}
+			got, err := os.ReadFile(filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != "ORIGINAL-ROOTS\n" {
+				t.Errorf("the real store was written to: %q", got)
+			}
+		})
+	}
+}
+
+// The mtime reset walks the manifest rather than the directory, so it can be
+// handed an entry for something that is no longer there. Like the manifests
+// themselves, a failure there stops the write-back: the store is only left
+// alone when the wrapper can show it has put every untouched file back as it
+// found it.
+func TestFinishWritesNothingBackWhenItCannotResetAnMtime(t *testing.T) {
+	useFakeRsync(t)
+	b, rootfs := newCAStoreBind(t)
+	// A directory is in the manifest but is neither hashed nor read as a link,
+	// so a stubbed walk can report one that has since been removed. It goes in
+	// the store itself, since prepare replaces the mirror wholesale.
+	mustMkdirAll(t, filepath.Join(b.hostDir, "sub"))
+	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(b.scratchDir, "sub")); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
+
+	// Same permissions and owner, so the entry matches the one prepare
+	// recorded and the reset is attempted rather than skipped.
+	elsewhere := t.TempDir()
+	mustMkdirAll(t, filepath.Join(elsewhere, "sub"))
+	useStubWalk(t, b.scratchDir, 2, walkStep{
+		path: filepath.Join(b.scratchDir, "sub"),
+		d:    realEntry(t, elsewhere, "sub"),
+	})
+	calls := countRsync(t)
+
+	if err := b.finish(); err == nil {
+		t.Fatal("expected the failed mtime reset to fail the step")
+	}
+	if *calls != 0 {
+		t.Errorf("got %d rsync invocations, want none", *calls)
+	}
+	got, err := os.ReadFile(filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ORIGINAL-ROOTS\n" {
+		t.Errorf("the real store was written to: %q", got)
+	}
+}
