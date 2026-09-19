@@ -7,7 +7,7 @@ import { buildInspectRestrictExample } from "./inspect-example.ts";
 import type { ReportData } from "../types.ts";
 
 export interface RenderReportMarkdownOptions {
-  /** Full heading text, e.g. "Outbound Traffic Report: npm install".
+  /** Full heading text, e.g. "Outbound Traffic Report — npm install".
    *  Defaults to a bare "Outbound Traffic Report", which is what both
    *  engines' report scripts use. */
   title?: string;
