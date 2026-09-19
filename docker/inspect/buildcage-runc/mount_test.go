@@ -100,11 +100,11 @@ func TestContainerPathOfResolvesThroughSymlinks(t *testing.T) {
 		mustWriteFile(t, filepath.Join(root, "etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"), "ROOTS")
 		mustSymlink(t, "../../ca-trust/extracted/pem/tls-ca-bundle.pem", filepath.Join(root, "etc/pki/tls/certs/ca-bundle.crt"))
 
-		resolved, _, err := findSystemStore(root)
+		store, err := findSystemStore(root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := containerPathOf(root, filepath.Dir(resolved))
+		got := containerPathOf(root, store.dir())
 		if want := "/etc/pki/ca-trust/extracted/pem"; got != want {
 			t.Errorf("containerPathOf = %q, want %q", got, want)
 		}
@@ -119,11 +119,11 @@ func TestContainerPathOfResolvesThroughSymlinks(t *testing.T) {
 		mustWriteFile(t, filepath.Join(root, "var/lib/ca-certificates/ca-bundle.pem"), "ROOTS")
 		mustSymlink(t, "../../var/lib/ca-certificates/ca-bundle.pem", filepath.Join(root, "etc/ssl/ca-bundle.pem"))
 
-		resolved, _, err := findSystemStore(root)
+		store, err := findSystemStore(root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := containerPathOf(root, filepath.Dir(resolved))
+		got := containerPathOf(root, store.dir())
 		if want := "/var/lib/ca-certificates"; got != want {
 			t.Errorf("containerPathOf = %q, want %q", got, want)
 		}
@@ -270,11 +270,11 @@ func newCAStoreBind(t *testing.T) (*dirBind, string) {
 	mustMkdirAll(t, filepath.Join(rootfs, "etc/ssl/certs"))
 	mustWriteFile(t, filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"), "ORIGINAL-ROOTS\n")
 
-	store, _, err := findSystemStore(rootfs)
+	store, err := findSystemStore(rootfs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostDir := filepath.Dir(store)
+	hostDir := store.dir()
 	scratch, err := newScratchDir("bundle")
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func newCAStoreBind(t *testing.T) (*dirBind, string) {
 		hostDir:      hostDir,
 		containerDir: containerPathOf(rootfs, hostDir),
 		scratchDir:   scratch,
-		bundleFiles:  []string{filepath.Base(store)},
+		bundleFiles:  []string{filepath.Base(store.hostPath)},
 	}
 	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
 		t.Fatal(err)

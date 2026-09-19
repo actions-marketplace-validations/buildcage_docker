@@ -280,17 +280,30 @@ func containerPathOf(rootfs, resolved string) string {
 	return "/"
 }
 
-// findSystemStore returns the container's own CA bundle, as a path inside the
-// rootfs and as the path the container refers to it by.
-func findSystemStore(rootfs string) (hostPath, containerPath string, err error) {
+// systemStore is the container's own CA bundle: where the wrapper reaches it
+// from the host, and the path the container refers to it by. found stays false
+// when the image ships no store at all, which is not fatal — it only changes
+// what the otherwise-unset variables fall back to.
+type systemStore struct {
+	hostPath      string
+	containerPath string
+	found         bool
+}
+
+// dir is the directory a dirBind mirrors to reach the store.
+func (s systemStore) dir() string {
+	return filepath.Dir(s.hostPath)
+}
+
+func findSystemStore(rootfs string) (systemStore, error) {
 	for _, candidate := range systemCertFiles {
 		resolved, err := resolveInRoot(rootfs, candidate)
 		if err != nil {
 			continue
 		}
 		if _, err := os.Stat(resolved); err == nil {
-			return resolved, candidate, nil
+			return systemStore{hostPath: resolved, containerPath: candidate, found: true}, nil
 		}
 	}
-	return "", "", errors.New("no CA bundle found in the rootfs")
+	return systemStore{}, errors.New("no CA bundle found in the rootfs")
 }
