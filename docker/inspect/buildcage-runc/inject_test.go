@@ -154,12 +154,8 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"DENO_CERT=/custom/roots.pem"})
-	if err := os.MkdirAll(filepath.Join(rootfs, "custom"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(rootfs, "custom", "roots.pem"), []byte("CUSTOM\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustMkdirAll(t, filepath.Join(rootfs, "custom"))
+	mustWriteFile(t, filepath.Join(rootfs, "custom", "roots.pem"), "CUSTOM\n")
 
 	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
 	if err != nil {
@@ -231,9 +227,7 @@ func TestInjectWritesBackWhenTheStepChangesTheStore(t *testing.T) {
 
 	mount := findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
 	scratchDir, _ := mount["source"].(string)
-	if err := os.WriteFile(filepath.Join(scratchDir, "ca-certificates.crt"), []byte("REGENERATED\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, filepath.Join(scratchDir, "ca-certificates.crt"), "REGENERATED\n")
 
 	var calls int
 	orig := runRsync
@@ -272,9 +266,7 @@ func TestInjectWriteBackFailurePropagates(t *testing.T) {
 
 	mount := findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
 	scratchDir, _ := mount["source"].(string)
-	if err := os.WriteFile(filepath.Join(scratchDir, "ca-certificates.crt"), []byte("REGENERATED\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, filepath.Join(scratchDir, "ca-certificates.crt"), "REGENERATED\n")
 
 	var calls int
 	orig := runRsync
@@ -296,9 +288,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 	outside := filepath.Join(t.TempDir(), "host-secret")
-	if err := os.WriteFile(outside, []byte("SECRET"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, outside, "SECRET")
 
 	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
 	if err != nil {
@@ -311,9 +301,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 	if err := os.Remove(target); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, target); err != nil {
-		t.Fatal(err)
-	}
+	mustSymlink(t, outside, target)
 
 	if err := restore(); err != nil {
 		t.Fatalf("restore should skip the unrestorable file, not fail the build: %v", err)

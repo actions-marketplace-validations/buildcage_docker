@@ -231,37 +231,6 @@ func TestRestoreUnchangedMtimesLeavesChangedFilesAlone(t *testing.T) {
 	}
 }
 
-func mustMkdirAll(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustWriteFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustSymlink(t *testing.T, target, link string) {
-	t.Helper()
-	_ = os.Remove(link)
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustStatMtime(t *testing.T, path string) time.Time {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info.ModTime()
-}
-
 // newCAStoreBind lays out a rootfs holding one CA bundle and prepares a
 // dirBind over its directory, the way inject does.
 func newCAStoreBind(t *testing.T) (*dirBind, string) {
