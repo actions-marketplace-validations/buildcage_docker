@@ -348,3 +348,143 @@ func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) 
 		t.Fatalf("own CA file still present after restore: %v", err)
 	}
 }
+
+// newBundleWithMounts is newBundle with mounts already in the process spec,
+// the way BuildKit hands them over for a cache mount or a bind.
+func newBundleWithMounts(t *testing.T, env []string, destinations ...string) (bundle, rootfs string) {
+	t.Helper()
+	bundle, rootfs = newBundle(t, env)
+	s, err := loadSpec(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dest := range destinations {
+		s.addBindMount(dest, t.TempDir())
+	}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	return bundle, rootfs
+}
+
+// Mounting over a directory something else already covers would shadow it, so
+// the store keeps whatever the build put there and injection is skipped.
+func TestInjectSkipsADirectoryAMountAlreadyCovers(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundleWithMounts(t, []string{"PATH=/usr/bin"}, "/etc/ssl")
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/etc/ssl/certs" {
+			t.Fatalf("injection mounted over a covered directory: %v", m)
+		}
+	}
+	store, err := os.ReadFile(filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(store) != "ORIGINAL-ROOTS\n" {
+		t.Fatalf("the store was written to: %q", store)
+	}
+}
+
+// A variable naming a file directly under / would make the mount destination
+// the container root. Binding there would shadow the whole filesystem, so the
+// CA does not go in at all.
+func TestInjectRefusesToBindTheContainerRoot(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundleNoStore(t, []string{"CURL_CA_BUNDLE=/roots.pem"})
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
+		t.Fatalf("expected no mounts, got %v", mounts)
+	}
+}
+
+// A directory prepare refuses is skipped rather than failing the build: the
+// step runs without the CA there, and its TLS failures say so.
+func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"DENO_CERT=/big/roots.pem"})
+	big := filepath.Join(rootfs, "big")
+	mustMkdirAll(t, big)
+	mustSparseFile(t, filepath.Join(big, "roots.pem"), maxCustomDirBytes+1)
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/big" {
+			t.Fatalf("injection mounted a directory prepare refused: %v", m)
+		}
+	}
+	// The store the same build does have is still injected.
+	findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
+}
+
+// A file already at the wrapper's own path belongs to the image, not to this
+// run: it is neither overwritten nor removed, and the variables that would
+// have pointed at it stay unset.
+func TestInjectLeavesAnExistingOwnCAPathAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
+	existing := filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))
+	mustWriteFile(t, existing, "THE IMAGE PUT THIS HERE")
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env := loadEnv(t, bundle)
+	for _, additive := range []string{"NODE_EXTRA_CA_CERTS", "DENO_CERT"} {
+		if _, set := env[additive]; set {
+			t.Errorf("%s was pointed at a file this run did not write", additive)
+		}
+	}
+
+	if err := restore.finish(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(existing)
+	if err != nil {
+		t.Fatalf("the image's own file was removed: %v", err)
+	}
+	if string(got) != "THE IMAGE PUT THIS HERE" {
+		t.Fatalf("the image's own file was overwritten: %q", got)
+	}
+}
+
+// A variable pointing outside the rootfs is left as the author wrote it: the
+// wrapper runs as root on the host, so following it is what resolveInRoot
+// exists to refuse.
+func TestInjectLeavesAnUnresolvableVariableAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"DENO_CERT=../../../../etc/passwd"})
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	if got := loadEnv(t, bundle)["DENO_CERT"]; got != "../../../../etc/passwd" {
+		t.Errorf("DENO_CERT = %q, want it left alone", got)
+	}
+	if mounts := loadMounts(t, bundle); len(mounts) != 1 {
+		t.Fatalf("expected only the store's own mount, got %v", mounts)
+	}
+}
