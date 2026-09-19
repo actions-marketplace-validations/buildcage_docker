@@ -189,7 +189,7 @@ describe("buildUrlRuleLines", () => {
     expect(lines.length).toBe(2);
   });
 
-  it("drops the query string, which is as likely to hold a one-off token", () => {
+  it("drops the query string, which is as likely to hold a one-off token as anything", () => {
     const lines = buildUrlRuleLines([req("GET", "https://a.example.com/x?token=SECRET")]);
     expect(lines[0]).toBe("GET https://a.example.com/x");
   });

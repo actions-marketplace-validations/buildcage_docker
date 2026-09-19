@@ -1,7 +1,7 @@
 /**
  * haproxy.cfg generator for the `inspect` engine.
  *
- * The config it emits relies on four HAProxy behaviours:
+ * The config it emits relies on four HAProxy behaviors:
  *
  *  1. One listener takes both TLS and plaintext, told apart by the first bytes
  *     (`req.ssl_hello_type`), so no port is declared in advance and `audit`
@@ -53,7 +53,7 @@ export interface HaproxyConfigOptions extends RuleInputs {
    * Pattern file of the runner's own addresses, added to the
    * internal-destination guard. A file because HAProxy truncates an acl line
    * past MAX_LINE_ARGS silently and the address count is environment-dependent.
-   * Omitted, no such acl is emitted.
+   * When omitted, no such acl is emitted.
    */
   hostAddressFile?: string;
   caSignFile?: string;

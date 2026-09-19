@@ -102,7 +102,7 @@ async function bundleFromFallbackTag(client: RegistryClient, digest: string): Pr
     });
 
     // 404: tag doesn't exist. 400: some registries return Bad Request instead of
-    // 404 when the sha256-<hex> tag name is unrecognised (e.g. no Referrers tag
+    // 404 when the sha256-<hex> tag name is unrecognized (e.g. no Referrers tag
     // support at all). Treat both as "no bundle" rather than a transient error.
     if (resp.status === 404 || resp.status === 400) throw noBundleFound(digest);
     assertRegistryOk(resp, "fallback tag", "NOT_FOUND");

@@ -128,7 +128,7 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
  * RFC 2782 allow so the caller chooses as little of the name as possible; see
  * discoveryZoneLines. Character classes rather than `\\.`, which CEL rejects.
  *
- * The only place a service name is recognised: the report reads the verbs
+ * The only place a service name is recognized: the report reads the verbs
  * these blocks log under, never the shape.
  */
 const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";

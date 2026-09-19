@@ -102,7 +102,7 @@ describe("aggregateAllowedHosts", () => {
     expect(aggregateAllowedHosts(builds)).toStrictEqual([]);
   });
 
-  it("skips a source entry that is not a URL it recognises", () => {
+  it("skips a source entry that is not a URL it recognizes", () => {
     const builds = [
       [
         {

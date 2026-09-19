@@ -22,7 +22,7 @@ export interface InspectStageContext extends InternalDstOptions {
 }
 
 /**
- * A frontend that terminates the connection, normalises the request, lets the
+ * A frontend that terminates the connection, normalizes the request, lets the
  * rules decide, and only then resolves the Host and connects there.
  */
 export function inspectStage(
@@ -48,7 +48,7 @@ export function inspectStage(
     "",
     "    # pathq, not %HU: %HU is the target as sent (a path over HTTP/1.1, an",
     "    # absolute URI over HTTP/2), and pathq is not readable at log time.",
-    "    # Set after normalisation, so the log shows the path the rules matched.",
+    "    # Set after normalization, so the log shows the path the rules matched.",
     // Same idea as the Host capture above, minus \s: a raw space can't
     // reach a path (HTTP's own request-line parsing rejects it first).
     `    http-request set-var(txn.pathq) 'pathq,regsub("[\\"[:cntrl:]]",_,g)'`,
@@ -75,8 +75,9 @@ export function inspectStage(
   // would never reach these rules, and warns that they are NOOP.
   if (hasResolver && !deniesEverything(rules, mode)) {
     l.push(
-      "    # Connect where WE resolve the Host, discarding the client's address,",
-      "    # so a forged Host or doctored /etc/hosts cannot choose the target.",
+      "    # Connect to the address this proxy resolves the Host to, discarding",
+      "    # the client's address, so a forged Host or doctored /etc/hosts cannot",
+      "    # choose the target.",
       "    # host_only drops the port a header carries, which is not part of the",
       "    # name. An address is taken as-is: no resolver can answer one, and the",
       "    # rules above already decided, so nothing is loosened.",
@@ -93,7 +94,7 @@ export function inspectStage(
       "    # Set before the internal-destination check below, not after: %[dst] in",
       "    # the log-format is this, and a refusal must show the address that",
       "    # tripped it, not whatever the client's own (fake, unresolved) address",
-      "    # was -- CoreDNS never hands out a real one, see coredns-config.ts.",
+      "    # was: CoreDNS never hands out a real one; see coredns-config.ts.",
       "    http-request set-dst var(txn.dst)",
       "",
       "    # A resolved destination may not be internal; see INTERNAL_RANGES. An",
