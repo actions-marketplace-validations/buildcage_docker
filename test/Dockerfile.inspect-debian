@@ -7,6 +7,12 @@
 # nothing here needs one: apt authenticates packages by the archive's GPG key
 # (already present via debian-archive-keyring), never by TLS.
 #
+# Both modes build this same Dockerfile, so it is where the suite checks
+# that audit injects the CA too: audit enforces nothing, but it still
+# terminates TLS, so a package manager has to get past the handshake either
+# way. The Alpine images check the same thing under restrict alone, which
+# is the split no-ca-residue and no-layer-bloat already use.
+#
 # FROM is deliberately not governed by this engine (see docs/inspect-engine.md),
 # so this pull succeeds whatever the rules say.
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
