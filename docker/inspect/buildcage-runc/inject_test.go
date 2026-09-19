@@ -9,41 +9,6 @@ import (
 	"testing"
 )
 
-// newBundle lays out a minimal OCI bundle: a rootfs carrying one system CA
-// candidate and a config.json with the given process env.
-func newBundle(t *testing.T, env []string) (bundle, rootfs string) {
-	t.Helper()
-	bundle = t.TempDir()
-	rootfs = filepath.Join(bundle, "rootfs")
-	if err := os.MkdirAll(filepath.Join(rootfs, "etc", "ssl", "certs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	systemStore := filepath.Join(rootfs, "etc", "ssl", "certs", "ca-certificates.crt")
-	if err := os.WriteFile(systemStore, []byte("ORIGINAL-ROOTS\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	config := map[string]any{
-		"root":    map[string]any{"path": "rootfs"},
-		"process": map[string]any{"env": toAny(env)},
-	}
-	raw, err := json.Marshal(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle, "config.json"), raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return bundle, rootfs
-}
-
-func toAny(env []string) []any {
-	out := make([]any, len(env))
-	for i, e := range env {
-		out[i] = e
-	}
-	return out
-}
-
 // newBundleNoStore lays out a bundle with no CA store at all under
 // rootfs/etc/ssl/certs — the node:*-slim shape: no OS trust store, only
 // Node's own bundled roots, which findSystemStore cannot find.
@@ -54,9 +19,8 @@ func newBundleNoStore(t *testing.T, env []string) (bundle, rootfs string) {
 	// /etc exists, as it does in any real base image (passwd, hostname, ...);
 	// only etc/ssl/certs and its siblings are absent, which is what actually
 	// makes findSystemStore fail.
-	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	mustMkdirAll(t, filepath.Join(rootfs, "etc"))
+
 	config := map[string]any{
 		"root":    map[string]any{"path": "rootfs"},
 		"process": map[string]any{"env": toAny(env)},
@@ -65,10 +29,26 @@ func newBundleNoStore(t *testing.T, env []string) (bundle, rootfs string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bundle, "config.json"), raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, filepath.Join(bundle, "config.json"), string(raw))
 	return bundle, rootfs
+}
+
+// newBundle is the same bundle with one system CA candidate in the rootfs,
+// which is what the store-present half of the decision table needs.
+func newBundle(t *testing.T, env []string) (bundle, rootfs string) {
+	t.Helper()
+	bundle, rootfs = newBundleNoStore(t, env)
+	mustMkdirAll(t, filepath.Join(rootfs, "etc", "ssl", "certs"))
+	mustWriteFile(t, filepath.Join(rootfs, "etc", "ssl", "certs", "ca-certificates.crt"), "ORIGINAL-ROOTS\n")
+	return bundle, rootfs
+}
+
+func toAny(env []string) []any {
+	out := make([]any, len(env))
+	for i, e := range env {
+		out[i] = e
+	}
+	return out
 }
 
 func loadEnv(t *testing.T, bundle string) map[string]string {
