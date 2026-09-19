@@ -109,15 +109,15 @@ func run(args []string) int {
 	if bundle != "" {
 		logTag = "[" + filepath.Base(bundle) + "]"
 	}
-	restore := setupInjection(sub, bundle)
+	injected := setupInjection(sub, bundle)
 
 	cmd := exec.Command(realRunc, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		logf("cannot run %s: %v", realRunc, err)
-		if restore != nil {
-			restore()
+		if injected != nil {
+			_ = injected.finish()
 		}
 		return 1
 	}
@@ -133,8 +133,8 @@ func run(args []string) int {
 			code = 1
 		}
 	}
-	if restore != nil {
-		if err := restore(); err != nil {
+	if injected != nil {
+		if err := injected.finish(); err != nil {
 			logf("CA write-back failed, failing the build: %v", err)
 			dumpOwnLog(os.Stderr)
 			if code == 0 {
@@ -151,7 +151,7 @@ func run(args []string) int {
 // `run` only, not `create`: restore is tied to the wrapped process exiting, but
 // `runc create` returns before the process runs, so the CA would be gone by
 // `runc start`. BuildKit's runcexecutor uses `run`.
-func setupInjection(sub, bundle string) func() error {
+func setupInjection(sub, bundle string) *injection {
 	if sub != "run" || bundle == "" {
 		return nil
 	}
@@ -162,12 +162,12 @@ func setupInjection(sub, bundle string) func() error {
 		logf("no CA at %s (%v); running without injection", caFile, err)
 		return nil
 	}
-	restore, err := inject(bundle, ca)
+	injected, err := inject(bundle, ca)
 	if err != nil {
 		logf("injection failed for %s: %v", bundle, err)
 		return nil
 	}
-	return restore
+	return injected
 }
 
 // forwardSignals relays signals to runc until the returned function is called.
