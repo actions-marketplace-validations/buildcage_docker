@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,29 @@ func asNotRegular(path string, err error) error {
 	return err
 }
 
+// bundleFile is the part of *os.File that adding and stripping the CA block
+// goes through. It is an interface so a test can stand in for it and fail one
+// read or write partway, which no fixture on a real filesystem can arrange.
+type bundleFile interface {
+	io.ReaderAt
+	io.WriterAt
+	Stat() (fs.FileInfo, error)
+	Truncate(size int64) error
+	WriteString(s string) (int, error)
+	Close() error
+}
+
+// openBundle is a var for the same reason.
+var openBundle = func(path string, flag int, perm os.FileMode) (bundleFile, error) {
+	f, err := os.OpenFile(path, flag, perm)
+	if err != nil {
+		// Returning f here would hand back a non-nil interface holding a nil
+		// *os.File, which every caller's err check would then walk straight past.
+		return nil, err
+	}
+	return f, nil
+}
+
 // appendCA adds the marked block to path, creating it when missing.
 //
 // O_NOFOLLOW/O_NONBLOCK keep the open from following a symlink or blocking on
@@ -128,7 +152,7 @@ func appendCA(path string, ca []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o644)
+	f, err := openBundle(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o644)
 	if err != nil {
 		return asNotRegular(path, err)
 	}
@@ -151,7 +175,7 @@ func appendCA(path string, ca []byte) error {
 // rewritten the file itself. The find and the strip share one handle, opened
 // the same guarded way as appendCA, so they can't land on different files.
 func removeCA(path string) error {
-	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -214,7 +238,7 @@ func removeCA(path string) error {
 // findInFile returns the offset of needle at or after from, or -1. Each read
 // carries len(needle)-1 bytes over, so a marker on a chunk boundary still
 // matches.
-func findInFile(f *os.File, needle []byte, from, size int64) (int64, error) {
+func findInFile(f io.ReaderAt, needle []byte, from, size int64) (int64, error) {
 	buf := make([]byte, scanChunk+len(needle)-1)
 	for off := from; off < size; {
 		n, err := f.ReadAt(buf, off)
@@ -232,7 +256,7 @@ func findInFile(f *os.File, needle []byte, from, size int64) (int64, error) {
 	return -1, nil
 }
 
-func isNewlineAt(f *os.File, off int64) (bool, error) {
+func isNewlineAt(f io.ReaderAt, off int64) (bool, error) {
 	var b [1]byte
 	if _, err := f.ReadAt(b[:], off); err != nil {
 		return false, err
@@ -243,7 +267,7 @@ func isNewlineAt(f *os.File, off int64) (bool, error) {
 // shiftDown moves from..size down to to, leaving the caller to truncate. The
 // destination trails the source, so copying forwards never overwrites bytes
 // still to be read.
-func shiftDown(f *os.File, from, to, size int64) error {
+func shiftDown(f bundleFile, from, to, size int64) error {
 	buf := make([]byte, scanChunk)
 	for from < size {
 		n, err := f.ReadAt(buf, from)

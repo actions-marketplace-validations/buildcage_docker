@@ -384,3 +384,126 @@ func TestRemoveCALeavesAnUnterminatedBlockAlone(t *testing.T) {
 		t.Fatalf("got %q, want it unchanged", got)
 	}
 }
+
+// withBlock is a bundle already carrying the wrapper's block, which is what
+// removeCA is handed at the end of a step.
+func withBlock(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	mustWriteFile(t, path, "ORIGINAL\n")
+	if err := appendCA(path, []byte("BUILDCAGE-CA")); err != nil {
+		t.Fatal(err)
+	}
+	mustAppendFile(t, path, "USER-ADDED\n")
+	return path
+}
+
+// The wrapper runs as root on the host and the bundle is the step's to
+// rewrite, so an I/O failure partway through reading or writing it has to stop
+// the strip rather than leave the file half-shifted and call it done.
+func TestRemoveCAReportsAFailurePartwayThrough(t *testing.T) {
+	cases := map[string]*brokenFile{
+		"stat":                               {failStat: true},
+		"the scan for the opening marker":    {failReadAt: 1},
+		"the scan for the closing marker":    {failReadAt: 2},
+		"the newline check before the block": {failReadAt: 3},
+		"the newline check after the block":  {failReadAt: 4},
+		"the shift that closes the gap":      {failWriteAt: 1},
+	}
+	for name, broken := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := withBlock(t)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			useBrokenBundleFile(t, broken)
+
+			if err := removeCA(path); !errors.Is(err, errBrokenFile) {
+				t.Fatalf("got %v, want it to name the I/O failure", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if broken.failWriteAt == 0 && string(after) != string(before) {
+				t.Errorf("the bundle was changed before the failure:\n got %q\nwant %q", after, before)
+			}
+		})
+	}
+}
+
+// A step can swap the bundle for something that is not a plain file between
+// injection and the strip. Both ends refuse it rather than write through it.
+func TestAppendAndRemoveCARefuseSomethingThatIsNotARegularFile(t *testing.T) {
+	t.Run("appendCA cannot stat it", func(t *testing.T) {
+		useBrokenBundleFile(t, &brokenFile{failStat: true})
+		path := filepath.Join(t.TempDir(), "bundle.pem")
+		if err := appendCA(path, []byte("CA")); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+	t.Run("appendCA finds it is not regular", func(t *testing.T) {
+		useBrokenBundleFile(t, &brokenFile{notRegular: true})
+		path := filepath.Join(t.TempDir(), "bundle.pem")
+		if err := appendCA(path, []byte("CA")); !errors.Is(err, errNotRegular) {
+			t.Fatalf("got %v, want errNotRegular", err)
+		}
+	})
+	t.Run("removeCA cannot stat it", func(t *testing.T) {
+		path := withBlock(t)
+		useBrokenBundleFile(t, &brokenFile{failStat: true})
+		if err := removeCA(path); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+}
+
+// The scan carries len(needle)-1 bytes between reads, so a failure in any read
+// but the first still has to come back rather than be taken for "not found".
+func TestFindInFileReportsAFailedRead(t *testing.T) {
+	path := withBlock(t)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	broken := &brokenFile{bundleFile: f, failReadAt: 1}
+	if _, err := findInFile(broken, []byte(beginMarker), 0, info.Size()); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want it to name the I/O failure", err)
+	}
+	broken = &brokenFile{bundleFile: f, failReadAt: 1}
+	if _, err := isNewlineAt(broken, 0); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want it to name the I/O failure", err)
+	}
+}
+
+// shiftDown copies forwards, so a read failure leaves bytes behind that the
+// truncate would then cut off. It stops instead.
+func TestShiftDownReportsAFailedReadOrWrite(t *testing.T) {
+	cases := map[string]*brokenFile{
+		"the read":  {failReadAt: 2},
+		"the write": {failWriteAt: 1},
+	}
+	for name, broken := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.pem")
+			mustWriteFile(t, path, filler(4*scanChunk))
+			f, err := os.OpenFile(path, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			broken.bundleFile = f
+
+			if err := shiftDown(broken, scanChunk, 0, 4*scanChunk); !errors.Is(err, errBrokenFile) {
+				t.Fatalf("got %v, want it to name the I/O failure", err)
+			}
+		})
+	}
+}

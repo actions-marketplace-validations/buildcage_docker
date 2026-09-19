@@ -527,3 +527,53 @@ func TestCleanupReportsAScratchDirItCannotRemove(t *testing.T) {
 		t.Errorf("the failure is not in the log:\n%s", out.String())
 	}
 }
+
+// A strip that fails partway leaves the scratch mirror inconsistent: the tail
+// is half shifted down, and the truncate that would have made it the right
+// length never runs. None of that reaches the build. The error returns before
+// writeBack, so the real store keeps what the step left it, the scratch copy is
+// thrown away with the bind, and the step itself fails -- which is what makes
+// BuildKit release the snapshot rather than commit it.
+//
+// This is the containment the in-place shift relies on. removeCA is not atomic
+// on purpose: the scan and the strip share one handle so they cannot land on
+// different files, and writing to a temp file and renaming would give that up.
+func TestFinishWritesNothingBackWhenTheStripFails(t *testing.T) {
+	useFakeRsync(t)
+	b, rootfs := newCAStoreBind(t)
+	store := filepath.Join(b.scratchDir, "ca-certificates.crt")
+	// A tail wider than one shift window, so failing the second write leaves
+	// the first window already moved: the file is then genuinely inconsistent
+	// rather than merely unfinished.
+	mustAppendFile(t, store, filler(2*scanChunk))
+	before, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	useBrokenBundleFile(t, &brokenFile{failWriteAt: 2})
+	calls := countRsync(t)
+
+	if err := b.finish(); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want the strip's failure to fail the step", err)
+	}
+	if *calls != 0 {
+		t.Errorf("got %d rsync invocations, want none: nothing may be written back", *calls)
+	}
+	got, err := os.ReadFile(filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ORIGINAL-ROOTS\n" {
+		t.Errorf("the real store was written to: %q", got)
+	}
+	// And the scratch copy really is the inconsistent one, so the test is
+	// about containment rather than about nothing having happened.
+	after, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) == string(before) {
+		t.Error("the scratch mirror was left untouched; this proves nothing about containment")
+	}
+}
