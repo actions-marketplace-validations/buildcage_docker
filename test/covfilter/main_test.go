@@ -103,50 +103,52 @@ func TestAMarkedGapPasses(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, want 0:\n%s", code, out)
 	}
-	if !strings.Contains(out, "100.0% of 2 statements (1 marked untested by design)") {
+	if !strings.Contains(out, "100.0% of 2 statements; 1 marker excludes 1 more, 1 of them unreached") {
 		t.Errorf("unexpected summary:\n%s", out)
 	}
 }
 
-// A marker over a statement the tests do reach is the failure mode a list of
-// deliberate exclusions rots into. It has to be as loud as a gap.
-func TestAMarkerOverCoveredCodeFails(t *testing.T) {
+// A marker has to excuse something. One over code the tests reach, or over no
+// code at all, is either in the wrong place or left over from code that has
+// gone; either way it no longer says anything true. This is the check that
+// keeps a list of deliberate exclusions from rotting as the code under it
+// changes.
+func TestAMarkerThatExcusesNothingFails(t *testing.T) {
 	marked := strings.Replace(source, "	if !ok {\n		return errBad\n	}\n", `	//coverage:ignore start
 	if !ok {
 		return errBad
 	}
 	//coverage:ignore stop
 `, 1)
-	pkg, profile := fixture(t, marked, "3-4:1:1", "5-7:1:3", "9-9:1:1")
-
-	code, out := runFilter(t, pkg, profile)
-	if code != 1 {
-		t.Fatalf("exit %d, want 1:\n%s", code, out)
+	cases := map[string]struct {
+		source string
+		blocks []string
+	}{
+		"over code the tests reach": {marked, []string{"3-4:1:1", "5-7:1:3", "9-9:1:1"}},
+		"over no code at all": {
+			source + "\n//coverage:ignore start\n// nothing here any more\n//coverage:ignore stop\n",
+			[]string{"3-4:1:1", "4-6:1:1", "7-7:1:1"},
+		},
 	}
-	if !strings.Contains(out, "the tests reach them") {
-		t.Errorf("output does not name the stale marker:\n%s", out)
-	}
-}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			pkg, profile := fixture(t, c.source, c.blocks...)
 
-// A marker that covers nothing is either in the wrong place or left over from
-// code that has gone; either way it no longer says anything true.
-func TestAMarkerOverNoStatementFails(t *testing.T) {
-	marked := source + `
-//coverage:ignore start
-// nothing here any more
-//coverage:ignore stop
-`
-	pkg, profile := fixture(t, marked, "3-4:1:1", "4-6:1:1", "7-7:1:1")
-
-	code, out := runFilter(t, pkg, profile)
-	if code != 1 {
-		t.Fatalf("exit %d, want 1:\n%s", code, out)
-	}
-	if !strings.Contains(out, "covers no statement") {
-		t.Errorf("output does not name the empty marker:\n%s", out)
+			code, out := runFilter(t, pkg, profile)
+			if code != 1 {
+				t.Fatalf("exit %d, want 1:\n%s", code, out)
+			}
+			if !strings.Contains(out, "excuses nothing") {
+				t.Errorf("output does not say the marker excuses nothing:\n%s", out)
+			}
+		})
 	}
 }
 
+// A marker does have to take the reached code the unreached statement lives
+// in: guarding an error return means enclosing the `if` that guards it, and
+// cmd/cover counts that condition as reached. What it must not take is a
+// statement that began before the marker did.
 // An unmatched marker silently un-excuses whatever came after it, so it is an
 // error rather than something to guess at.
 func TestUnbalancedMarkersFail(t *testing.T) {
@@ -233,5 +235,30 @@ func TestAProfileThatIsNotOneFails(t *testing.T) {
 	}
 	if !strings.Contains(out, "not a coverage profile") {
 		t.Errorf("unexpected message:\n%s", out)
+	}
+}
+
+func TestAMarkerDoesNotTakeTheRunUpToAnIf(t *testing.T) {
+	marked := `package thing
+
+func f(ok bool) error {
+	x := setUp()
+	//coverage:ignore start
+	if !ok {
+		return errBad
+	}
+	//coverage:ignore stop
+	return use(x)
+}
+`
+	// The run-up ends on line 6, where the body begins; the marker spans 5-9.
+	pkg, profile := fixture(t, marked, "4-6:2:1", "6-8:1:0", "10-10:1:1")
+
+	code, out := runFilter(t, pkg, profile)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0:\n%s", code, out)
+	}
+	if !strings.Contains(out, "100.0% of 3 statements; 1 marker excludes 1 more, 1 of them unreached") {
+		t.Errorf("the run-up was taken with the body:\n%s", out)
 	}
 }

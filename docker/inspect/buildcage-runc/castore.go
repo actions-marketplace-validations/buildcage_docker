@@ -56,9 +56,13 @@ var errNotRegular = errors.New("not a regular file")
 // checked to be inside it either way.
 func resolveInRoot(rootfs, path string) (string, error) {
 	rootfs, err := filepath.Abs(rootfs)
+	// Untested by design: Abs only fails when Getwd does, which needs the
+	// process's own working directory to have been removed.
+	//coverage:ignore start
 	if err != nil {
 		return "", err
 	}
+	//coverage:ignore stop
 	current := rootfs
 	remaining := strings.Split(strings.TrimPrefix(filepath.Clean(path), "/"), "/")
 
@@ -92,18 +96,28 @@ func resolveInRoot(rootfs, path string) (string, error) {
 			return "", errTooManySymlinks
 		}
 		target, err := os.Readlink(next)
+		// Untested by design: Lstat has already said this is a symlink, so getting
+		// here means the step swapped it in between. Reading it back is what the
+		// check is for, and failing to is the same refusal.
+		//coverage:ignore start
 		if err != nil {
 			return "", err
 		}
+		//coverage:ignore stop
 		if filepath.IsAbs(target) {
 			// Absolute inside the container means absolute inside the rootfs.
 			current = rootfs
 		}
 		remaining = append(strings.Split(strings.TrimPrefix(filepath.Clean(target), "/"), "/"), remaining...)
 	}
+	// Untested by design: current is only ever assigned a path the loop has
+	// already put through withinRoot, or the rootfs itself. Kept so the
+	// confinement is a property of this function rather than of its loop.
+	//coverage:ignore start
 	if !withinRoot(rootfs, current) {
 		return "", errEscapesRoot
 	}
+	//coverage:ignore stop
 	return current, nil
 }
 

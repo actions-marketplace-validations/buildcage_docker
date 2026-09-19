@@ -52,7 +52,11 @@ type block struct {
 // region is one //coverage:ignore start/stop pair, by line number.
 type region struct{ start, stop int }
 
-func (r region) holds(line int) bool { return line >= r.start && line <= r.stop }
+// holds asks whether a block begins inside the region, which is what makes a
+// marker excuse the construct it encloses rather than only the unreached half
+// of it. Guarding an error return means enclosing the `if` that guards it, and
+// cmd/cover counts the condition as reached whenever the call before it was.
+func (r region) holds(b block) bool { return b.startLine >= r.start && b.startLine <= r.stop }
 
 func run(w io.Writer, args []string) int {
 	flags := flag.NewFlagSet("covfilter", flag.ContinueOnError)
@@ -105,10 +109,13 @@ func check(w io.Writer, profile, pkg string, threshold float64, out string) erro
 		sources[b.file], regions[b.file] = lines, found
 	}
 
-	var kept, stale, gaps []block
-	used := map[string]map[region]bool{}
+	var kept, gaps []block
+	// A region earns its place by excusing something: one statement inside it
+	// the tests do not reach. Reached statements alongside are the construct
+	// the unreached one lives in.
+	excuses := map[string]map[region]bool{}
 	for _, b := range blocks {
-		r, ignored := regionFor(regions[b.file], b.startLine)
+		r, ignored := regionFor(regions[b.file], b)
 		if !ignored {
 			kept = append(kept, b)
 			if b.count == 0 {
@@ -116,12 +123,11 @@ func check(w io.Writer, profile, pkg string, threshold float64, out string) erro
 			}
 			continue
 		}
-		if used[b.file] == nil {
-			used[b.file] = map[region]bool{}
+		if excuses[b.file] == nil {
+			excuses[b.file] = map[region]bool{}
 		}
-		used[b.file][r] = true
-		if b.count > 0 {
-			stale = append(stale, b)
+		if b.count == 0 {
+			excuses[b.file][r] = true
 		}
 	}
 
@@ -132,15 +138,11 @@ func check(w io.Writer, profile, pkg string, threshold float64, out string) erro
 	}
 
 	var problems []string
-	if len(stale) > 0 {
-		report(w, "marked untested by design, but the tests reach them", stale, sources, module)
-		problems = append(problems, fmt.Sprintf("%s marked but covered", plural(len(stale), "statement")))
-	}
-	if empty := unusedRegions(regions, used); len(empty) > 0 {
-		for _, e := range empty {
-			fmt.Fprintf(w, "\n%s: ignore marker covers no statement\n", e)
+	if idle := unusedRegions(regions, excuses); len(idle) > 0 {
+		for _, e := range idle {
+			fmt.Fprintf(w, "\n%s: ignore marker excuses nothing; every statement in it is reached\n", e)
 		}
-		problems = append(problems, fmt.Sprintf("%s covering nothing", plural(len(empty), "ignore marker")))
+		problems = append(problems, fmt.Sprintf("%s excusing nothing", plural(len(idle), "ignore marker")))
 	}
 
 	stmts, covered := 0, 0
@@ -162,14 +164,31 @@ func check(w io.Writer, profile, pkg string, threshold float64, out string) erro
 	if len(problems) > 0 {
 		return fmt.Errorf("%s", strings.Join(problems, "; "))
 	}
-	ignoredStmts := 0
+	excluded, unreached, markers := 0, 0, 0
+	for _, rs := range regions {
+		markers += len(rs)
+	}
 	for _, b := range blocks {
-		if _, ignored := regionFor(regions[b.file], b.startLine); ignored {
-			ignoredStmts += b.stmts
+		if _, ignored := regionFor(regions[b.file], b); !ignored {
+			continue
+		}
+		excluded += b.stmts
+		if b.count == 0 {
+			unreached += b.stmts
 		}
 	}
-	fmt.Fprintf(w, "covfilter: %.1f%% of %d statements (%d marked untested by design)\n",
-		pct, stmts, ignoredStmts)
+	if markers == 0 {
+		fmt.Fprintf(w, "covfilter: %.1f%% of %d statements\n", pct, stmts)
+		return nil
+	}
+	// Both numbers, because a marker takes the construct and not only the gap
+	// in it: excluding an error return excludes the `if` guarding it too.
+	exclude := "exclude"
+	if markers == 1 {
+		exclude = "excludes"
+	}
+	fmt.Fprintf(w, "covfilter: %.1f%% of %d statements; %s %s %d more, %d of them unreached\n",
+		pct, stmts, plural(markers, "marker"), exclude, excluded, unreached)
 	return nil
 }
 
@@ -180,20 +199,20 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-func regionFor(regions []region, line int) (region, bool) {
+func regionFor(regions []region, b block) (region, bool) {
 	for _, r := range regions {
-		if r.holds(line) {
+		if r.holds(b) {
 			return r, true
 		}
 	}
 	return region{}, false
 }
 
-func unusedRegions(regions map[string][]region, used map[string]map[region]bool) []string {
+func unusedRegions(regions map[string][]region, excuses map[string]map[region]bool) []string {
 	var empty []string
 	for file, rs := range regions {
 		for _, r := range rs {
-			if !used[file][r] {
+			if !excuses[file][r] {
 				empty = append(empty, fmt.Sprintf("%s:%d", filepath.Base(file), r.start))
 			}
 		}

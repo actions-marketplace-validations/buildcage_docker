@@ -126,10 +126,16 @@ to its word: one covering a statement the tests do reach, or covering none at al
 the same way a gap does, so the list of what is deliberately untested cannot quietly stop being
 true.
 
-That threshold is a ratchet -- raised as gaps close, never lowered -- so it is below 100 while the
-remaining ones are worked through. Note also that Go measures statements and not branches, so even
-at 100 it is a weaker claim than the Node side's: a short-circuited `&&` counts as reached once
-either half runs.
+The threshold is 100, so a statement added without a test fails the run. Eight markers carry the
+exceptions: `main`'s `os.Exit`, the default behind the rsync seam, and six error returns that
+cannot be reached without a seam of their own for one statement each. A marker excuses the whole
+construct its unreached statement sits in -- guarding an error return means enclosing the `if` that
+guards it -- so the run reports both totals: what it measured, and what the markers took out.
+
+Two caveats. Go measures statements and not branches, so even at 100 this is a weaker claim than
+the Node side's: a short-circuited `&&` counts as reached once either half runs. And the percentage
+below 100 is not comparable across Go releases, since `cmd/cover` splits blocks differently between
+them; 100 is the one reading that means the same thing under all of them.
 
 The QuickJS run (`make test_unit_qjs`) is not measured separately. It executes the same `.test.ts`
 files as the Node run, so `src/core/lib/acl/`'s line coverage is already accounted for above.
