@@ -301,7 +301,7 @@ export function convertUrlRule(rule: string): UrlRule {
  * line starting with `#`, is dropped — only a full-line `#`, since a `~`
  * rule's own regex might legitimately contain one.
  */
-export function splitUrlRuleLines(rulesInput: string | undefined): string[] {
+function splitUrlRuleLines(rulesInput: string | undefined): string[] {
   return (
     rulesInput
       ?.split(/\r?\n/)

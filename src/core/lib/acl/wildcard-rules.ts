@@ -95,7 +95,7 @@ export function convertRule(rule: string): string {
  *
  * A dot-separated part containing `*` must be exactly `*` or `**`.
  */
-export function domainToRegex(domain: string): string {
+function domainToRegex(domain: string): string {
   const regexParts = domain.split(".").map((part) => {
     if (part === "**") return ".+";
     if (part === "*") return "[^.]+";

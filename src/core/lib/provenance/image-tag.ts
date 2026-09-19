@@ -1,5 +1,5 @@
 /** The engine that publishes the plain version tag. */
-export const DEFAULT_ENGINE = "universal";
+const DEFAULT_ENGINE = "universal";
 
 export function engineTagSuffix(proxyEngine: string): string {
   if (proxyEngine === DEFAULT_ENGINE || proxyEngine === "") return "";
