@@ -62,6 +62,30 @@ func TestDumpOwnLogWithNothingToReport(t *testing.T) {
 	}
 }
 
+// A log path the wrapper cannot open must not take the step down with it: the
+// line still has to reach ownLog, which is what dumpOwnLog puts in the build
+// log when a write-back fails.
+func TestLogfKeepsTheLineWhenTheSharedFileCannotBeOpened(t *testing.T) {
+	useTempLog(t)
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "blocked"), "")
+	// A regular file stands where logf would have to create a directory.
+	logFile = filepath.Join(dir, "blocked", "runc.log")
+
+	logf("CA write-back failed for %s: %v", "/etc/ssl/certs", "rsync exit status 23")
+
+	// ENOTDIR, not ENOENT: a file sits where the directory would be.
+	if _, err := os.Stat(logFile); err == nil {
+		t.Fatal("the shared log was reachable after all, so this proves nothing")
+	}
+
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "rsync exit status 23") {
+		t.Errorf("the line did not reach the dump:\n%s", out.String())
+	}
+}
+
 // The shared file is what's left to read after the fact, so every line in it
 // has to name the step that wrote it.
 func TestLogfTagsEachSharedLine(t *testing.T) {

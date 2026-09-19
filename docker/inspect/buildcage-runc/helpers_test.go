@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+// TestMain points the package's own log somewhere disposable for the whole
+// run. logf writes to logFile and appends to ownLog, both package level, and
+// the injection tests reach it without setting out to: six of them log while
+// running. Left alone, a run with write access to /var/log appends those lines
+// to the real builder log.
+//
+// Each test that reads the log back still takes a file of its own through
+// useTempLog, since it counts the lines in it.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "buildcage-runc-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	logFile = filepath.Join(dir, "runc.log")
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
