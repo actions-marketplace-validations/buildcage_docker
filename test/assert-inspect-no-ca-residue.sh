@@ -38,9 +38,9 @@ else
   pass "no buildcage CA marker block in any system CA bundle"
 fi
 
-# Belt and suspenders: the CA-trust variables inject.go sets only ever reach
-# the transient RUN-step process spec, never the image config BuildKit writes.
-# Confirmed here against a real built image rather than just the claim.
+# The CA-trust variables inject.go sets only ever reach the transient RUN-step
+# process spec, never the image config BuildKit writes. Confirmed here against
+# a real built image.
 LEAKED_ENV=$(docker inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' \
   | grep -E '^(NODE_EXTRA_CA_CERTS|DENO_CERT|REQUESTS_CA_BUNDLE|PIP_CERT|SSL_CERT_FILE)=' || true)
 if [ -n "$LEAKED_ENV" ]; then

@@ -51,10 +51,8 @@ LABEL org.opencontainers.image.title="buildcage (explicit proxy engine)" \
 # quickjs-ng is the only extra package needed, for source-policy generation.
 RUN apk add --no-cache quickjs-ng
 
-# buildkit-proxy binary
 COPY --from=buildkit-proxy-build /out/buildkit-proxy /opt/buildcage/bin/buildkit-proxy
 
-# BuildKit config
 RUN mkdir -p /etc/buildkit /var/log/buildkitd
 COPY docker/explicit/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 
@@ -69,7 +67,6 @@ COPY --from=scripts-build /build/dist/qjs/docker/explicit/scripts/gen-source-pol
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/explicit/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
-# License
 COPY docker/explicit/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
 
 ENTRYPOINT ["/opt/buildcage/bin/buildkit-proxy"]

@@ -14,8 +14,8 @@ import (
 // this server to the real backend, without ever decoding the payload (frame
 // carries opaque bytes). This is what makes Session (bidi-stream), Status,
 // DiskUsage, Prune, ListWorkers, Info, ListenBuildHistory, UpdateBuildHistory,
-// and the grpc health-check service work unmodified, and keeps future
-// BuildKit RPC additions automatically covered with zero code changes.
+// and the grpc health-check service work unmodified, and lets a BuildKit RPC
+// added later work without a change here.
 func passthroughHandler(backend *grpc.ClientConn) grpc.StreamHandler {
 	return func(_ any, serverStream grpc.ServerStream) error {
 		fullMethod, ok := grpc.MethodFromServerStream(serverStream)

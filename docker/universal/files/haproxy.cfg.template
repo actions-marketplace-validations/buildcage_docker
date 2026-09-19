@@ -57,14 +57,11 @@ frontend outbound_proxy
     # Store DNS-routed state in variable (before set-dst may modify dst)
     tcp-request content set-var(txn.dns_routed) str(true) if is_dns_routed
 
-    # ACL: TLS/SNI
     acl is_tls req.ssl_hello_type 1
     acl has_sni req_ssl_sni -m found
 
-    # ACL: IP direct access allowlist
     acl is_ip_match var(txn.target) -m reg -i -f /etc/haproxy/rules/allowed_ips.lst
 
-    # TLS variable extraction
     # A trailing dot denotes the same DNS name, so it must not affect matching,
     # resolution or logging, so strip it once here, upstream of every other use.
     tcp-request content set-var(txn.sni) req_ssl_sni,regsub(\.$,) if is_tls
@@ -76,7 +73,6 @@ frontend outbound_proxy
     tcp-request content set-var(txn.sni_log) var(txn.sni),regsub([^A-Za-z0-9._-],_,g) if is_tls has_sni
     tcp-request content set-var-fmt(txn.target) %[var(txn.sni_log)]:%[dst_port] if is_tls has_sni
 
-    # ACL: HTTPS allowlist
     acl is_https_allowed var(txn.sni_port) -m reg -i -f /etc/haproxy/rules/allowed_https.lst
 
     # ---------------------------------------------------------
@@ -124,12 +120,10 @@ frontend outbound_proxy
     # ---------------------------------------------------------
     # 5. Non-TLS DNS-routed → HTTP backend
     # ---------------------------------------------------------
-    # Routing
     use_backend ip_passthrough if !{ var(txn.dns_routed) -m found }
     use_backend tls_passthrough if is_tls
     default_backend http_filter_backend
 
-    # Set log format
     log-format "[%T] buildcage [%[var(txn.decision)]] (%[var(txn.rule_type)]) \"%[var(txn.target)]\" %[var(txn.reason)]"
 
 # --- IP direct passthrough backend ---
@@ -148,7 +142,6 @@ backend http_filter_backend
     mode http
     http-request set-var(txn.rule_type) str(HTTP)
 
-    # Host header check
     acl has_host hdr(host) -m found
     acl host_not_empty hdr_len(host) gt 0
     http-request set-var(txn.reason) str(missing-host-header) if !has_host or !host_not_empty
@@ -164,12 +157,10 @@ backend http_filter_backend
     http-request set-var(txn.host_log) var(txn.host_only),regsub([^A-Za-z0-9._-],_,g)
     http-request set-var-fmt(txn.target) %[var(txn.host_log)]:%[dst_port]
 
-    # HTTP allowlist check
     acl is_http_allowed var(txn.host_port) -m reg -i -f /etc/haproxy/rules/allowed_http.lst
     http-request set-var(txn.reason) str(not-allowed) if !is_http_allowed
     http-request deny deny_status 403 content-type "text/plain" string "Blocked by egress proxy" if !is_http_allowed
 
-    # DNS resolution & destination override
     http-request do-resolve(txn.actual_ip,my_dns,ipv4) var(txn.host_only)
     # A fresh attempt, not a replay: nothing cached the failure. The TLS path
     # has no room for one inside its inspect-delay.

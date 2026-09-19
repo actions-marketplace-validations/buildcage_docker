@@ -82,7 +82,7 @@ RUN apk add --no-cache \
 
 # haproxy carries what this engine needs in one binary: it tells a TLS
 # handshake from a plain request by its first bytes, generates certificates for
-# an SNI, resolves names itself, and normalises a path before matching it.
+# an SNI, resolves names itself, and normalizes a path before matching it.
 #
 # Its own apk call so the extra repository serves this package alone; naming the
 # branch is what makes apk fail rather than warn and fall back to the base's
@@ -131,7 +131,6 @@ COPY --from=scripts-build /build/dist/qjs/docker/inspect/scripts/gen-configs.js 
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/inspect/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
-# License
 COPY docker/inspect/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
 
 COPY docker/inspect/files/s6-rc.d/    /etc/s6-overlay/s6-rc.d/

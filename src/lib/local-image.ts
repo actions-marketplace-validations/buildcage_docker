@@ -1,6 +1,6 @@
 /**
- * The local-image override the setup step pulls instead of a verified,
- * digest-pinned image, or null in a normal build.
+ * The local-image override that replaces a verified, digest-pinned image, or
+ * null in a normal build.
  */
 import type { LocalImageOverride } from "../core/lib/provenance/local-image-override.ts";
 
