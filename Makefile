@@ -205,7 +205,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_audit test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_multiarch ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_audit test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch ## Run all buildkit integration tests
 
 .PHONY: test_integration_buildkit_universal_audit
 test_integration_buildkit_universal_audit: ## Run universal-engine audit mode tests
@@ -389,6 +389,12 @@ test_integration_buildkit_inspect_roundtrip: ## Learn rules from an inspect audi
 	@echo "Running inspect-engine audit-to-restrict round trip..."
 	@./test/run-inspect-roundtrip.sh
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
+
+.PHONY: test_integration_buildkit_universal_known_blocked
+test_integration_buildkit_universal_known_blocked: ## Check known_blocked_rules against fail_on_blocked
+	@echo "Running universal-engine known_blocked_rules tests..."
+	@./test/run-universal-known-blocked.sh
+	@$(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_multiarch
 test_integration_buildkit_multiarch: ## Check the builder's default and cross-platform builds

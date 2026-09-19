@@ -90,6 +90,8 @@ make test_integration_buildkit_inspect_debian_audit
 make test_integration_buildkit_inspect_debian_restrict
 # Learns rules from an inspect audit run, then enforces them unedited
 make test_integration_buildkit_inspect_roundtrip
+# known_blocked_rules against fail_on_blocked, both matched and unmatched
+make test_integration_buildkit_universal_known_blocked
 # Builds for the host's architecture and for the other one
 make test_integration_buildkit_multiarch
 ```
@@ -290,7 +292,7 @@ above, only shows what has accumulated since the most recent one.
 
 The integration set also holds `inspect_debian_{audit,restrict}` (an apt build that starts with no
 CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them unedited),
-`inspect_byte_exact`, `universal_restrict_no_traffic` and `multiarch`.
+`inspect_byte_exact`, `universal_restrict_no_traffic`, `universal_known_blocked` and `multiarch`.
 
 ## Directory Structure
 

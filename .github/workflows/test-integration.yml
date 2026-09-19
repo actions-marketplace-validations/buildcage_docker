@@ -77,6 +77,9 @@ jobs:
           - mode: universal-restrict-no-traffic
             target: test_integration_buildkit_universal_restrict_no_traffic
             test_compose_file: compose.test-universal.yaml
+          - mode: universal-known-blocked
+            target: test_integration_buildkit_universal_known_blocked
+            test_compose_file: compose.test-universal.yaml
           - mode: explicit-audit
             target: test_integration_buildkit_explicit_audit
             test_compose_file: compose.test-explicit.yaml
