@@ -16,7 +16,6 @@ import {
   COMMUNICATION_DETAILS_OPEN as DETAILS_OPEN,
 } from "./communication-section.ts";
 
-// GitHub's own limit, in bytes.
 const STEP_SUMMARY_LIMIT_BYTES = 1024 * 1024;
 // Headroom for byte-counting slop and for the truncation notice itself, so
 // appending the notice can never be what pushes the file over the edge.

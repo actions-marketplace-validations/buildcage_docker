@@ -13,7 +13,7 @@ export const DEFAULT_PORT: Record<string, string> = { https: "443", http: "80" }
 export interface HostPort {
   host: string;
   /**
-   * `undefined` when the authority carried no port separator at all, which is
+   * `undefined` when the authority carried no port separator at all. That is
    * not the same as a trailing `host:`, which is separated but empty, and
    * callers that substitute a default only want to do so for the former.
    */

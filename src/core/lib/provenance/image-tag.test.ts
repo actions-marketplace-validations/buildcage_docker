@@ -1,8 +1,3 @@
-/**
- * Unit tests for core/lib/provenance/image-tag.ts
- *
- * Run with: vp test run core/lib/provenance/image-tag.test.ts
- */
 import { describe, it, expect } from "vitest";
 
 import { imageTagFromRef } from "./image-tag.ts";

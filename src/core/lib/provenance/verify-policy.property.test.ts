@@ -1,8 +1,3 @@
-/**
- * Property-based tests for verify-policy.ts helpers.
- *
- * Run with: vp test run core/lib/provenance/verify-policy.property.test.ts
- */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 

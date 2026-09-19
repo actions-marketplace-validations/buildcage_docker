@@ -33,10 +33,6 @@ export interface ResolvedImage {
 /**
  * Verify image provenance and return the verified manifest digest.
  *
- * Returns null for unverifiable refs (branch / local ./setup).
- * On failure, throws VerifyImageError; the caller is responsible for printing
- * the error message.
- *
  * Untested by design: every step it calls is tested directly. The order they
  * run in is not, so the reason for it is kept inline below.
  */

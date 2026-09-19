@@ -47,7 +47,7 @@ describe("checkUrlAndTlsRuleSupport", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("throws in explicit engine too, mentioning only the rule inputs actually set", () => {
+  it("throws in the explicit engine too, mentioning only the rule inputs actually set", () => {
     expect(() =>
       checkUrlAndTlsRuleSupport(
         {

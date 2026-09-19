@@ -43,8 +43,5 @@ export function createAnnotation(enabled: boolean): Annotation {
  * argument, an `Annotation` for what the caller can suppress and one of
  * `annotate`'s methods for what it can't. `vite.config.ts` lists the files the
  * lint rule lets past.
- *
- * Exists so the `::notice::`/`::warning::`/`::error::` spelling lives in this
- * file alone, rather than being written out at each call site.
  */
 export const annotate: Annotation = createAnnotation(true);

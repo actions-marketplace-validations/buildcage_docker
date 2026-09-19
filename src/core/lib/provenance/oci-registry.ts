@@ -122,7 +122,7 @@ export interface RegistryClient {
       /** How a non-ok response reads, a 404 aside. Defaults to TRANSIENT. */
       onFailure?: RegistryFailure;
       /**
-       * Read a 404 as the document simply being absent. Defaults to true; pass
+       * Read a 404 as the document being absent. Defaults to true; pass
        * false where the registry has already pointed at the document, so a 404
        * contradicts it rather than answering.
        */
@@ -283,7 +283,7 @@ export async function fetchRegistryToken(
     }
 
     // The two cases need different advice: credentials that were sent and
-    // rejected are stale, whereas none sent at all may simply mean the package
+    // rejected are stale, whereas none sent at all may only mean the package
     // is private.
     throw new VerifyImageError(
       basicAuth

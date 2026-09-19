@@ -9,8 +9,7 @@ import { buildUrlRules } from "./url-rules.ts";
 
 const BASE = { proxyAddress: "172.20.0.1" };
 
-/** Rules and Corefile options in one bag, as the generator took them before
- *  the rules moved behind compileRuleSet. */
+/** Rules and Corefile options in one bag, split apart by `generate` below. */
 type CaseOptions = RuleInputs & Partial<CorednsConfigOptions>;
 
 function generate({ httpsRules, httpRules, tlsRules, urlRules, ...options }: CaseOptions = {}) {
@@ -246,10 +245,9 @@ describe("allowed names", () => {
   const config = gen({ httpsRules: ["a.example.com:443"] });
   const allowBlock = blockOf(config, "view allowlist");
   const denyBlock = config.slice(config.indexOf("# Everything else"));
-  // Both blocks share proxyAnswerLines() in the generator, so this is a
-  // stronger, single check in place of separately re-asserting the same
-  // answer/AAAA shape "denied names" above already covers in full: it proves
-  // the two cannot drift apart, not just that each happens to look right.
+  // Both blocks share proxyAnswerLines() in the generator, so comparing them
+  // proves they cannot drift apart, which re-asserting each block's shape
+  // separately would not.
   const answerLines = (s: string) =>
     s
       .split("\n")
@@ -272,7 +270,7 @@ describe("allowed names", () => {
 
 // ---------------------------------------------------------------------------
 // audit has no allowlist to enforce, but it must not forward either: it
-// records without connecting to anything CoreDNS resolved for real.
+// records every lookup while still answering it locally.
 // ---------------------------------------------------------------------------
 describe("audit mode", () => {
   const config = gen({ ...BASE, httpsRules: ["a.example.com:443"], mode: "audit" });
@@ -410,7 +408,8 @@ describe("service-discovery names", () => {
 
   it("exempts only the types defined at a service name, denying the rest", () => {
     // An underscore name is a convention for the owner name, not a promise
-    // about the question. A really is answered here, with the proxy's address,
+    // about the question. An A query really is answered here, with the proxy's
+    // address,
     // and a type nobody has taught this block about is not one to exempt on a
     // guess, so both are judged by the blocks below instead.
     const block = discoveryBlock(gen(RULES));
@@ -446,7 +445,7 @@ describe("service-discovery names", () => {
 // Every other service name. Refused like any other name, but recorded apart:
 // the remedy for one is the host below it, never the name, which no rule can
 // make resolve. Logging it apart is also what keeps the shape of a service
-// name defined in this file alone: the report reads verbs, not names.
+// name defined in coredns-config.ts alone: the report reads verbs, not names.
 // ---------------------------------------------------------------------------
 describe("refused service names", () => {
   it("records them under a verb of their own, carrying the type", () => {

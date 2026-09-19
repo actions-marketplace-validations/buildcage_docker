@@ -118,7 +118,7 @@ describe("runSetupStep", () => {
     expect(mocks.runDocker).not.toHaveBeenCalled();
   });
 
-  // A rule the engine cannot enforce has to be said before the build steps
+  // A rule the engine cannot enforce has to be reported before the build steps
   // start running against a builder that silently ignores it.
   it("checks rule support against the engine before the builder starts", async () => {
     await runSetupStep(ENV, deps);

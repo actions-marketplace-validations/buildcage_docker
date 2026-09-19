@@ -145,7 +145,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
     // never hands the build a real address (see coredns-config.ts), so a
     // refusal logged before set-dst ran would show the build's own fake
     // destination instead of the real one that tripped the guard, silently
-    // losing exactly the forensic value an SSRF refusal exists to keep.
+    // losing the address that makes the refusal worth recording.
     for (const frontend of ["https_in", "http_in"]) {
       const segment = frontendSegment(FULL_CONFIG, frontend);
       const setDst = segment.indexOf("http-request set-dst var(txn.dst)");
@@ -170,7 +170,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
     // Not just ordering: a passthrough rule has no path or method, so this
     // flag, set only when an SNI already matched, is the entire rule
     // check do-resolve sits behind. A request no rule admits must never
-    // reach it, same invariant as the host+path+method check above.
+    // reach it, which is the same invariant as the host+path+method check
     const tlsRuleSet = FULL_CONFIG.indexOf("set-var(txn.tlsrule)");
     const resolveLine = FULL_CONFIG.split("\n").find((l) =>
       l.includes("do-resolve(txn.dst,buildcage,ipv4) req.ssl_sni"),
@@ -296,7 +296,7 @@ describe("the internal-address guard", () => {
     expect(FULL_CONFIG.includes("-m ip -f")).toBe(false);
   });
 
-  it("exempts an explicitly-named address, which was asked for not arrived at", () => {
+  it("exempts an explicitly-named address, which was asked for, not arrived at", () => {
     // allowed_ip_rules and an address in allowed_url_rules stay reachable.
     expect(FULL_CONFIG.includes("if dst_internal !host_is_address")).toBe(true);
   });
@@ -312,7 +312,7 @@ describe("the internal-address guard", () => {
   });
 
   it("does not fold the upstream resolvers into the internal-address guard", () => {
-    // resolverAddress now names real, external nameservers, not the gateway;
+    // resolverAddress names real, external nameservers, not the gateway;
     // conflating the two would make a rule resolving to 1.1.1.1 unreachable
     // and, worse, would have masked a resolved destination actually landing
     // on the proxy's own address.
@@ -363,7 +363,7 @@ describe("what a log line records", () => {
 
   it("strips whitespace, quotes and control chars from the Host header and the path before logging them", () => {
     // Both are attacker-controlled; ACL matching still runs on the untouched
-    // req.hdr(host)/path fetches, only the logged copies are sanitized. Unlike
+    // req.hdr(host)/path fetches; only the logged copies are sanitized. Unlike
     // the SNI below, the Host header legitimately carries its own ":port", so
     // it can't be reduced to a hostname charset: only the actually unsafe
     // characters are stripped.
@@ -377,7 +377,7 @@ describe("what a log line records", () => {
     ).toBe(true);
   });
 
-  it("the Host-capture charset leaves a non-default port's ':' untouched", () => {
+  it("leaves a non-default port's ':' untouched in the Host capture", () => {
     // The Host capture must not be reduced to the SNI's hostname-only charset:
     // that also eats the ':' a Host header carries for a non-default port,
     // turning "allowed.example.com:9443" into "allowed.example.com_9443" in the
@@ -387,7 +387,7 @@ describe("what a log line records", () => {
     expect(stripped).toBe("allowed.example.com:9443");
   });
 
-  it("records the path after normalising it, not as it was sent", () => {
+  it("records the path after normalizing it, not as it was sent", () => {
     const normalise = FULL_CONFIG.indexOf("normalize-uri path-strip-dotdot");
     const capture = FULL_CONFIG.indexOf("set-var(txn.pathq)");
     expect(normalise !== -1 && normalise < capture).toBe(true);
@@ -427,7 +427,7 @@ describe("the path the rules see", () => {
 
   it("refuses a raw backslash outright, it being no valid path character", () => {
     // RFC 3986 does not allow it unencoded; its only use is as a separator on
-    // the origins that accept it. `\\\\` in the source is `\\` in the FULL_CONFIG,
+    // the origins that accept it. `\\\\` in the source is `\\` in the generated config,
     // which HAProxy's parser reads as one literal backslash.
     expect(FULL_CONFIG.includes("http-request deny deny_status 403 if { path -m sub \\\\ }")).toBe(
       true,
@@ -469,7 +469,7 @@ describe("line length", () => {
     expect(longestLineWords(config) <= MAX_LINE_WORDS).toBe(true);
   });
 
-  it("flags a passthrough one line per rule, which no rule count can outgrow", () => {
+  it("flags a passthrough with one line per rule, which no rule count can outgrow", () => {
     const config = gen({
       tlsRules: Array.from({ length: 30 }, (_, i) => `h${i}.example.com:443`),
       ipRules: Array.from({ length: 30 }, (_, i) => `10.0.0.${i}:5432`),

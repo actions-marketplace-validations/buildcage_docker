@@ -58,8 +58,8 @@ build test/Dockerfile.inspect-audit
 RULES=$(
   COMPOSE_FILE="$BASE_COMPOSE" GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 |
     # Stops at the next top-level key (allowed_tls_rules/allowed_ip_rules are
-    # now echoed into the same fenced block, see inspect-example.ts) as well
-    # as the closing fence, so only the allowed_url_rules value is captured.
+    # echoed into the same fenced block, see inspect-example.ts) as well as
+    # the closing fence, so only the allowed_url_rules value is captured.
     awk '
       /allowed_url_rules: \|/ { capture=1; next }
       capture && /^ *(allowed_tls_rules|allowed_ip_rules): \|/ { exit }

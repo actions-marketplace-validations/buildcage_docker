@@ -4,8 +4,6 @@
  * The @sigstore/* packages are mocked: what is under test here is not their
  * cryptography but the policy this module hands them, how it reports their
  * refusal, and that it still checks the signed digest afterwards.
- *
- * Run with: vp test run core/lib/provenance/sigstore.test.ts
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

@@ -66,7 +66,7 @@ describe("renderInspectDetails", () => {
     expect(md.includes("-> 403")).toBe(false);
   });
 
-  it("shows a passthrough as a host and port, having no url to show", () => {
+  it("shows a passthrough as a host and port, though it has no url to show", () => {
     expect(md.includes("TLS db.example.com:5432 -> (3.3KB)")).toBe(true);
   });
 
@@ -236,7 +236,7 @@ describe("renderInspectDetails credential parameters", () => {
     expect(subjectOf("https://h/v1?Api_Key=sk_live_1")).toBe("GET https://h/v1?Api_Key=***");
   });
 
-  it("leaves a parameter nobody credentialled alone", () => {
+  it("leaves a parameter nobody credentialed alone", () => {
     // A refused request has to keep saying what it tried to send, and an
     // exfiltration payload is named whatever its author chose.
     expect(subjectOf("https://h/?d=BASE64PAYLOAD&page=2")).toBe(

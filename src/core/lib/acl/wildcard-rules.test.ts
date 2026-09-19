@@ -44,7 +44,7 @@ describe("wildcardToRegex", () => {
     expect(wildcardToRegex("example.com:*")).toBe("example\\.com:\\d+");
   });
 
-  it("rejects a port that is missing, non-numeric or not the last colon", () => {
+  it("rejects a port that is missing, non-numeric or not after the last colon", () => {
     expect(() => wildcardToRegex("example.com")).toThrow(/Invalid pattern/);
     expect(() => wildcardToRegex("example.com:abc")).toThrow(/Invalid pattern/);
     expect(() => wildcardToRegex("example.com:443:extra")).toThrow(/Invalid pattern/);

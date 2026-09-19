@@ -28,7 +28,7 @@ export interface RunReportScriptOptions {
  * the stdio it inherited.
  *
  * @throws {ReportError} REPORT_SCRIPT_FAILED when it never ran to completion,
- * which leaves nobody to have explained why.
+ * which leaves nobody to explain why.
  */
 export function runReportScript(
   scriptPath: string,

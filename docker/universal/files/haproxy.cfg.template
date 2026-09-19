@@ -13,8 +13,8 @@ global
 
 resolvers my_dns
 ${HAPROXY_NAMESERVERS}
-    # The only hold do-resolve reads, and it ignores the record's own TTL, so
-    # it is also how long a rotated address keeps being dialled. A minute is
+    # This is the only hold do-resolve reads, and it ignores the record's own
+    # TTL, so it is also how long a rotated address keeps being dialled. A minute is
     # about the TTL of the hosts a build talks to.
     hold valid 60s
     # One query more than the default, a second apart. On the TLS path they
@@ -44,7 +44,6 @@ frontend outbound_proxy
     bind *:10024
     tcp-request inspect-delay 5s
 
-    # Default variables
     # txn.decision defaults to BLOCKED: any reject/deny leaves it unchanged,
     # so only connections that pass all checks are overwritten to ALLOWED/AUDIT.
     tcp-request content set-var(txn.decision) str(BLOCKED)
@@ -52,31 +51,27 @@ frontend outbound_proxy
     tcp-request content set-var-fmt(txn.target) %[dst]:%[dst_port]
     tcp-request content set-var(txn.rule_type) str(UNKNOWN)
 
-    # ACL: DNS-routed vs IP direct
+    # dst is the gateway only when the name went through this container's DNS.
     acl is_dns_routed dst 172.20.0.1
-    # Store DNS-routed state in variable (before set-dst may modify dst)
+    # set-dst below overwrites dst, so capture the state first.
     tcp-request content set-var(txn.dns_routed) str(true) if is_dns_routed
 
-    # ACL: TLS/SNI
     acl is_tls req.ssl_hello_type 1
     acl has_sni req_ssl_sni -m found
 
-    # ACL: IP direct access allowlist
     acl is_ip_match var(txn.target) -m reg -i -f /etc/haproxy/rules/allowed_ips.lst
 
-    # TLS variable extraction
     # A trailing dot denotes the same DNS name, so it must not affect matching,
-    # resolution or logging, so strip it once here, upstream of every other use.
+    # resolution or logging. Strip it once here, upstream of every other use.
     tcp-request content set-var(txn.sni) req_ssl_sni,regsub(\.$,) if is_tls
     tcp-request content set-var-fmt(txn.sni_port) %[var(txn.sni)]:%[dst_port] if is_tls
-    # The SNI is attacker-chosen raw bytes, and HAProxy copies a %[var()] into
-    # log-format verbatim, and +E would only escape " \ ], never LF. So the copy
-    # that reaches the log is reduced to a hostname charset here; the ACL below
+    # The SNI is attacker-chosen raw bytes that HAProxy copies into log-format
+    # verbatim, and +E would only escape " \ ], never LF. So the copy that
+    # reaches the log is reduced to a hostname charset here; the ACL below
     # still matches the untouched txn.sni_port.
     tcp-request content set-var(txn.sni_log) var(txn.sni),regsub([^A-Za-z0-9._-],_,g) if is_tls has_sni
     tcp-request content set-var-fmt(txn.target) %[var(txn.sni_log)]:%[dst_port] if is_tls has_sni
 
-    # ACL: HTTPS allowlist
     acl is_https_allowed var(txn.sni_port) -m reg -i -f /etc/haproxy/rules/allowed_https.lst
 
     # ---------------------------------------------------------
@@ -124,12 +119,10 @@ frontend outbound_proxy
     # ---------------------------------------------------------
     # 5. Non-TLS DNS-routed → HTTP backend
     # ---------------------------------------------------------
-    # Routing
     use_backend ip_passthrough if !{ var(txn.dns_routed) -m found }
     use_backend tls_passthrough if is_tls
     default_backend http_filter_backend
 
-    # Set log format
     log-format "[%T] buildcage [%[var(txn.decision)]] (%[var(txn.rule_type)]) \"%[var(txn.target)]\" %[var(txn.reason)]"
 
 # --- IP direct passthrough backend ---
@@ -148,7 +141,6 @@ backend http_filter_backend
     mode http
     http-request set-var(txn.rule_type) str(HTTP)
 
-    # Host header check
     acl has_host hdr(host) -m found
     acl host_not_empty hdr_len(host) gt 0
     http-request set-var(txn.reason) str(missing-host-header) if !has_host or !host_not_empty
@@ -159,17 +151,14 @@ backend http_filter_backend
     http-request set-var(txn.host_only) hdr(host),regsub(:.*$,),regsub(\.$,)
     http-request set-var-fmt(txn.host_port) %[var(txn.host_only)]:%[dst_port]
 
-    # Update target for logging (replace IP with actual hostname)
     # Same reason as the SNI above: the Host header is attacker-chosen too.
     http-request set-var(txn.host_log) var(txn.host_only),regsub([^A-Za-z0-9._-],_,g)
     http-request set-var-fmt(txn.target) %[var(txn.host_log)]:%[dst_port]
 
-    # HTTP allowlist check
     acl is_http_allowed var(txn.host_port) -m reg -i -f /etc/haproxy/rules/allowed_http.lst
     http-request set-var(txn.reason) str(not-allowed) if !is_http_allowed
     http-request deny deny_status 403 content-type "text/plain" string "Blocked by egress proxy" if !is_http_allowed
 
-    # DNS resolution & destination override
     http-request do-resolve(txn.actual_ip,my_dns,ipv4) var(txn.host_only)
     # A fresh attempt, not a replay: nothing cached the failure. The TLS path
     # has no room for one inside its inspect-delay.

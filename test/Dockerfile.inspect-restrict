@@ -1,7 +1,8 @@
 # curl rather than busybox wget: this engine's assertions are about methods and
 # response bodies, and busybox wget can send neither a POST nor report a status.
-# The image ships curl already, because installing it would need a package
-# mirror in the allowlist and make every case depend on a public CDN.
+# This image was picked because it ships curl already: installing curl would
+# need a package mirror in the allowlist and make every case depend on a
+# public CDN.
 #
 # FROM is deliberately not governed by this engine (see docs/inspect-engine.md),
 # so this pull succeeds whatever the rules say.
@@ -11,7 +12,7 @@ FROM alpine/curl@sha256:1a4d725751c5bd50297ee243db5d4df8ac5aabdf7030dd40dcec3bc3
 # needed except where a rule deliberately passes TLS through undecrypted.
 SHELL ["/bin/sh", "-c"]
 
-# `s` prints the body, `c` the status. A test asserts on both: a 200 that
+# `S` prints the body, `C` the status. A test asserts on both: a 200 that
 # returned the wrong resource is a failure the status alone would hide.
 ENV S='curl -sS --max-time 10'
 ENV C='curl -sS -o /dev/null -w %{http_code} --max-time 10'
@@ -56,8 +57,8 @@ RUN echo "=== [URL rule - method allowed] ===" && \
     echo "$OUT" && \
     case "$OUT" in API\ POST*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Traversal - normalised before the rules see it]
-# Without normalisation the proxy matches /public/ and the origin serves
+# [Traversal - normalized before the rules see it]
+# Without normalization the proxy matches /public/ and the origin serves
 # /private/, so a 200 carrying PRIVATE is the failure to catch here.
 RUN echo "=== [Traversal] ===" && \
     CODE=$($C https://allowed.example.com/public/../private/secret) && \
@@ -66,7 +67,8 @@ RUN echo "=== [Traversal] ===" && \
 
 # [Traversal - percent-encoded]
 # `.` is unreserved, so `%2e%2e` only becomes a dot-dot segment once decoded.
-# Decoding after stripping left it intact and this returned PRIVATE with a 200.
+# Decoding after stripping would leave it intact, and this would return
+# PRIVATE with a 200.
 # --path-as-is stops curl resolving the path itself, so the proxy is what is
 # under test.
 RUN echo "=== [Traversal, encoded] ===" && \
@@ -326,8 +328,8 @@ RUN echo "=== [Address in a URL rule] ===" && \
     echo "$OUT" && \
     case "$OUT" in ROOT\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# The path rule still applies, which is the whole point of not passing it
-# through uninspected.
+# The path rule still applies, which is why this is not passed through
+# uninspected.
 RUN echo "=== [Address, path outside the rule] ===" && \
     CODE=$($C http://10.200.0.100/private/secret) && \
     echo "status=$CODE" && \

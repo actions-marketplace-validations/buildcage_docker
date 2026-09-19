@@ -4,10 +4,10 @@ import type { SourcePolicyInput } from "./source-policy.ts";
 
 // Simulates BuildKit's sourcepolicy engine evaluation order exactly
 // (sourcepolicy/engine.go's evaluatePolicy): rules are applied in array
-// order, ALLOW/DENY just flip a running "deny" flag, and the last matching
-// rule wins. That is the load-bearing semantics the generated rule order has
-// to produce correct results under, verified against a live buildkitd
-// container (see docs/security.md).
+// order, ALLOW/DENY flip a running "deny" flag, and the last matching rule
+// wins. The generated rule order has to be correct under those semantics,
+// which were verified against a live buildkitd container (see
+// docs/security.md).
 function evaluate(
   policy: { rules: { action: string; selector: { identifier: string } }[] },
   identifier: string,
@@ -129,7 +129,7 @@ describe("buildSourcePolicy: regex (~) rules", () => {
     expect(policy.rules[1].selector.identifier).toBe("^https://custom\\.regex:443(/.*)?$");
   });
 
-  it("an anchor-less regex is anchored for this engine too, so it cannot widen into a neighbouring name", () => {
+  it("an anchor-less regex is anchored for this engine too, so it cannot widen into a neighboring name", () => {
     // A port pattern is always required, even here.
     const policy = restrict({ httpsRulesInput: "~example\\.com(:\\d+)?" });
     const re = new RegExp(policy.rules[1].selector.identifier);

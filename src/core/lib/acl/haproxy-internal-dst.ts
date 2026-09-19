@@ -10,7 +10,7 @@ export interface InternalDstOptions {
  *
  * Both stages guard on the same set, so the acl is written once and only its
  * name differs. What each attaches to it is not shared: the passthrough path
- * rejects a connection, the inspected path denies a request with 403.
+ * rejects a connection, while the inspected path denies a request with 403.
  */
 export function internalDstAcl(name: string, opts: InternalDstOptions): string[] {
   return [

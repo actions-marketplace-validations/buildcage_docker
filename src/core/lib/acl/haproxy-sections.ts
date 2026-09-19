@@ -67,7 +67,7 @@ export function resolversSection(resolvers: string[], useResolvConf: boolean): s
   ];
 }
 
-/** The only place a request reaches the origin, so where its cert is checked. */
+/** The \`origin_tls\` and \`origin_plain\` backends. */
 export function originBackends(systemCaFile: string): string[] {
   return [
     "# The only place a request reaches the origin, so where its certificate is",

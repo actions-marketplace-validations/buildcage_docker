@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe("runReportStep", () => {
-  it("finds the container by the project name the builder name derives to", async () => {
+  it("finds the container by the project name derived from the builder name", async () => {
     await runReportStep({}, deps);
     expect(mocks.findReportSourceContainer).toHaveBeenCalledWith(
       { docker: true },
@@ -132,7 +132,7 @@ describe("the traffic artifact", () => {
     );
   });
 
-  it("uploads before the scratch dir is removed, the file living inside it", async () => {
+  it("uploads before the scratch dir is removed, since the file lives inside it", async () => {
     mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true });
     const order: string[] = [];
     mocks.uploadTrafficArtifact.mockImplementation(async () => void order.push("upload"));

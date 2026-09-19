@@ -69,9 +69,10 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
       ...tlsHosts.map((h) => `${h.id}_sni${h.port ? ` ${h.id}_port` : ""}`),
     ];
 
-    // A passthrough is never decrypted and so has no request line; the name,
-    // destination and byte count are logged here, its only record. Flagged
-    // before the rules below reject, so a refused passthrough is logged too.
+    // A passthrough is never decrypted and so has no request line; this line
+    // is its only record, carrying the name, destination and byte count.
+    // Flagged before the rules below reject, so a refused passthrough is
+    // logged too.
     l.push(
       "",
       // One line per rule, for the same word-limit reason as ruleBlock's deny.
@@ -81,8 +82,8 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
     );
 
     if (tlsHosts.length > 0 && hasResolver) {
-      // Resolve the SNI ourselves and connect there, as for an inspected
-      // request: an SNI is not a destination, so a ClientHello with an allowed
+      // The SNI is resolved here and connected to, as on the inspected path:
+      // an SNI is not a destination, so a ClientHello with an allowed
       // name must not become a tunnel to an address of the build's choosing.
       // The flag variable is needed because HAProxy conditions have no
       // grouping: `a or b !c` reads as `a or (b and !c)`.

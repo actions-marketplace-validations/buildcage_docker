@@ -41,7 +41,7 @@ import {
   wildcardToRegexPartial,
 } from "./partial-wildcard.ts";
 
-/** The scheme's own port, tried without being spelled out at all in a `~` URL rule's host half. */
+/** The scheme's default port, used wherever a rule names none. */
 export const DEFAULT_PORT: Record<"https" | "http", string> = { https: "443", http: "80" };
 
 export interface UrlRule {
@@ -145,10 +145,10 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
  * tries it against the connection's host both bare and with the real port,
  * so a pattern with no port at all matches only the scheme's default port,
  * and one ending in an optional port group (`(:8443)?`) matches either.
- * `authorityRegex` is the same host half with its port pattern dropped, from
- * its own `:` or from the `(` opening a group right at the colon, for the
- * resolver's allowlist, which has no notion of a port to match against either
- * way; see splitDomainFromPortPattern.
+ * `authorityRegex` is the same host half with its port pattern dropped, cut
+ * at its own `:` or at the `(` opening a group right at the colon. The
+ * resolver's allowlist has no notion of a port either way; see
+ * splitDomainFromPortPattern.
  *
  * @throws {Error} if the text can't be split into a host and a path, either
  *   half carries a top-level `|`, the host half holds a character no hostname

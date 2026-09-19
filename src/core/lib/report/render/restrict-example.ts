@@ -2,7 +2,7 @@
  * The parts every "Switch to restrict mode" snippet shares, whichever engine
  * built it: the `uses:` line and the <details> block the YAML sits in.
  *
- * Shared rather than written out per renderer, so the indentation comment
+ * Shared rather than written out per renderer, so STEP_INDENT's own comment
  * cannot be fixed in one copy and missed in the other.
  */
 

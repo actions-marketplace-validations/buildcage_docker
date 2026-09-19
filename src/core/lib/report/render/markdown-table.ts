@@ -33,9 +33,6 @@ function escapeCell(value: string | number | undefined): string {
     .replace(/\r?\n/g, " ");
 }
 
-/**
- * Render a generic GitHub-flavored markdown table.
- */
 export function markdownTable(
   formats: ColumnFormat[],
   rows: Record<string, string | number | undefined>[],

@@ -7,8 +7,8 @@
  * silently omit every earlier build's steps. Each record's `CreatedAt` is a
  * protobuf-style `{seconds, nanos}` object (not an ISO string), so records
  * are ordered numerically rather than by string.
- *
  */
+
 interface CreatedAt {
   seconds: number;
   nanos?: number;
@@ -18,7 +18,7 @@ export function selectAllRefs(historiesText: string): string[] {
   // Keyed by ref: buildctl reports each build's history record more than
   // once as it progresses (e.g. started, then completed), so the same ref
   // can appear on multiple lines and the last one wins, though CreatedAt is
-  // fixed at build start and doesn't actually change across those lines.
+  // fixed at build start and does not change across those lines.
   const byRef = new Map<string, CreatedAt>();
   for (const line of historiesText.split("\n")) {
     if (!line.trim()) continue;

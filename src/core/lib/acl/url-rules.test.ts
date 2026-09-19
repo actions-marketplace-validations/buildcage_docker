@@ -122,7 +122,7 @@ describe("convertUrlRule regex escape hatch", () => {
     expect(convertUrlRule("GET ~^https://a\\.com/x$").pathRegex).toBe("^/x$");
   });
 
-  it("recognises an escaped slash for either the scheme separator or the path start", () => {
+  it("recognizes an escaped slash for either the scheme separator or the path start", () => {
     const r = convertUrlRule("GET ~^https:\\/\\/a\\.com\\/x$");
     expect(r.hostRegex).toBe("^a\\.com$");
     expect(r.pathRegex).toBe("^\\/x$");

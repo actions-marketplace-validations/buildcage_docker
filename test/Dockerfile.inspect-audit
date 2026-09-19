@@ -32,8 +32,8 @@ RUN echo "=== [POST] ===" && \
     case "$OUT" in API\ POST*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
 # [Plaintext on a port nobody declared]
-# This is what audit exists for: a build reaches 9080 without anyone having
-# said 9080 carries plaintext, and it is still recorded.
+# A build reaches 9080 without anyone having said 9080 carries plaintext, and
+# it is still recorded.
 RUN echo "=== [Plaintext on 9080] ===" && \
     OUT=$($S http://allowed.example.com:9080/public/pkg.tgz) && \
     echo "$OUT" && \

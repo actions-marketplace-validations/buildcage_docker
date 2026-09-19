@@ -50,7 +50,7 @@ services:
         GET ~^https://blocked\.example\.com:9443/public/.*$
 
         # No port at all: matches only the scheme's default (443), not 9443
-        # above: a ~ URL rule's port is optional, unlike the other kinds.
+        # above. A ~ URL rule's port is optional, unlike the other kinds.
         GET ~^https://blocked\.example\.com/defaultport/.*$
 
         # Neither anchor written: the host half is anchored for the author,
@@ -80,7 +80,7 @@ services:
       test-net:
 
   # The origin every allowed name resolves to. Distinguishes paths and echoes
-  # the method, so a path or method rule can be told to have actually applied.
+  # the method, so a path or method rule can be seen to have actually applied.
   test-server:
     build: test/test-server-inspect
     cap_add:

@@ -6,8 +6,8 @@ source "$(dirname "$0")/helpers.sh"
 # (docker/inspect/buildcage-runc/inject.go): the environment it sets lives only
 # in the transient OCI process spec, never in what BuildKit commits, and the
 # CA file(s) it writes to the rootfs are undone by its own restore() before
-# the snapshot is taken. This checks both hold against the real image this
-# test build produced, not just in theory.
+# the snapshot is taken. This checks that both hold against the real image
+# this test build produced.
 
 IMAGE="${1:-buildcage-test}"
 
@@ -38,9 +38,9 @@ else
   pass "no buildcage CA marker block in any system CA bundle"
 fi
 
-# Belt and suspenders: the CA-trust variables inject.go sets only ever reach
-# the transient RUN-step process spec, never the image config BuildKit writes.
-# Confirmed here against a real built image rather than just the claim.
+# The CA-trust variables inject.go sets only ever reach the transient RUN-step
+# process spec, never the image config BuildKit writes. Confirmed here against
+# a real built image.
 LEAKED_ENV=$(docker inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' \
   | grep -E '^(NODE_EXTRA_CA_CERTS|DENO_CERT|REQUESTS_CA_BUNDLE|PIP_CERT|SSL_CERT_FILE)=' || true)
 if [ -n "$LEAKED_ENV" ]; then

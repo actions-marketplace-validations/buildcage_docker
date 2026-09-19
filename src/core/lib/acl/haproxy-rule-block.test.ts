@@ -99,7 +99,7 @@ describe("rule block", () => {
     expect(block({ httpsRules: ["a.com:443"] }).includes("set-var(txn.host)")).toBe(true);
   });
 
-  it("matches a name once for every rule that names it", () => {
+  it("matches a name once, however many rules name it", () => {
     const config = block({
       urlRules: buildUrlRules("GET https://a.com/one/**\nGET https://a.com/two/**"),
     });

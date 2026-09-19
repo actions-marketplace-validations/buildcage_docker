@@ -7,12 +7,9 @@
 # integration-test-only code (a self-signed-cert CA-trust escape hatch) is
 # physically absent from the published image's binary.
 #
-# --platform=$BUILDPLATFORM pins this stage to the build host's own
-# architecture even when the overall image is being built for a different
-# target platform (e.g. linux/arm64 on an amd64 GitHub Actions runner), so
-# the Go toolchain always runs natively instead of under QEMU emulation.
-# GOOS/GOARCH below then cross-compile the actual output binary for the
-# target platform, and CGO_ENABLED=0 makes this a plain, fast cross-compile.
+# --platform=$BUILDPLATFORM keeps the Go toolchain on the build host's own
+# architecture; GOOS/GOARCH then cross-compile for the target, and
+# CGO_ENABLED=0 makes that a plain, fast cross-compile.
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS buildkit-proxy-build
 ARG BUILDKIT_PROXY_BUILD_TAGS=""
 ARG TARGETOS
@@ -51,10 +48,8 @@ LABEL org.opencontainers.image.title="buildcage (explicit proxy engine)" \
 # quickjs-ng is the only extra package needed, for source-policy generation.
 RUN apk add --no-cache quickjs-ng
 
-# buildkit-proxy binary
 COPY --from=buildkit-proxy-build /out/buildkit-proxy /opt/buildcage/bin/buildkit-proxy
 
-# BuildKit config
 RUN mkdir -p /etc/buildkit /var/log/buildkitd
 COPY docker/explicit/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 
@@ -69,7 +64,6 @@ COPY --from=scripts-build /build/dist/qjs/docker/explicit/scripts/gen-source-pol
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/explicit/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
-# License
 COPY docker/explicit/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
 
 ENTRYPOINT ["/opt/buildcage/bin/buildkit-proxy"]

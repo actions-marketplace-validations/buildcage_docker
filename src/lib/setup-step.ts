@@ -148,12 +148,11 @@ export async function runSetupStep(
     ));
   log(`buildcage: image: ${imageRef}`);
 
-  // Read after the image, not alongside the engine: folding the two reads
-  // together would move rule validation ahead of image verification, changing
-  // which error a run with both problems reports (see inputs.ts).
+  // Read after the image, not alongside the engine, so a run with both
+  // problems reports the image error (see inputs.ts).
   const { proxyMode, httpsRules, httpRules, ipRules, urlRules, tlsRules, knownBlockedRules } =
     readRuleInputs();
-  // Before the builder starts, so a rule the engine cannot enforce is said
+  // Before the builder starts, so a rule the engine cannot enforce is reported
   // once, up front, rather than silently not enforced.
   checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, warn);
 

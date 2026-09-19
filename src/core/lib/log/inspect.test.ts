@@ -87,7 +87,7 @@ describe("scanInspectLog", () => {
   });
 
   it("counts an origin that timed out as a refusal, unless it had already answered", async () => {
-    // haproxy writes the 503 and the 504 itself in `sC` and `sH`, exactly as it
+    // haproxy itself writes the 503 and the 504 in `sC` and `sH`, exactly as it
     // does for `SC` and `SH`; whether the origin refused the connection or
     // simply went quiet is all that separates the two.
     const lines = [
@@ -137,7 +137,7 @@ describe("scanInspectLog", () => {
     expect(e.url === undefined).toBe(true);
   });
 
-  it("names a passthrough refusal the same way, having no status at all", async () => {
+  it("names a passthrough refusal the same way, though it has no status at all", async () => {
     const lines = [
       "buildcage 1 pass tcp 0 ts=PR reason=dns-failed dst=10.0.0.5:5432 sni=db.example.com",
       "buildcage 2 pass tcp 0 ts=PR reason=internal-address dst=10.0.0.5:5432 sni=db.example.com",

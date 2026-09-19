@@ -4,7 +4,7 @@
 // allowed_https_rules/allowed_http_rules/allowed_ip_rules) into every Solve
 // request. This binary is PID 1.
 //
-// Responsibilities are split across files by role, not just by topic:
+// The files split up as:
 //   - main.go: top-level startup sequencing only.
 //   - supervisor.go: prepares the environment and launches/manages the real
 //     buildkitd child process. This is orthogonal to gRPC proxying below.

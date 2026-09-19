@@ -1,5 +1,5 @@
 COMPOSE_FILE ?= compose.yaml
-# Lets test_integration_buildkit_explicit_* clean up the explicit-engine overlay.
+# Lets a target name the overlay its own clean_buildkit has to tear down.
 TEST_COMPOSE_FILE ?= compose.test-universal.yaml
 
 # These names, and test-net's subnet, are global to the daemon: a linked
@@ -83,8 +83,8 @@ test_unit_report: ## Run report unit tests
 	@vp test run report/src
 
 # Unfiltered, so this always covers whatever test.include matches. One run,
-# because each overwrites the coverage report: split the way the targets above
-# are, only the last one's numbers would survive.
+# because each overwrites the coverage report: splitting it the way the targets
+# above are split would leave only the last one's numbers.
 .PHONY: test_unit_coverage
 test_unit_coverage: ## Run every Node unit test once, with coverage
 	@vp test run --coverage
@@ -96,13 +96,10 @@ test_unit_go: ## Run buildcage-runc's and covfilter's unit tests
 
 # buildcage-runc's coverage, with the statements a //coverage:ignore marker
 # excuses taken out first (see test/covfilter for why Go needs a second tool for
-# that at all). 100 is not a number to admire: it is what makes a new untested
-# statement fail the run instead of sinking into a percentage nobody reads.
-#
-# It is also the only number that holds across Go releases. cmd/cover splits a
-# function into blocks differently between them (the same source reports 98.1%
-# under 1.26.5 and 98.2% under 1.27.1), but at 100 every statement is either
-# reached or marked, whichever toolchain counted them.
+# that at all). 100 is the only threshold that holds across Go releases:
+# cmd/cover splits a function into blocks differently between them (the same
+# source reports 98.1% under 1.26.5 and 98.2% under 1.27.1), but at 100 every
+# statement is either reached or marked, whichever toolchain counted them.
 RUNC_COVERAGE := coverage/buildcage-runc.cov
 RUNC_COVERAGE_THRESHOLD := 100
 

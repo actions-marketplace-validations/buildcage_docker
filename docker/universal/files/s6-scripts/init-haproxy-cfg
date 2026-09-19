@@ -3,7 +3,6 @@ set -e
 
 echo "init-haproxy-cfg: generating HAProxy configuration..."
 
-# Set default values
 PROXY_MODE=${PROXY_MODE:-"restrict"}
 ALLOWED_HTTPS_RULES=${ALLOWED_HTTPS_RULES:-""}
 ALLOWED_HTTP_RULES=${ALLOWED_HTTP_RULES:-""}
@@ -14,7 +13,6 @@ echo "Allowed HTTPS rules: $ALLOWED_HTTPS_RULES"
 echo "Allowed HTTP rules: $ALLOWED_HTTP_RULES"
 echo "Allowed IP rules: $ALLOWED_IP_RULES"
 
-# Generate lst files (convert wildcard rules to regex)
 mkdir -p /etc/haproxy/rules
 echo "Converting rules to regex..."
 if [ "$PROXY_MODE" = "audit" ]; then
@@ -64,7 +62,6 @@ else
     done
 fi
 
-# Set decision label and audit accept
 if [ "$PROXY_MODE" = "audit" ]; then
     HAPROXY_DECISION_LABEL="AUDIT"
     HAPROXY_AUDIT_ACCEPT="tcp-request content accept if !is_dns_routed !is_ip_match"
@@ -75,7 +72,6 @@ fi
 
 export HAPROXY_NAMESERVERS HAPROXY_DECISION_LABEL HAPROXY_AUDIT_ACCEPT
 
-# Generate config file from template
 echo "Generating haproxy.cfg from template..."
 envsubst '${HAPROXY_NAMESERVERS} ${HAPROXY_DECISION_LABEL} ${HAPROXY_AUDIT_ACCEPT}' \
   < /etc/haproxy/haproxy.cfg.template \

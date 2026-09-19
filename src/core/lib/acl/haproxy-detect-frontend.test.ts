@@ -62,15 +62,15 @@ describe("passthrough", () => {
     // txn.tlsrule is gated on the port as well as the SNI. From the SNI alone,
     // an SNI matching db.example.com on a port the rule does not name would
     // still trigger do-resolve/set-dst here, overwriting the connection's
-    // destination before the inspected path ever saw it, even though txn.pass
-    // (gated on sni+port together) correctly never fired for it.
+    // destination before the inspected path ever sees it, even though txn.pass
+    // (gated on sni+port together) correctly never fires for it.
     expect(config.includes("set-var(txn.tlsrule) int(1) if tls0_sni tls0_port")).toBe(true);
   });
 
-  it("runs every content rule before the accept that ends their evaluation", () => {
+  it("runs every content rule before the accept that ends the content rules' evaluation", () => {
     // `tcp-request content accept` stops the rest of the content rules, so a
-    // set-var or do-resolve placed after it never runs at all, silently, and
-    // with the passthrough still working, just to the client's own address.
+    // set-var or do-resolve placed after it never runs, silently, with the
+    // passthrough still working but going to the client's own address.
     const resolve = config.indexOf("tcp-request content do-resolve");
     const accept = config.indexOf("tcp-request content accept");
     expect(resolve !== -1 && resolve < accept).toBe(true);
@@ -79,7 +79,7 @@ describe("passthrough", () => {
   it("connects a passthrough where it resolved the SNI, not where the client aimed", () => {
     // Not decrypting is no reason to let the client pick the destination: a
     // ClientHello carrying an allowed name could otherwise be sent anywhere,
-    // turning any TLS rule into a raw tunnel to an address of its choosing.
+    // turning any TLS rule into a raw tunnel to an address of the build's
     expect(
       config.includes(
         "tcp-request content do-resolve(txn.dst,buildcage,ipv4) req.ssl_sni,lower if { var(txn.tlsrule) -m found }",

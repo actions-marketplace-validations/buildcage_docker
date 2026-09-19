@@ -9,7 +9,6 @@ ARG CNI_SHA256_ARM64=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375
 ARG HAPROXY_ALPINE_BRANCH=3.24
 ARG HAPROXY_BRANCH=3.4
 
-# Prepare dependencies
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS deps
 ARG CNI_VERSION
 ARG CNI_SHA256_AMD64
@@ -80,27 +79,22 @@ ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=90000
 # the default 3000 costs every teardown 3s. The services stop in under 1s.
 ENV S6_KILL_GRACETIME=500
 
-# envsubst
 COPY --from=deps /usr/bin/envsubst /usr/bin/envsubst
 COPY --from=deps /usr/lib/libintl.so* /usr/lib/
 
-# CNI
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 
-# BuildKit
 RUN mkdir -p /etc/buildkit
 COPY docker/universal/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 COPY docker/universal/files/cni.conflist   /etc/buildkit/cni.conflist
 
-# DNS
 COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 
-# HAProxy
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a self-contained
-# bundle, so no separate /opt/buildcage/shared/ copy is needed.
+# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a
+# self-contained bundle.
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
 # report-action.js is the runner-side report generator `docker cp`'d out by
@@ -108,10 +102,8 @@ COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/universal/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
-# License
 COPY docker/universal/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
 
-# s6 service definitions and init scripts
 COPY docker/universal/files/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 COPY docker/universal/files/s6-scripts/ /etc/s6-overlay/scripts/
 

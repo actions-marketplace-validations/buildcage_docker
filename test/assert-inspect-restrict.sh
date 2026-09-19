@@ -34,8 +34,8 @@ assert_logged GET "https://not-ok.wildcard.example.com/regexpub/pkg.tgz" 403
 assert_logged GET "https://ok.wildcard.example.com/regexexactly" 403
 echo ""
 
-echo "[traversal] the path is normalised before the rules see it:"
-# Whether the proxy logs the raw or the normalised path, what must never appear
+echo "[traversal] the path is normalized before the rules see it:"
+# Whether the proxy logs the raw or the normalized path, what must never appear
 # is a 200: that would mean the origin served /private/ for a /public/ rule.
 if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
   pass "GET /public/../private/secret was refused"
@@ -60,7 +60,8 @@ else
   fail "the long URL was cut or dropped"
   grep -c "end=TAIL-MARKER" <<< "$LOGS" || true
 fi
-# Independent of the pattern above: without the length limit, nothing can.
+# Independent of the pattern above: without the raised `len` (haproxy-sections.ts's
+# `log stdout len 16384`), no line could pass 1024 bytes at all.
 LONGEST=$(grep -E "^buildcage [0-9]+ https? " <<< "$LOGS" | awk '{print length($0)}' | sort -n | tail -1)
 if [ "${LONGEST:-0}" -gt 1024 ]; then
   pass "the log carries a line past haproxy's 1024-byte default ($LONGEST bytes)"
@@ -117,8 +118,8 @@ if grep -qE "^buildcage [0-9]+ http GET 200 [0-9]+ ts=-- reason=- dst=10\.200\.0
 else
   fail "the address destination was not reached"
 fi
-# Asking would fail, since no resolver can answer an address; it also put a
-# confusing "name refused" line in the report.
+# Asking would fail, since no resolver can answer an address, and would also
+# put a confusing "name refused" line in the report.
 if grep -qE "name=10\.200\.0\.100" <<< "$DNS_LOG"; then
   fail "the resolver was asked about an address"
 else

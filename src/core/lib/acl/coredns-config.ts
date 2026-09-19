@@ -105,7 +105,7 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
   return [
     "# Reverse lookups: answered NXDOMAIN rather than left unhandled, which",
     "# would be SERVFAIL and cost musl a five-second timeout each time. Only a",
-    "# name that is an address backwards is treated this way; anything else",
+    "# reversed address is treated this way; anything else",
     "# under these zones misses the view and falls through to the blocks below.",
     "in-addr.arpa ip6.arpa {",
     "    view reverse {",
@@ -128,7 +128,7 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
  * RFC 2782 allow so the caller chooses as little of the name as possible; see
  * discoveryZoneLines. Character classes rather than `\\.`, which CEL rejects.
  *
- * The only place a service name is recognised: the report reads the verbs
+ * The only place a service name is recognized: the report reads the verbs
  * these blocks log under, never the shape.
  */
 const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";
@@ -147,16 +147,13 @@ const DISCOVERY_TYPES = ["SRV", "TXT", "TLSA", "URI"];
  * anybody, so reporting the lookup as denied would be a row no rule could
  * take away and would fail a build that worked.
  *
- * Both conditions keep that verb from becoming a hiding place, the shape alone
- * being nowhere near enough: `_a._tcp.SECRET.attacker.example` is shaped like
- * a service name too. `parentRegex` holds the block to names under a host the
- * rules already allow, which the build could have looked up directly anyway;
+ * Both conditions keep that verb from becoming a hiding place:
+ * `_a._tcp.SECRET.attacker.example` is shaped like a service name too.
+ * `parentRegex` holds the block to names under a host the rules already allow;
  * it is undefined in audit alone, which refuses nothing and so has no blocked
- * table to leave. The type is checked because the name does not imply it, an
- * underscore name being a convention for the owner name (RFC 8552) rather than
- * a promise about the question: an A query really is answered here, with the
- * proxy's address, so calling it a lookup that got nothing back would be
- * false.
+ * table to leave. The type is checked because an underscore name is a
+ * convention for the owner name (RFC 8552), not a promise about the question:
+ * an A query really is answered here, with the proxy's address.
  */
 function discoveryZoneLines(
   proxyAddress: string,
