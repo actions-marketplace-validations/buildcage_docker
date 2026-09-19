@@ -40,13 +40,6 @@ RUN echo "=== [Direct IP - audit mode] ===" && \
 # buildcage's universal-mode network-layer interception; explicit mode has
 # no equivalent (see docs/security.md's "Coverage and known limitations").
 
-# [npm install - NODE_USE_SYSTEM_CA=1 trusts BuildKit's injected MITM CA]
-COPY files/package.json files/package-lock.json /app/
-RUN echo "=== [npm install - system CA trust] ===" && \
-    cd /app && \
-    (NODE_USE_SYSTEM_CA=1 npm ci --ignore-scripts --fetch-retries=0 >/dev/null 2>&1 && \
-     echo "✓ npm install: OK") || (echo "✗ npm install: FAILED" && exit 1)
-
 # Network configuration check
 RUN echo "=== Network Configuration ===" && \
     ip route show && \

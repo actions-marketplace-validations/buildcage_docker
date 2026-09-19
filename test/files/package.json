@@ -1,8 +1,0 @@
-{
-  "name": "buildcage-network-isolation-probe",
-  "private": true,
-  "description": "Fixture installed by test/Dockerfile.* to exercise a real npm install through buildcage's network isolation. Scoped on purpose: its registry paths carry a segment the unscoped shape does not.",
-  "dependencies": {
-    "@hono/node-server": "2.1.1"
-  }
-}
