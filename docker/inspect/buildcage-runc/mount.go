@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -67,34 +66,6 @@ func newScratchDir(bundle string) (string, error) {
 		return "", err
 	}
 	return os.MkdirTemp(scratchRoot, filepath.Base(bundle)+"-")
-}
-
-func mountConflicts(raw map[string]any, dest string) bool {
-	mounts, _ := raw["mounts"].([]any)
-	for _, m := range mounts {
-		entry, ok := m.(map[string]any)
-		if !ok {
-			continue
-		}
-		existing, _ := entry["destination"].(string)
-		if existing == "" {
-			continue
-		}
-		if existing == dest || strings.HasPrefix(dest, existing+"/") || strings.HasPrefix(existing, dest+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func addBindMount(raw map[string]any, dest, src string) {
-	mounts, _ := raw["mounts"].([]any)
-	raw["mounts"] = append(mounts, map[string]any{
-		"destination": dest,
-		"type":        "bind",
-		"source":      src,
-		"options":     []any{"rbind", "rw"},
-	})
 }
 
 func mirrorDir(src, dst string) error {
