@@ -63,15 +63,18 @@ RUN echo "=== [HTTPS - allowed - uppercase host] ===" && \
     echo "Testing ALLOWED.example.com (HTTPS)..." && \
     (wget --no-check-certificate -q -O /dev/null --timeout=10 https://ALLOWED.example.com/ && echo "✓ ALLOWED.example.com: OK") || (echo "✗ ALLOWED.example.com: FAILED" && exit 1)
 
-# [HTTPS - allowed - trailing dot (a trailing dot is the same DNS name)]
-RUN echo "=== [HTTPS - allowed - trailing dot] ===" && \
-    echo "Testing allowed.example.com. (HTTPS)..." && \
-    (wget --no-check-certificate -q -O /dev/null --timeout=10 https://allowed.example.com./ && echo "✓ allowed.example.com.: OK") || (echo "✗ allowed.example.com.: FAILED" && exit 1)
-
 # [HTTP - allowed - uppercase host]
 RUN echo "=== [HTTP - allowed - uppercase host] ===" && \
     echo "Testing ALLOWED.example.com (HTTP)..." && \
     (wget -q -O /dev/null --timeout=10 http://ALLOWED.example.com/ && echo "✓ ALLOWED.example.com HTTP: OK") || (echo "✗ ALLOWED.example.com HTTP: FAILED" && exit 1)
+
+# [HTTP - allowed - trailing dot (a trailing dot is the same DNS name)]
+# Over HTTPS this would prove nothing: wget hands the handshake to ssl_client,
+# which drops the trailing dot before the SNI reaches the wire. A Host header
+# carries it through.
+RUN echo "=== [HTTP - allowed - trailing dot] ===" && \
+    echo "Testing allowed.example.com. (HTTP)..." && \
+    (wget -q -O /dev/null --timeout=10 http://allowed.example.com./ && echo "✓ allowed.example.com. HTTP: OK") || (echo "✗ allowed.example.com. HTTP: FAILED" && exit 1)
 
 # [Port 8443 - allowed]
 RUN echo "=== [Port 8443 - allowed] ===" && \
