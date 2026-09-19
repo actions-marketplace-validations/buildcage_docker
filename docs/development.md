@@ -116,6 +116,21 @@ keeps that decision in the source rather than buried in a percentage. Only two t
 whose body lives outside the process, and the default implementation behind a seam whose callers
 are already tested.
 
+`make test_unit_go_coverage` does the same for `buildcage-runc`, in two steps: `go test
+-coverprofile`, then `test/covfilter` over the result. The second step exists because Go has no way
+to say a statement does not need a test -- `cmd/cover` takes no exclusion flag and the toolchain
+carries no directive for it (the proposal for one, golang/go#53271, was closed without it).
+covfilter reads `//coverage:ignore start` / `stop` markers out of the source, drops the blocks they
+cover, and holds what is left to `RUNC_COVERAGE_THRESHOLD` in the Makefile. It also holds a marker
+to its word: one covering a statement the tests do reach, or covering none at all, fails the run
+the same way a gap does, so the list of what is deliberately untested cannot quietly stop being
+true.
+
+That threshold is a ratchet -- raised as gaps close, never lowered -- so it is below 100 while the
+remaining ones are worked through. Note also that Go measures statements and not branches, so even
+at 100 it is a weaker claim than the Node side's: a short-circuited `&&` counts as reached once
+either half runs.
+
 The QuickJS run (`make test_unit_qjs`) is not measured separately. It executes the same `.test.ts`
 files as the Node run, so `src/core/lib/acl/`'s line coverage is already accounted for above.
 
@@ -291,6 +306,7 @@ above, only shows what has accumulated since the most recent one.
 | `make clean_buildkit`                            | Stop and remove the builder's containers/images and the buildx builder |
 | `make test_unit`                                 | Every unit test, the QuickJS ones included (needs Docker)              |
 | `make test_unit_coverage`                        | Every Node unit test in one run, with a coverage report                |
+| `make test_unit_go_coverage`                     | buildcage-runc's tests, with its filtered coverage checked             |
 | `make test_integration_buildkit`                 | Every `test_integration_buildkit_*` target in turn                     |
 | `make test_integration_buildkit_{engine}_{mode}` | One engine and mode (start, build, verify, clean up)                   |
 | `make seccomp_profile`                           | Re-vendor the builder's seccomp profile from moby/profiles             |

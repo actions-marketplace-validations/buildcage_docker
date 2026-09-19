@@ -58,6 +58,7 @@ export default defineConfig({
     "*.{ts,tsx,js,jsx,json,jsonc,yaml,yml,md}": "vp check --fix",
     "docker/explicit/buildkit-proxy/**/*.go": "gofmt -w",
     "docker/inspect/buildcage-runc/**/*.go": "gofmt -w",
+    "test/covfilter/**/*.go": "gofmt -w",
   },
   test: {
     include: ["src/**/*.test.ts", "report/src/**/*.test.ts"],
