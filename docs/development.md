@@ -90,7 +90,14 @@ make test_integration_buildkit_inspect_debian_audit
 make test_integration_buildkit_inspect_debian_restrict
 # Learns rules from an inspect audit run, then enforces them unedited
 make test_integration_buildkit_inspect_roundtrip
+# Builds for the host's architecture and for the other one
+make test_integration_buildkit_multiarch
 ```
+
+CI runs these same targets, one job per target (`.github/workflows/test-integration.yml`), so
+`make test_integration_buildkit` and a pull request's integration run cover the same set. The one
+difference is the architecture they build for: `TEST_PLATFORM` is `linux/arm64` for the development
+machines, and CI overrides it with the runner's own.
 
 ### Unit test coverage
 
@@ -282,8 +289,8 @@ above, only shows what has accumulated since the most recent one.
 | `make seccomp_profile`                           | Re-vendor the builder's seccomp profile from moby/profiles             |
 
 The integration set also holds `inspect_debian_{audit,restrict}` (an apt build that starts with no
-CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them unedited), and
-`universal_restrict_no_traffic`.
+CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them unedited),
+`inspect_byte_exact`, `universal_restrict_no_traffic` and `multiarch`.
 
 ## Directory Structure
 

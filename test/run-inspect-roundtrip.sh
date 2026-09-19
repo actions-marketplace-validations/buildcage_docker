@@ -20,9 +20,11 @@ cd "$(dirname "$0")/.."
 export COMPOSE_PROJECT_NAME
 export BUILDCAGE_BUILD_TEST_HOOKS=1
 
-# Both carry WORKTREE_SUFFIX when the Makefile drives this; CI leaves them unset.
+# The Makefile exports all three (the first two carry WORKTREE_SUFFIX); these
+# defaults are for running the script by hand.
 BUILDER_NAME="${BUILDER_NAME:-buildcage}"
 TEST_IMAGE="${TEST_IMAGE:-buildcage-test}"
+TEST_PLATFORM="${TEST_PLATFORM:-linux/arm64}"
 export BUILDER_NAME
 
 BASE_COMPOSE="compose.yaml:compose.test-inspect.yaml"
@@ -39,7 +41,7 @@ start() {
 }
 
 build() {
-  docker buildx build --no-cache --builder "$BUILDER_NAME" --platform linux/arm64 \
+  docker buildx build --no-cache --builder "$BUILDER_NAME" --platform "$TEST_PLATFORM" \
     --progress=plain -f "$1" test/ --load -t "$TEST_IMAGE"
 }
 
