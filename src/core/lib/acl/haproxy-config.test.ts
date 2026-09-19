@@ -363,7 +363,7 @@ describe("what a log line records", () => {
 
   it("strips whitespace, quotes and control chars from the Host header and the path before logging them", () => {
     // Both are attacker-controlled; ACL matching still runs on the untouched
-    // req.hdr(host)/path fetches, only the logged copies are sanitized. Unlike
+    // req.hdr(host)/path fetches; only the logged copies are sanitized. Unlike
     // the SNI below, the Host header legitimately carries its own ":port", so
     // it can't be reduced to a hostname charset: only the actually unsafe
     // characters are stripped.
@@ -387,7 +387,7 @@ describe("what a log line records", () => {
     expect(stripped).toBe("allowed.example.com:9443");
   });
 
-  it("records the path after normalising it, not as it was sent", () => {
+  it("records the path after normalizing it, not as it was sent", () => {
     const normalise = FULL_CONFIG.indexOf("normalize-uri path-strip-dotdot");
     const capture = FULL_CONFIG.indexOf("set-var(txn.pathq)");
     expect(normalise !== -1 && normalise < capture).toBe(true);
@@ -469,7 +469,7 @@ describe("line length", () => {
     expect(longestLineWords(config) <= MAX_LINE_WORDS).toBe(true);
   });
 
-  it("flags a passthrough one line per rule, which no rule count can outgrow", () => {
+  it("flags a passthrough with one line per rule, which no rule count can outgrow", () => {
     const config = gen({
       tlsRules: Array.from({ length: 30 }, (_, i) => `h${i}.example.com:443`),
       ipRules: Array.from({ length: 30 }, (_, i) => `10.0.0.${i}:5432`),

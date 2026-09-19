@@ -26,7 +26,6 @@ export function buildRestrictExample(
 ): string {
   if (!auditedRows || auditedRows.length === 0) return "";
 
-  // Group by ruleType, preserving order of first appearance
   const groups = new Map<string, string[]>();
   for (const r of auditedRows) {
     const param = ruleTypeToParam[r.ruleType];
@@ -37,7 +36,6 @@ export function buildRestrictExample(
 
   if (groups.size === 0) return "";
 
-  // Build YAML lines
   let yaml = "";
   yaml += "- name: Start Buildcage\n";
   yaml += usesLine(actionRepo, actionRef, actionVersion);

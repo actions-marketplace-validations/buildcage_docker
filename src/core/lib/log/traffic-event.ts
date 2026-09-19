@@ -42,7 +42,8 @@ export interface TrafficEvent {
 }
 
 /** The hosts a run connected to, for isRedundantDns. CoreDNS lowercases what it
- *  logs, HAProxy repeats the authority verbatim, so both sides are folded. */
+ *  logs while HAProxy repeats the authority verbatim, so both sides are
+ *  folded. */
 export interface ConnectedHosts {
   any: Set<string>;
   blocked: Set<string>;

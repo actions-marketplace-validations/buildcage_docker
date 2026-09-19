@@ -9,8 +9,7 @@ import { buildUrlRules } from "./url-rules.ts";
 
 const BASE = { proxyAddress: "172.20.0.1" };
 
-/** Rules and Corefile options in one bag, as the generator took them before
- *  the rules moved behind compileRuleSet. */
+/** Rules and Corefile options in one bag, split apart by `generate` below. */
 type CaseOptions = RuleInputs & Partial<CorednsConfigOptions>;
 
 function generate({ httpsRules, httpRules, tlsRules, urlRules, ...options }: CaseOptions = {}) {
@@ -410,7 +409,8 @@ describe("service-discovery names", () => {
 
   it("exempts only the types defined at a service name, denying the rest", () => {
     // An underscore name is a convention for the owner name, not a promise
-    // about the question. A really is answered here, with the proxy's address,
+    // about the question. An A query really is answered here, with the proxy's
+    // address,
     // and a type nobody has taught this block about is not one to exempt on a
     // guess, so both are judged by the blocks below instead.
     const block = discoveryBlock(gen(RULES));

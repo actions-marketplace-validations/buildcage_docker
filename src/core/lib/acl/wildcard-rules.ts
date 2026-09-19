@@ -1,5 +1,5 @@
 /**
- * Rule conversion library for buildcage container.
+ * Rule conversion library for the buildcage container.
  * Converts wildcard patterns to regex strings for HAProxy ACLs.
  */
 
@@ -25,9 +25,9 @@ export function buildRules(rulesInput: string): string[] {
 }
 
 /**
- * Split+validate a space-separated rules string, returning the raw
+ * Split+validate a whitespace-separated rules string, returning the raw
  * (unconverted) rule tokens, for callers that need the original wildcard or
- * `~`regex syntax preserved, such as known_blocked_rules.
+ * `~` regex syntax preserved, such as known_blocked_rules.
  *
  * @throws {Error} if any rule has invalid wildcard/regex syntax
  */

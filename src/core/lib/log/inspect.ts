@@ -16,7 +16,7 @@
  * The service-denied line is a refusal like any other, kept apart so the report
  * can name the remedy: the host below the name, never the name itself. Which
  * names are service names is decided in the Corefile alone, so nothing here
- * recognises the shape.
+ * recognizes the shape.
  *
  * `buildcage dns reverse name=<name>.` is deliberately not on that list: no
  * rule can name a reverse zone, so an event for it would be a report row no
@@ -202,7 +202,7 @@ export interface InspectLogScan {
  * Read the proxy log once, collecting both the events and the startup marker.
  *
  * The report needs both, and the log arrives as a stream that can only be
- * consumed once, so they cannot be two separate passes. `for await` also
+ * consumed once, so it cannot be two separate passes. `for await` also
  * accepts a plain array, so callers with the lines already in memory pass one.
  */
 export async function scanInspectLog(

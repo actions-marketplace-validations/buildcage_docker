@@ -104,9 +104,9 @@ export async function runReportAction(
 
   // The report action uploads this file as an artifact if asked; the upload
   // client is large and needs the runner's credentials, so it stays out of the
-  // image and the file is just written here. Known before the summary is
-  // written, so a truncated Communication details section can say whether the
-  // full list is available as an artifact.
+  // image and the file is written here instead. Its name is known before the
+  // summary is written, so a truncated Communication details section can say
+  // whether the full list is available as an artifact.
   const trafficFile = spec.writesTrafficFile ? env.BUILDCAGE_TRAFFIC_FILE : undefined;
   await writeStepSummary(
     truncateForStepSummary(markdown, trafficFile !== undefined),

@@ -32,12 +32,10 @@ export function escapeForHaproxy(value: string): string {
 }
 
 /**
- * A compiled pattern as the cheapest HAProxy match that accepts exactly it.
- *
  * Most rules name a literal host and a literal path or path prefix, which
  * compile to an anchored regex that only ever matches one string or one
  * prefix. `-m str` and `-m beg` decide those without entering the regex
- * engine, and the rules are evaluated once per rule per request.
+ * engine, and matching runs once per rule per request.
  *
  * Everything else, `~` rules and wildcards included, stays `-m reg`. A pattern
  * is only narrowed when every character between the anchors is literal, so a

@@ -41,7 +41,7 @@ import {
   wildcardToRegexPartial,
 } from "./partial-wildcard.ts";
 
-/** The scheme's own port, tried without being spelled out at all in a `~` URL rule's host half. */
+/** The scheme's default port, used wherever a rule names none. */
 export const DEFAULT_PORT: Record<"https" | "http", string> = { https: "443", http: "80" };
 
 export interface UrlRule {

@@ -81,8 +81,8 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
     );
 
     if (tlsHosts.length > 0 && hasResolver) {
-      // Resolve the SNI ourselves and connect there, as for an inspected
-      // request: an SNI is not a destination, so a ClientHello with an allowed
+      // The SNI is resolved here and connected to, as on the inspected path:
+      // an SNI is not a destination, so a ClientHello with an allowed
       // name must not become a tunnel to an address of the build's choosing.
       // The flag variable is needed because HAProxy conditions have no
       // grouping: `a or b !c` reads as `a or (b and !c)`.

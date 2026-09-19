@@ -49,7 +49,7 @@ describe("isRedundantDns", () => {
   });
 
   it("matches a host the request spelled with different case", () => {
-    // CoreDNS lowercases what it logs, HAProxy repeats the authority verbatim.
+    // CoreDNS lowercases what it logs while HAProxy repeats the authority verbatim.
     const dns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
     const request = event({ protocol: "https", action: "allow", host: "A.Example.COM" });
     expect(redundant(dns, [dns, request])).toBe(true);

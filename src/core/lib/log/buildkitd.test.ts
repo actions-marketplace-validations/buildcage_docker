@@ -139,7 +139,7 @@ describe("scanBuildkitdLog: hasNonDenialContent", () => {
   });
 });
 
-// aggregate()/createIncrementalAggregator() itself is tested in core/lib/log/aggregate.test.ts.
+// createIncrementalAggregator() itself is tested in core/lib/log/aggregate.test.ts.
 // parseIdentifier() itself is tested in core/lib/log/parse-identifier.test.ts.
 
 describe("lines missing one of the two fields", () => {

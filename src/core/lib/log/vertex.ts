@@ -4,8 +4,8 @@ import { type AllowedRequest, parseAllowedRequestsFromText } from "./proxy-reque
 // is either just the step counter ("[2/2] RUN ...", single-stage) or a
 // build-stage identifier followed by it, named ("[stage1 2/2] RUN ...") or
 // auto-numbered anonymous stages ("[stage-0 2/2] RUN ...") alike. The step
-// counter itself is right-padded with a leading space when its digit count is
-// shorter than the build's total ("[ 2/15]" vs "[10/15]"). None of this needs
+// counter itself is padded with a leading space when it has fewer digits than
+// the build's total ("[ 2/15]" vs "[10/15]"). None of this needs
 // picking apart here: the N/M counter itself is never used (see stageKeyOf()
 // below, which extracts only the stage identifier, for ordering), so any
 // bracketed content followed by "RUN " is a match.
@@ -58,8 +58,8 @@ export interface VertexAllowedEntry {
 export function parseVertexAllowedLog(rawJsonText: string): VertexAllowedEntry[] {
   // Usually a single JSON object, but buildctl can flush a large build's
   // rawjson history as several newline-separated JSON documents instead.
-  // Mirroring build-histories.ts's selectAllRefs's line-by-line
-  // parsing, concatenate them into one vertexes/logs view rather than
+  // Concatenate them the way selectAllRefs in build-histories.ts does, into
+  // one vertexes/logs view rather than
   // assume a single blob (a lone JSON.parse on the whole text would throw
   // on the second document). Not deduplicated by digest: the existing
   // `!v.started || !v.completed` skip below already drops each vertex's
