@@ -44,8 +44,8 @@ export function readTrafficArtifactInputs(
 
 /**
  * An unset input is a no: the dev and test invocations run this from source
- * rather than through action.yml's own defaults. Anything else unreadable is
- * a typo, and saying so beats an artifact that never appears.
+ * rather than through action.yml's own defaults. Any other value that cannot
+ * be read is a typo, and saying so beats an artifact that never appears.
  */
 function readBoolean(name: string, getInput: GetInput, warn: Warn): boolean {
   const value = getInput(name);

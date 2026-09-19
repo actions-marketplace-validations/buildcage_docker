@@ -80,22 +80,17 @@ ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=90000
 # the default 3000 costs every teardown 3s. The services stop in under 1s.
 ENV S6_KILL_GRACETIME=500
 
-# envsubst
 COPY --from=deps /usr/bin/envsubst /usr/bin/envsubst
 COPY --from=deps /usr/lib/libintl.so* /usr/lib/
 
-# CNI
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 
-# BuildKit
 RUN mkdir -p /etc/buildkit
 COPY docker/universal/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 COPY docker/universal/files/cni.conflist   /etc/buildkit/cni.conflist
 
-# DNS
 COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 
-# HAProxy
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
@@ -108,10 +103,8 @@ COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/
 # comment for details.
 COPY --from=scripts-build /build/dist/report-action/docker/universal/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
-# License
 COPY docker/universal/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
 
-# s6 service definitions and init scripts
 COPY docker/universal/files/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 COPY docker/universal/files/s6-scripts/ /etc/s6-overlay/scripts/
 

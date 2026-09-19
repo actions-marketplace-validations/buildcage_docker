@@ -7,9 +7,10 @@ services:
     # Devices are refused by the device cgroup, which only a step that has
     # escaped runc could lift; privileged allows them outright.
     #
-    # BuildKit OCI worker requires SYS_ADMIN for mount, namespaces, and cgroups.
-    # iptables and CNI networking require NET_ADMIN.
-    # runc needs SYS_PTRACE to access /proc/PID/ns/mnt for mount namespace setup.
+    # BuildKit's OCI worker needs SYS_ADMIN for mounts, namespaces and cgroups.
+    # iptables and CNI networking need NET_ADMIN.
+    # runc needs SYS_PTRACE to reach /proc/PID/ns/mnt when it sets up a step's
+    # mount namespace.
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN

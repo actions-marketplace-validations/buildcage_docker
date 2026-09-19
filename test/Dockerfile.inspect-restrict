@@ -1,7 +1,8 @@
 # curl rather than busybox wget: this engine's assertions are about methods and
 # response bodies, and busybox wget can send neither a POST nor report a status.
-# The image ships curl already, because installing it would need a package
-# mirror in the allowlist and make every case depend on a public CDN.
+# This image was picked because it ships curl already: installing curl would
+# need a package mirror in the allowlist and make every case depend on a
+# public CDN.
 #
 # FROM is deliberately not governed by this engine (see docs/inspect-engine.md),
 # so this pull succeeds whatever the rules say.
@@ -56,8 +57,8 @@ RUN echo "=== [URL rule - method allowed] ===" && \
     echo "$OUT" && \
     case "$OUT" in API\ POST*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Traversal - normalised before the rules see it]
-# Without normalisation the proxy matches /public/ and the origin serves
+# [Traversal - normalized before the rules see it]
+# Without normalization the proxy matches /public/ and the origin serves
 # /private/, so a 200 carrying PRIVATE is the failure to catch here.
 RUN echo "=== [Traversal] ===" && \
     CODE=$($C https://allowed.example.com/public/../private/secret) && \

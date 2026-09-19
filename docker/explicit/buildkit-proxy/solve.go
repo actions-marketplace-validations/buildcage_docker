@@ -74,7 +74,7 @@ func solveHandler(srv any, ctx context.Context, dec func(any) error, _ grpc.Unar
 	return srv.(*solveServer).Solve(ctx, req)
 }
 
-// controlServiceDesc registers ONLY the Solve method of moby.buildkit.v1.Control.
+// controlServiceDesc registers only the Solve method of moby.buildkit.v1.Control.
 // Every other method on this service (and every other service, e.g. Session,
 // Status, DiskUsage, Prune, ListWorkers, Info, ListenBuildHistory,
 // UpdateBuildHistory, the grpc health-check service) is unregistered and
