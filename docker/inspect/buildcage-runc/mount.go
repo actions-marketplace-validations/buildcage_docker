@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"syscall"
 	"time"
@@ -162,20 +163,18 @@ func hashFile(path string) ([32]byte, error) {
 	return sum, nil
 }
 
-// manifestsEqual ignores mtime: the marker append/strip round trip can leave
-// a file's mtime different even when every byte is back where it started.
+// sameExceptMtime is what "unchanged" means to both callers below: everything
+// a step could have altered, apart from the mtime. The marker append/strip
+// round trip, and mirroring itself, move mtime on their own, so comparing it
+// would report a change where none was made.
+func (e fileEntry) sameExceptMtime(other fileEntry) bool {
+	return e.path == other.path && e.mode == other.mode &&
+		e.uid == other.uid && e.gid == other.gid &&
+		e.symlinkTo == other.symlinkTo && e.sha256 == other.sha256
+}
+
 func manifestsEqual(a, b []fileEntry) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		x, y := a[i], b[i]
-		if x.path != y.path || x.mode != y.mode || x.uid != y.uid || x.gid != y.gid ||
-			x.symlinkTo != y.symlinkTo || x.sha256 != y.sha256 {
-			return false
-		}
-	}
-	return true
+	return slices.EqualFunc(a, b, fileEntry.sameExceptMtime)
 }
 
 func sizeAndCount(root string) (bytes int64, files int, err error) {
@@ -211,7 +210,7 @@ func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) er
 			continue // no portable Lutimes in the standard library; harmless to skip
 		}
 		o, ok := byPath[c.path]
-		if !ok || o.mode != c.mode || o.uid != c.uid || o.gid != c.gid || o.sha256 != c.sha256 {
+		if !ok || !o.sameExceptMtime(c) {
 			continue
 		}
 		if err := os.Chtimes(filepath.Join(scratchDir, c.path), o.mtime, o.mtime); err != nil {
