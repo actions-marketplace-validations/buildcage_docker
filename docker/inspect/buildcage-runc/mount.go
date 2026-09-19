@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -85,13 +85,13 @@ func writeBack(scratchDir, hostDir string) error {
 	args := []string{"-aHAX", "--checksum", "--delete", "--numeric-ids", "--no-specials", "--no-devices", "--itemize-changes"}
 	src, dst := scratchDir+"/", hostDir+"/"
 
-	planned, err := runRsync(append(append([]string{}, args...), "-n", "--", src, dst))
+	planned, err := runRsync(slices.Concat(args, []string{"-n", "--", src, dst}))
 	if err != nil {
 		return fmt.Errorf("rsync dry run for %s: %w: %s", hostDir, err, planned)
 	}
 	logf("CA store write-back for %s:\n%s", hostDir, planned)
 
-	if out, err := runRsync(append(append([]string{}, args...), "--", src, dst)); err != nil {
+	if out, err := runRsync(slices.Concat(args, []string{"--", src, dst})); err != nil {
 		return fmt.Errorf("rsync write-back to %s: %w: %s", hostDir, err, out)
 	}
 	return nil
@@ -144,7 +144,7 @@ func captureManifest(root string) ([]fileEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	slices.SortFunc(entries, func(a, b fileEntry) int { return strings.Compare(a.path, b.path) })
 	return entries, nil
 }
 
