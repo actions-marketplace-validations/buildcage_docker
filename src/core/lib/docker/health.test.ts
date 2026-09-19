@@ -49,6 +49,24 @@ describe("parseContainerState", () => {
     expect(parseContainerState("[]")).toBe(null);
     expect(parseContainerState("{}")).toBe(null);
   });
+
+  it("reads a state with no exit code, health or log as nulls", () => {
+    expect(parseContainerState(JSON.stringify({ Status: "running" }))).toStrictEqual({
+      status: "running",
+      exitCode: null,
+      health: null,
+      lastHealthOutput: null,
+    });
+  });
+
+  it("reads whitespace-only health output as no output at all", () => {
+    const output = JSON.stringify({
+      Status: "running",
+      ExitCode: 0,
+      Health: { Status: "starting", Log: [{ Output: "   \n" }] },
+    });
+    expect(parseContainerState(output)?.lastHealthOutput).toBe(null);
+  });
 });
 
 describe("isContainerReady", () => {
@@ -100,17 +118,6 @@ describe("describeContainerStartFailure", () => {
     );
     expect(message).toMatch(/is running, but `docker compose up` failed/);
   });
-});
-
-describe("fields docker inspect can leave out", () => {
-  it("reads a state with no exit code, health or log as nulls", () => {
-    expect(parseContainerState(JSON.stringify({ Status: "running" }))).toStrictEqual({
-      status: "running",
-      exitCode: null,
-      health: null,
-      lastHealthOutput: null,
-    });
-  });
 
   it("reports a stopped container with no exit code without naming one", () => {
     const message = describeContainerStartFailure(
@@ -118,16 +125,5 @@ describe("fields docker inspect can leave out", () => {
       { role: "proxy", containerName: "buildcage" },
     );
     expect(message).toMatch(/stopped instead of starting up/);
-  });
-});
-
-describe("a health log entry with nothing in it", () => {
-  it("reads whitespace-only output as no output at all", () => {
-    const output = JSON.stringify({
-      Status: "running",
-      ExitCode: 0,
-      Health: { Status: "starting", Log: [{ Output: "   \n" }] },
-    });
-    expect(parseContainerState(output)?.lastHealthOutput).toBe(null);
   });
 });
