@@ -60,4 +60,30 @@ echo "[log integrity] no forged/malformed lines from the injection attempt:"
 assert_no_forged_log_lines
 echo ""
 
+# report-action.js renders the full stepSummary itself; report/src/main.ts just
+# relays it. GITHUB_STEP_SUMMARY is unset so it prints to stdout instead.
+REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
+
+echo "[report] Allowed Hosts:"
+if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| allowed.example.com:80 | HTTP |" <<< "$REPORT_MARKDOWN"; then
+  pass "the table lists the hosts that were reached, each on its own port"
+else
+  fail "the Allowed Hosts table is missing expected rows"
+fi
+echo ""
+
+echo "[report] Blocked Hosts, one row per reason the proxy refused for:"
+if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| 10.200.0.100:80 | IP | ip-not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| nxdomain.wildcard.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| internal.wildcard.example.com:443 | HTTPS | internal-address |" <<< "$REPORT_MARKDOWN"; then
+  pass "a name no rule covers, an address, an unresolvable name and an internal one each keep their reason"
+else
+  fail "the Blocked Hosts table is missing expected rows"
+fi
+echo ""
+
 assert_results
