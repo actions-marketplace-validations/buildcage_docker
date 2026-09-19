@@ -18,7 +18,7 @@ function matches(urlPattern: string, url: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// convertUrlRule — scheme, host, port
+// convertUrlRule: scheme, host, port
 // ---------------------------------------------------------------------------
 describe("convertUrlRule host and port", () => {
   it("no path matches any path on the host", () => {
@@ -63,7 +63,7 @@ describe("convertUrlRule host and port", () => {
 });
 
 // ---------------------------------------------------------------------------
-// convertUrlRule — paths
+// convertUrlRule: paths
 // ---------------------------------------------------------------------------
 describe("convertUrlRule paths", () => {
   it("* does not cross a path separator", () => {

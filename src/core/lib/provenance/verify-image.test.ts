@@ -1,14 +1,10 @@
 /**
- * Unit tests for core/lib/provenance/verify-image.ts
- *
  * Covers the orchestration-level pure functions only (toProvenanceError,
- * requireDigest) — imageTagFromRef and buildVerifyOptions have their own
- * test files (image-tag.test.ts, verify-policy.test.ts). I/O functions
- * (verifyImageDigest, verifyImageDigestOrThrow, and the registry/sigstore
- * calls they make) require a live network/TUF call and are covered by
- * end-to-end / integration tests instead.
- *
- * Run with: vp test run core/lib/provenance/verify-image.test.ts
+ * requireDigest); imageTagFromRef and buildVerifyOptions have their own test
+ * files (image-tag.test.ts, verify-policy.test.ts). The I/O functions
+ * (verifyImageDigest, verifyImageDigestOrThrow, and the registry and sigstore
+ * calls they make) need a live network or TUF call and are covered by the
+ * end-to-end tests instead.
  */
 import { describe, it, expect } from "vitest";
 

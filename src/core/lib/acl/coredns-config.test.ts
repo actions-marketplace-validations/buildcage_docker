@@ -237,7 +237,7 @@ describe("denied names", () => {
 // ---------------------------------------------------------------------------
 // Allowed names: answered exactly like a denied one. Real resolution is
 // HAProxy's job, strictly after a request has already passed its own rule
-// ACLs (host, path and method) -- see haproxy-config.ts. Nothing about a name
+// ACLs (host, path and method); see haproxy-config.ts. Nothing about a name
 // being on the allowlist may change what CoreDNS answers with, or a name a
 // build only resolves, never connecting to, would leak through the query
 // alone.
@@ -279,7 +279,7 @@ describe("audit mode", () => {
 
   it("answers every name locally instead of forwarding it", () => {
     // Forwarding would make this resolver a live exfiltration channel for any
-    // name a build only looks up, never connecting to -- audit mode's own
+    // name a build only looks up, never connecting to. Audit mode's own
     // allow-everything policy is HAProxy's job (do-resolve after the ACLs),
     // not this resolver's.
     expect(config.includes("template IN A")).toBe(true);
@@ -299,7 +299,7 @@ describe("audit mode", () => {
 
 // ---------------------------------------------------------------------------
 // Reverse lookups. No rule can name a reverse zone, so the only question these
-// answer is how the lookup ends -- and SERVFAIL, what an unhandled query gets,
+// answer is how the lookup ends, and SERVFAIL, what an unhandled query gets,
 // costs musl its whole five-second resolver timeout every time.
 // ---------------------------------------------------------------------------
 describe("reverse lookups", () => {
@@ -353,7 +353,7 @@ describe("reverse lookups", () => {
 // ---------------------------------------------------------------------------
 // Service discovery. No rule can permit one of these: this resolver returns no
 // discovery record to anybody, so a denied row for one could never be taken
-// away by writing a rule -- and would fail a build under fail_on_blocked over
+// away by writing a rule, and would fail a build under fail_on_blocked over
 // a lookup the caller falls back from on its own.
 // ---------------------------------------------------------------------------
 describe("service-discovery names", () => {
@@ -446,7 +446,7 @@ describe("service-discovery names", () => {
 // Every other service name. Refused like any other name, but recorded apart:
 // the remedy for one is the host below it, never the name, which no rule can
 // make resolve. Logging it apart is also what keeps the shape of a service
-// name defined in this file alone -- the report reads verbs, not names.
+// name defined in this file alone: the report reads verbs, not names.
 // ---------------------------------------------------------------------------
 describe("refused service names", () => {
   it("records them under a verb of their own, carrying the type", () => {

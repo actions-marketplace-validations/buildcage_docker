@@ -6,8 +6,8 @@ import { wrapCommunicationDetails } from "./communication-section.ts";
  * Render the communication detail as a collapsed markdown section, or "" if
  * empty. One timeline, allowed and refused interleaved. A name lookup is kept
  * only while it is its own sole trace, and dropped once a connection to the
- * same name shows up too. A discovery lookup is always its own sole trace --
- * nothing connects to `_service._proto.<host>` -- so it always shows.
+ * same name shows up too. A discovery lookup is always its own sole trace,
+ * since nothing connects to `_service._proto.<host>`, so it always shows.
  *
  * A URL keeps its query, except for the parameters named in
  * CREDENTIAL_PARAMS, whose values are replaced.
@@ -122,7 +122,7 @@ function outcome(event: TrafficEvent): string {
 }
 
 /**
- * Elapsed since the proxy started, to the millisecond -- several requests
+ * Elapsed since the proxy started, to the millisecond: several requests
  * routinely land in the same second, and only this engine's log carries the
  * resolution to tell them apart. Falls back to absolute UTC only when there
  * is no start time to be relative to.

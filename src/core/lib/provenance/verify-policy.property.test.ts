@@ -55,7 +55,7 @@ describe("buildVerifyOptions – properties", () => {
     );
   });
 
-  // Non-SHA, non-v refs (branch names, etc.) are always unverifiable — must return null.
+  // Non-SHA, non-v refs (branch names, etc.) are always unverifiable: must return null.
   // Leading 'g' is not a hex char and not 'v', so this always hits the passthrough branch.
   it("non-SHA non-v-prefixed ref always returns null", () => {
     fc.assert(

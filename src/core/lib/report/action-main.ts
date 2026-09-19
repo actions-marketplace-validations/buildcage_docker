@@ -3,14 +3,13 @@
  *
  * Each engine has one of these scripts baked into its image, copied out of it
  * (not out of the running container) by the `report` action and run on the
- * runner as `node report-action.js <container-id>` — so `report` itself never
+ * runner as `node report-action.js <container-id>`, so `report` itself never
  * needs to know an engine's log paths or env var names. The five steps that
  * takes are the same for all three; what differs is which logs are read and
  * what extra data is fetched, which is what `ReportActionSpec` carries.
  *
- * Lives under src/ rather than beside those scripts because vite.config.ts's
- * test include is `src/**` — the copies this replaces sat outside it and so
- * had no tests at all.
+ * Lives under src/ rather than beside those scripts so that vite.config.ts's
+ * `src/**` test include covers it.
  */
 import * as core from "@actions/core";
 
@@ -60,7 +59,7 @@ export interface ReportActionDeps {
   env?: NodeJS.ProcessEnv;
   /** Several test/dev invocations run the script directly without setting
    *  fail_on_blocked, unlike the real `report` action where action.yml's own
-   *  default always supplies it — fall back to that same default. */
+   *  default always supplies it, so fall back to that same default. */
   failOnBlocked?: boolean;
 }
 
@@ -76,7 +75,7 @@ export async function runReportAction(
   spec: ReportActionSpec,
   deps: ReportActionDeps = {},
 ): Promise<void> {
-  // Untested by design: the three defaults are the real script's own wiring —
+  // Untested by design: the three defaults are the real script's own wiring:
   // its argv, the runner's environment, and a Docker client that needs a
   // daemon. Every test supplies all three, so no test can be inside them.
   /* v8 ignore start */

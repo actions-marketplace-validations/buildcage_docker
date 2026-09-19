@@ -8,7 +8,7 @@ export interface Annotation {
 
 /**
  * Build a GitHub Actions annotation emitter. When `enabled` is false, every
- * method is a no-op — used to suppress annotations when this script isn't
+ * method is a no-op, to suppress annotations when this script isn't
  * running as the real action.
  *
  * This is what a step hands down for everything that belongs to the run it is
@@ -37,8 +37,8 @@ export function createAnnotation(enabled: boolean): Annotation {
  * is a real action run: a deprecated input's migration notice, a fatal error on
  * the way out.
  *
- * Only the module that assembles an action's steps — its entry point, or
- * wherever that body was extracted to — and `fatal.ts` may name it. The modules
+ * Only the module that assembles an action's steps (its entry point, or
+ * wherever that body was extracted to) and `fatal.ts` may name it. The modules
  * they call don't choose where a message goes: they take the sink as an
  * argument, an `Annotation` for what the caller can suppress and one of
  * `annotate`'s methods for what it can't. `vite.config.ts` lists the files the

@@ -42,7 +42,7 @@ describe("buildInspectReportData", () => {
     const r = await buildInspectReportData([START, REFUSED], dns, reportParams());
     expect(r.blocked.length).toBe(1);
     expect(r.blocked[0].ruleType).toBe("HTTPS");
-    // The raw timeline is untouched -- only the host tables collapse it.
+    // The raw timeline is untouched: only the host tables collapse it.
     expect(r.timeline.some((e) => e.protocol === "dns")).toBe(true);
   });
 

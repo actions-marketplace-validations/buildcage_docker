@@ -6,7 +6,7 @@ import { ActionError } from "#core/lib/errors.ts";
 class TestError extends ActionError<"SOME_CODE"> {}
 
 /** process.exit never returns, so the handler is driven through a stub that
- *  throws instead — otherwise the test run itself would end here. */
+ *  throws instead, or the test run itself would end here. */
 function runHandler(context: string, err: unknown): { lines: string[]; exitCode: number } {
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const exit = vi.spyOn(process, "exit").mockImplementation((code) => {

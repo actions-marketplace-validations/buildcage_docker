@@ -9,7 +9,7 @@ import { annotate } from "./annotation.ts";
  * as unexpected, with `context` naming which step it escaped from.
  *
  * Shared because every entry point needs the same two arms, and an entry point
- * is exactly where a divergence would go unnoticed -- nothing runs it but a
+ * is exactly where a divergence would go unnoticed: nothing runs it but a
  * real workflow.
  */
 export function exitOnFatalError(context: string): (err: unknown) => never {

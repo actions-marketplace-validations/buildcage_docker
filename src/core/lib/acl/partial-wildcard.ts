@@ -13,9 +13,9 @@
  * The wildcard vocabulary is otherwise unchanged, and keeps the same meaning
  * wherever it appears in a label:
  *
- *   `**` — one or more characters, dots included
- *   `*`  — one or more characters, dots excluded
- *   `?`  — a single character, dots excluded
+ *   `**`: one or more characters, dots included
+ *   `*` : one or more characters, dots excluded
+ *   `?` : a single character, dots excluded
  *
  * Kept separate from wildcard-rules.ts rather than added to it, so widening
  * this grammar cannot change what the `universal` and `explicit` engines
@@ -27,11 +27,11 @@ const REGEX_META = /[.+^$()[\]{}|\\]/g;
 
 /** How a wildcard is spelled for one kind of separator. */
 interface Vocabulary {
-  /** `**` — one or more characters, separator included. */
+  /** `**`: one or more characters, separator included. */
   across: string;
-  /** `*` — one or more characters, separator excluded. */
+  /** `*`: one or more characters, separator excluded. */
   within: string;
-  /** `?` — a single character, separator excluded. */
+  /** `?`: a single character, separator excluded. */
   single: string;
 }
 
@@ -206,8 +206,8 @@ export function anchorRawRegex(regex: string): string {
 const PORT_PATTERN_START = /\(:|:/;
 
 /**
- * Split a `<host>[:<port>]` regex fragment -- a `~` rule's own text, minus
- * any scheme/path around it -- into its domain-only prefix and the port
+ * Split a `<host>[:<port>]` regex fragment (a `~` rule's own text, minus any
+ * scheme or path around it) into its domain-only prefix and the port
  * pattern (including its own leading `:` or `(`). `portPattern` is `null`
  * when the fragment names no port at all.
  */

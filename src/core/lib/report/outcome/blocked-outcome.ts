@@ -50,13 +50,12 @@ export function determineBlockedOutcome({
  * Build the annotation message text for a blocked-connections check.
  *
  * In audit mode the text always stays the fixed-format base string,
- * regardless of known_blocked_rules matching — audit mode's pass/fail
+ * regardless of known_blocked_rules matching: audit mode's pass/fail
  * outcome is unaffected by matching (see determineBlockedOutcome), so
  * varying the notice text there would be misleading and would silently
  * break any tooling that matches the old fixed-format notice. An incomplete
  * log is appended to that string by describeBlockedOutcome, never
  * substituted for it, for the same reason.
- *
  */
 export interface BuildBlockedMessageOptions {
   blockedCount: number;
@@ -120,7 +119,7 @@ export function describeBlockedOutcome({
   }
   // Plural: inspect has a resolver log too, and either can be the truncated one.
   const incomplete = `buildcage ${engineLabel} logs are incomplete, so this report is not a full record of what ran`;
-  // No longer the whole count, hence "still recorded".
+  // Not the whole count when the log is incomplete, hence "still recorded".
   const counted = blockedCount
     ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
     : incomplete;

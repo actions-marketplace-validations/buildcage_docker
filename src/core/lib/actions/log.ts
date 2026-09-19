@@ -32,7 +32,7 @@ export function withLogGroup<T>(title: string, fn: () => T): T {
  *
  * Kept apart from the synchronous one rather than folded into it: awaiting a
  * synchronous `fn` still yields to the microtask queue, which would let the
- * closing marker land after output printed later in the same tick — leaving
+ * closing marker land after output printed later in the same tick, leaving
  * the group open around lines it was never meant to contain.
  */
 export async function withLogGroupAsync<T>(title: string, fn: () => T | Promise<T>): Promise<T> {

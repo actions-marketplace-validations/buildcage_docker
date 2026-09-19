@@ -2,7 +2,7 @@ import { type AllowedRequest, parseAllowedRequestsFromText } from "./proxy-reque
 
 // Matches vertex names for Dockerfile RUN instructions. The bracketed prefix
 // is either just the step counter ("[2/2] RUN ...", single-stage) or a
-// build-stage identifier followed by it — named ("[stage1 2/2] RUN ...") or
+// build-stage identifier followed by it, named ("[stage1 2/2] RUN ...") or
 // auto-numbered anonymous stages ("[stage-0 2/2] RUN ...") alike. The step
 // counter itself is right-padded with a leading space when its digit count is
 // shorter than the build's total ("[ 2/15]" vs "[10/15]"). None of this needs
@@ -12,7 +12,7 @@ import { type AllowedRequest, parseAllowedRequestsFromText } from "./proxy-reque
 const runVertexPattern = /^\[([^\]]+)\]\s+RUN\s/;
 
 // The bracketed prefix is either "N/M" alone or "stageID N/M" (whitespace-
-// separated — see runVertexPattern above); the step counter is always the
+// separated, see runVertexPattern above); the step counter is always the
 // last whitespace-separated token, so whatever (if anything) precedes it is
 // the stage identifier. Using `.split(/\s+/)` rather than a character-class
 // regex on the stage name means this doesn't need to know Docker's `AS
@@ -57,8 +57,8 @@ export interface VertexAllowedEntry {
 
 export function parseVertexAllowedLog(rawJsonText: string): VertexAllowedEntry[] {
   // Usually a single JSON object, but buildctl can flush a large build's
-  // rawjson history as several newline-separated JSON documents instead —
-  // mirroring build-histories.ts's selectAllRefs's line-by-line
+  // rawjson history as several newline-separated JSON documents instead.
+  // Mirroring build-histories.ts's selectAllRefs's line-by-line
   // parsing, concatenate them into one vertexes/logs view rather than
   // assume a single blob (a lone JSON.parse on the whole text would throw
   // on the second document). Not deduplicated by digest: the existing

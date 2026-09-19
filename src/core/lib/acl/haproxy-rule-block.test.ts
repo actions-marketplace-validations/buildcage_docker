@@ -36,8 +36,8 @@ describe("rule block", () => {
   });
 
   it("reads the Host header once, however many rules are matched against it", () => {
-    // Every rule used to re-run the fetch and its regsub. The cost of that is
-    // paid per rule per request, and rule sets have no size limit.
+    // A fetch and its regsub per rule would be paid per rule per request, and
+    // rule sets have no size limit.
     const config = block({
       urlRules: buildUrlRules(
         Array.from({ length: 8 }, (_, i) => `GET https://h${i}.com/x`).join("\n"),
@@ -126,8 +126,8 @@ describe("rule block", () => {
 
   it("takes the port from the connection, not from the Host header", () => {
     // A Host header omits the port only for a default one, so a matcher built
-    // from it has to accept the port being absent -- which made a rule for
-    // :9443 also permit :443 on the same host. Found by the round-trip test.
+    // from it has to accept the port being absent. Left unchecked, that lets a
+    // rule for :9443 also permit :443 on the same host.
     const config = block({ urlRules: buildUrlRules("GET https://a.com:9443/private/x") });
     expect(config.includes("acl s0_host var(txn.host) -m str a.com")).toBe(true);
     expect(config.includes("acl s0_port dst_port 9443")).toBe(true);

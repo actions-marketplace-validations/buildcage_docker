@@ -26,7 +26,7 @@ function toHostRow(event: TrafficEvent): LogEntry {
 }
 
 /**
- * Build the report data from the proxy and resolver logs. Pure -- the caller
+ * Build the report data from the proxy and resolver logs. Pure: the caller
  * fetches both logs and the parameters.
  *
  * The resolver log matters because a refused name never reached the proxy, so
@@ -41,7 +41,7 @@ export async function buildInspectReportData(
 ): Promise<InspectReportData> {
   const isAudit = parameters.mode === "audit";
   // Independent inputs (separate `docker exec` log streams, no data
-  // dependency between them) -- read concurrently rather than paying their
+  // dependency between them), so read concurrently rather than paying their
   // combined latency serially.
   const [
     { events: proxyEvents, startedAt, headIntact: proxyHeadIntact, unparsed },

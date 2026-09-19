@@ -1,6 +1,6 @@
 /**
- * Splitting an observed `host:port` authority — from a proxy log line, a
- * BuildKit source identifier or a URL in the traffic.
+ * Splitting an observed `host:port` authority, as it comes from a proxy log
+ * line, a BuildKit source identifier or a URL in the traffic.
  *
  * Not for rule syntax: acl/ parses a grammar of its own, where a wildcard can
  * stand in for either half, and it decides where the port begins on its own
@@ -14,7 +14,7 @@ export interface HostPort {
   host: string;
   /**
    * `undefined` when the authority carried no port separator at all, which is
-   * not the same as a trailing `host:` — that one is separated but empty, and
+   * not the same as a trailing `host:`, which is separated but empty, and
    * callers that substitute a default only want to do so for the former.
    */
   port: string | undefined;

@@ -5,13 +5,13 @@
  *
  * A generated rule must never permit more than was observed:
  *
- * - **Hosts are enumerated, never generalised** into `*.example.com`: the
+ * - Hosts are enumerated, never generalised into `*.example.com`: the
  *   resolver's scope follows these patterns, so a widened host is leakable.
- * - **Methods are listed exactly**, never `*`.
- * - **A path keeps its longest unchanging prefix**; only what varied becomes
+ * - Methods are listed exactly, never `*`.
+ * - A path keeps its longest unchanging prefix; only what varied becomes
  *   `**`, and a single observed path stays exact.
  *
- * A host reached at many unrelated paths therefore collapses to `/**` -- the
+ * A host reached at many unrelated paths therefore collapses to `/**`, the
  * honest answer, since clustering would invent permissions nobody observed. The
  * rule still constrains the method, which no host-level rule can.
  */
@@ -24,7 +24,7 @@ import { DEFAULT_PORT, parseObservedUrl } from "#core/lib/log/authority.ts";
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
 interface ParsedRequest {
-  /** `https://host` or `https://host:9443` — what a rule is written against. */
+  /** `https://host` or `https://host:9443`: what a rule is written against. */
   origin: string;
   method: string;
   /** Path only. The query is deliberately dropped: rules match the path, and
@@ -140,9 +140,9 @@ export function buildUrlRuleLines(requests: TrafficEvent[]): string[] {
 export interface BuildInspectRestrictExampleOptions {
   /** Version to annotate the `uses:` line with, if known, as `# 3.1.4`. */
   actionVersion?: string;
-  /** Not derived from `requests` -- a passthrough is never decrypted, so
-   *  there is nothing in the traffic to build these from -- they are the
-   *  same values the audit run was configured with, echoed back as-is,
+  /** Not derived from `requests`: a passthrough is never decrypted, so there
+   *  is nothing in the traffic to build these from. They are the same values
+   *  the audit run was configured with, echoed back as-is,
    *  since they apply unchanged under `restrict` (only enforcement
    *  differs). */
   allowedIpRules?: string[];

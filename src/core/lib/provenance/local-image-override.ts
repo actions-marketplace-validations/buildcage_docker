@@ -5,7 +5,7 @@ export interface LocalImageOverride {
 
 /**
  * Reads BUILDCAGE_LOCAL_IMAGE_REF from the given env. Kept in its own module
- * so a normal build can exclude it entirely — see readLocalImageOverride in
+ * so a normal build can exclude it entirely; see readLocalImageOverride in
  * lib/local-image.ts.
  */
 export function readLocalImageOverride(env: NodeJS.ProcessEnv): LocalImageOverride | null {

@@ -103,7 +103,7 @@ describe("convertRule", () => {
 });
 
 // ---------------------------------------------------------------------------
-// convertRule — regex behavior (match / non-match)
+// convertRule: regex behavior (match / non-match)
 // ---------------------------------------------------------------------------
 describe("convertRule — regex behavior", () => {
   it("* matches single-level subdomain only", () => {

@@ -2,7 +2,7 @@
  * Parse buildkitd's own debug log for source-policy denial entries.
  *
  * BuildKit's sourcepolicy engine logs a Debug-level "Evaluated source policy"
- * line (logrus text format) whenever a rule denies (or converts) a source —
+ * line (logrus text format) whenever a rule denies (or converts) a source;
  * see sourcepolicy/engine.go's evaluatePolicy(). ALLOW decisions are never
  * logged this way. This entry is written by buildkitd's own structured
  * logger and needs no special buildkitd configuration to appear.
@@ -29,10 +29,10 @@ export interface DenialTimelineEntry {
 
 export interface BuildkitdLogScanResult {
   blocked: AggregatedEntry[];
-  /** Chronological, per-event — not aggregated, since each entry's own
+  /** Chronological, per-event, not aggregated, since each entry's own
    *  timestamp is what a timeline render needs. */
   denied: DenialTimelineEntry[];
-  /** True iff a non-blank line wasn't a denial line — see the module doc
+  /** True iff a non-blank line wasn't a denial line; see scanBuildkitdLog
    *  below for what this signals. */
   hasNonDenialContent: boolean;
 }
@@ -54,7 +54,7 @@ function unescapeLogrusValue(s: string): string {
  *
  * buildkitd emits copious debug output from the moment it starts,
  * regardless of whether any denial ever occurred. A log consisting only of
- * forged denial lines — or nothing at all — lacks that, which is a signal
+ * forged denial lines, or nothing at all, lacks that, which is a signal
  * (not a guarantee) of tampering.
  */
 export async function scanBuildkitdLog(

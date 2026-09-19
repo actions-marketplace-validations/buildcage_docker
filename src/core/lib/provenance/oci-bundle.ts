@@ -1,5 +1,5 @@
 /**
- * oci-bundle.ts — finding an image's Sigstore bundle in the registry
+ * Finding an image's Sigstore bundle in the registry.
  *
  * Two schemes hold one: the OCI 1.1 Referrers API, and the `sha256-<hex>` tag
  * of the Referrers Tag Schema. Both end at a manifest whose layer carries the
@@ -66,7 +66,7 @@ async function bundleFromReferrers(
       `/referrers/${digest}?artifactType=${encodeURIComponent(BUNDLE_MEDIA_TYPE)}`,
     );
     // Not assertRegistryOk: a registry with no Referrers API answers 404 or
-    // 405, and that is not a failure here -- only a 5xx leaves it unknown
+    // 405, and that is not a failure here: only a 5xx leaves it unknown
     // whether it would have had one.
     if (resp.status >= 500) {
       throw new VerifyImageError(

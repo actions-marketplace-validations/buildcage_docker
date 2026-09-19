@@ -20,7 +20,7 @@ import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 export type TrafficRecord = Omit<TrafficEvent, "time"> & {
   /** ISO 8601 UTC, from the proxy's own clock. */
   time: string;
-  /** Time since the proxy itself started, always HH:MM:SS.mmm -- the shape
+  /** Time since the proxy itself started, always HH:MM:SS.mmm, so the shape
    *  never changes between a short and a long run. Absent when the proxy's
    *  start time could not be determined; never fabricated from something
    *  else. */

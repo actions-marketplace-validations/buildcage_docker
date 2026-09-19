@@ -3,7 +3,7 @@ import { aggregateAllowedHosts, annotateKnownBlocked } from "./aggregate.ts";
 import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
 import type { GenReportParameters, ExplicitReportData } from "../types.ts";
 
-/** Pure — no I/O; callers fetch lines/builds/parameters themselves. */
+/** Pure: no I/O; callers fetch lines/builds/parameters themselves. */
 export async function buildExplicitReportData(
   lines: AsyncIterable<string> | Iterable<string>,
   builds: VertexAllowedEntry[][],

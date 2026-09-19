@@ -142,9 +142,9 @@ describe("resolving, which only a request the rules already admitted reaches", (
 
   it("sets the resolved destination before the internal-address check, not after", () => {
     // %[dst] in the log-format reads whatever set-dst last wrote. CoreDNS
-    // never hands the build a real address (see coredns-FULL_CONFIG.ts), so a
+    // never hands the build a real address (see coredns-config.ts), so a
     // refusal logged before set-dst ran would show the build's own fake
-    // destination instead of the real one that tripped the guard -- silently
+    // destination instead of the real one that tripped the guard, silently
     // losing exactly the forensic value an SSRF refusal exists to keep.
     for (const frontend of ["https_in", "http_in"]) {
       const segment = frontendSegment(FULL_CONFIG, frontend);
@@ -168,7 +168,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
 
   it("gates the passthrough's do-resolve on the same SNI match that admits it", () => {
     // Not just ordering: a passthrough rule has no path or method, so this
-    // flag -- set only when an SNI already matched -- is the entire rule
+    // flag, set only when an SNI already matched, is the entire rule
     // check do-resolve sits behind. A request no rule admits must never
     // reach it, same invariant as the host+path+method check above.
     const tlsRuleSet = FULL_CONFIG.indexOf("set-var(txn.tlsrule)");
@@ -365,7 +365,7 @@ describe("what a log line records", () => {
     // Both are attacker-controlled; ACL matching still runs on the untouched
     // req.hdr(host)/path fetches, only the logged copies are sanitized. Unlike
     // the SNI below, the Host header legitimately carries its own ":port", so
-    // it can't be reduced to a hostname charset -- only the actually unsafe
+    // it can't be reduced to a hostname charset: only the actually unsafe
     // characters are stripped.
     expect(
       FULL_CONFIG.includes(
@@ -378,11 +378,11 @@ describe("what a log line records", () => {
   });
 
   it("the Host-capture charset leaves a non-default port's ':' untouched", () => {
-    // Regression: an earlier version reduced the Host capture to the SNI's
-    // hostname-only charset, which also ate the ':' a Host header carries for
-    // a non-default port -- turning "allowed.example.com:9443" into
-    // "allowed.example.com_9443" in the report. This mirrors HAProxy's own
-    // regsub("[\s\"[:cntrl:]]",_,g) against a POSIX/PCRE2-equivalent pattern.
+    // The Host capture must not be reduced to the SNI's hostname-only charset:
+    // that also eats the ':' a Host header carries for a non-default port,
+    // turning "allowed.example.com:9443" into "allowed.example.com_9443" in the
+    // report. This mirrors HAProxy's own regsub("[\s\"[:cntrl:]]",_,g) against
+    // a POSIX/PCRE2-equivalent pattern.
     const stripped = "allowed.example.com:9443".replace(/[\s"\p{Cc}]/gu, "_");
     expect(stripped).toBe("allowed.example.com:9443");
   });

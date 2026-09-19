@@ -4,9 +4,9 @@ import type { SourcePolicyInput } from "./source-policy.ts";
 
 // Simulates BuildKit's sourcepolicy engine evaluation order exactly
 // (sourcepolicy/engine.go's evaluatePolicy): rules are applied in array
-// order, ALLOW/DENY just flip a running "deny" flag, and the LAST matching
-// rule wins. This is the real, load-bearing semantics our rule ORDER must
-// produce correct results under — verified against a live buildkitd
+// order, ALLOW/DENY just flip a running "deny" flag, and the last matching
+// rule wins. That is the load-bearing semantics the generated rule order has
+// to produce correct results under, verified against a live buildkitd
 // container (see docs/security.md).
 function evaluate(
   policy: { rules: { action: string; selector: { identifier: string } }[] },
@@ -155,9 +155,9 @@ describe("buildSourcePolicy — regex (~) rules", () => {
   it("an escaped literal trailing $ is not mistaken for the end anchor (regression)", () => {
     // A port pattern is always required, even here.
     const policy = restrict({ httpsRulesInput: "~foo:443\\$" });
-    // Previously this produced an invalid regex (a dangling "\" that escaped
-    // the wrapper's own "(" — see git history for the exact failure): the
-    // trailing "$" here is escaped (a literal dollar sign), not an anchor.
+    // The trailing "$" here is a literal dollar sign, not an anchor: escaping
+    // it as one leaves a dangling "\" that swallows the wrapper's own "(" and
+    // produces an invalid regex.
     const re = new RegExp(policy.rules[1].selector.identifier);
     expect(re.test("https://foo:443$/")).toBeTruthy();
     expect(!re.test("https://bar:443$/")).toBeTruthy();
@@ -165,7 +165,7 @@ describe("buildSourcePolicy — regex (~) rules", () => {
 
   it("an escaped literal '.' followed by a real '*' quantifier is left alone (not confined)", () => {
     const policy = restrict({ httpsRulesInput: "~^example\\.com:443\\.*$" });
-    // `\.*` here means "zero or more literal dots", not the wildcard `.*` —
+    // `\.*` here means "zero or more literal dots", not the wildcard `.*`, so
     // confineDotStarToDomain must not touch it.
     const re = new RegExp(policy.rules[1].selector.identifier);
     expect(re.test("https://example.com:443/")).toBeTruthy();

@@ -37,7 +37,7 @@ export function ruleBlock(rules: CompiledRule[], mode: string, scheme: "https" |
   if (rules.some((r) => r.hostMatch === "hostBareFull")) {
     // A ~ URL rule's port is optional, exactly as in a literal URL: tried
     // without a port on the scheme's own default, and with the real port
-    // otherwise -- see haproxy-rules.ts's HostMatch doc comment.
+    // otherwise; see haproxy-rules.ts's HostMatch doc comment.
     lines.push(
       `    acl is_default_port dst_port ${DEFAULT_PORT[scheme]}`,
       `    http-request set-var(txn.host_bare) hdr(host),${HOST_ONLY}`,

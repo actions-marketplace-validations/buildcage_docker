@@ -2,7 +2,7 @@
  * Protects a report's write against GitHub Actions' per-step Job Summary
  * limit: confirmed at exactly 1 MiB (`actions/runner`'s
  * `CreateStepSummaryCommand.AttachmentSizeLimit`). Exceeding it does not
- * truncate on GitHub's side -- it silently drops the *entire* step's summary
+ * truncate on GitHub's side: it silently drops the entire step's summary
  * upload, so a report that grows too large would otherwise vanish rather
  * than degrade.
  *
@@ -28,7 +28,7 @@ const SAFETY_MARGIN_BYTES = 8 * 1024;
  * other (fixed-size) part of the report, always at a line boundary, closing
  * a fenced code block left open by the cut and noting that it happened.
  * `artifactAvailable` decides whether that note points at the artifact or
- * suggests turning it on -- it does not fetch or check anything itself.
+ * suggests turning it on; it does not fetch or check anything itself.
  *
  * `limitBytes` is GitHub's limit. A caller passes its own only to say what
  * "too large" means without building something that large: every branch below
@@ -71,8 +71,8 @@ export function truncateForStepSummary(
     usedBytes += lineBytes;
     if (line.trim().startsWith("```")) fenceOpen = !fenceOpen;
   }
-  // A cut mid-fence would otherwise turn everything after it -- the note,
-  // </details>, the report's own footer -- into literal code-block text.
+  // A cut mid-fence would otherwise turn everything after it (the note,
+  // </details>, the report's own footer) into literal code-block text.
   if (fenceOpen) kept += "```\n";
 
   return before + kept + note + after;

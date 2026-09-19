@@ -14,7 +14,7 @@ import { convertRule, buildRules, parseAndValidateRules } from "./wildcard-rules
 
 describe("convertRule – properties", () => {
   // For a plain domain (no wildcards, no regex metacharacters), the generated
-  // regex must match the original pattern and must NOT match a subdomain prefix.
+  // regex must match the original pattern and must not match a subdomain prefix.
   it("exact pattern round-trips: regex matches original and rejects subdomain prefix", () => {
     const simplePattern = fc
       .tuple(

@@ -21,7 +21,7 @@ export function parseContainerIds(psOutput: string): string[] {
 export type RunDocker = (args: string[], env?: NodeJS.ProcessEnv) => string;
 export type SpawnCommand = (args: string[]) => ChildProcess;
 
-// 64MB, up from Node's 1MB default — `buildctl debug logs --progress=rawjson`
+// 64MB, up from Node's 1MB default: `buildctl debug logs --progress=rawjson`
 // output for a verbose build can exceed the default easily.
 //
 // Untested by design: the defaults behind createDocker's seams, which only
@@ -42,7 +42,7 @@ function defaultSpawnCommand(args: string[]): ChildProcess {
 
 /**
  * Drives a `docker <args>` child process and yields its stdout line by
- * line, never buffering more than the current line. Lazy — nothing spawns
+ * line, never buffering more than the current line. Lazy: nothing spawns
  * until the caller starts iterating.
  *
  * Throws `{status, stderr}` on a non-zero exit and Node's own
@@ -57,7 +57,7 @@ async function* streamDockerLines(
 ): AsyncGenerator<string, void, void> {
   const child = spawnDocker(args);
 
-  // Must be attached before any `await` — an EventEmitter with no 'error'
+  // Must be attached before any `await`: an EventEmitter with no 'error'
   // listener throws synchronously the instant one fires.
   let spawnError: NodeJS.ErrnoException | undefined;
   child.on("error", (err) => {
@@ -116,14 +116,14 @@ export interface Docker {
   findContainers(filters: string[]): string[];
   /** `docker cp <containerId>:<containerPath> <hostPath>`. */
   copyFromContainer(containerId: string, containerPath: string, hostPath: string): void;
-  /** `docker exec <containerId> cat <path>`, streamed one line at a time —
+  /** `docker exec <containerId> cat <path>`, streamed one line at a time;
    *  see streamDockerLines() for the error-shape/cleanup contract. */
   readFileLines(containerId: string, path: string): AsyncIterable<string>;
   /** `docker inspect <containerId>`'s own env, as a lookup map. */
   readEnv(containerId: string): Record<string, string>;
   /** `docker inspect <containerId>`'s own labels, as a lookup map. */
   readLabels(containerId: string): Record<string, string>;
-  /** `docker exec <containerId> <...args>` — raw stdout, for anything else
+  /** `docker exec <containerId> <...args>`: raw stdout, for anything else
    *  (e.g. buildctl). */
   exec(containerId: string, args: string[]): string;
 }
