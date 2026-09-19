@@ -16,6 +16,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -98,55 +99,34 @@ func parseArgs(args []string) (sub, bundle string) {
 }
 
 func main() {
-	args := os.Args[1:]
+	os.Exit(run(os.Args[1:]))
+}
+
+// run wraps one runc invocation and returns the code to exit with, so a test
+// can observe both that code and what the write-back does to it.
+func run(args []string) int {
 	sub, bundle := parseArgs(args)
 	if bundle != "" {
 		logTag = "[" + filepath.Base(bundle) + "]"
 	}
-
-	// `run` only, not `create`: restore is tied to the wrapped process exiting,
-	// but `runc create` returns before the process runs, so the CA would be gone
-	// by `runc start`. BuildKit's runcexecutor uses `run`.
-	var restore func() error
-	if sub == "run" && bundle != "" {
-		ca, err := os.ReadFile(caFile)
-		if err != nil {
-			// Without a CA there is nothing to trust and nothing to undo; the
-			// step still runs, and its TLS failures will say so.
-			logf("no CA at %s (%v); running without injection", caFile, err)
-		} else if restore, err = inject(bundle, ca); err != nil {
-			logf("injection failed for %s: %v", bundle, err)
-			restore = nil
-		}
-	}
+	restore := setupInjection(sub, bundle)
 
 	cmd := exec.Command(realRunc, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
-	code := 0
 	if err := cmd.Start(); err != nil {
 		logf("cannot run %s: %v", realRunc, err)
 		if restore != nil {
 			restore()
 		}
-		os.Exit(1)
+		return 1
 	}
+	defer forwardSignals(cmd)()
 
-	// Forward signals to runc. Named ones only: an unfiltered Notify also
-	// catches SIGURG, which the Go runtime raises constantly. After cmd.Start,
-	// so cmd.Process is set (reading it earlier would race cmd.Wait).
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
-	defer signal.Stop(signals)
-	go func() {
-		for s := range signals {
-			_ = cmd.Process.Signal(s)
-		}
-	}()
-
+	code := 0
 	if err := cmd.Wait(); err != nil {
 		var exitErr *exec.ExitError
-		if ok := asExitError(err, &exitErr); ok {
+		if errors.As(err, &exitErr) {
 			code = exitErr.ExitCode()
 		} else {
 			logf("cannot run %s: %v", realRunc, err)
@@ -162,13 +142,45 @@ func main() {
 			}
 		}
 	}
-	os.Exit(code)
+	return code
 }
 
-func asExitError(err error, out **exec.ExitError) bool {
-	exitErr, ok := err.(*exec.ExitError)
-	if ok {
-		*out = exitErr
+// setupInjection makes the step trust the proxy's CA, returning what undoes it
+// again, or nil when there is nothing to undo.
+//
+// `run` only, not `create`: restore is tied to the wrapped process exiting, but
+// `runc create` returns before the process runs, so the CA would be gone by
+// `runc start`. BuildKit's runcexecutor uses `run`.
+func setupInjection(sub, bundle string) func() error {
+	if sub != "run" || bundle == "" {
+		return nil
 	}
-	return ok
+	ca, err := os.ReadFile(caFile)
+	if err != nil {
+		// Without a CA there is nothing to trust and nothing to undo; the step
+		// still runs, and its TLS failures will say so.
+		logf("no CA at %s (%v); running without injection", caFile, err)
+		return nil
+	}
+	restore, err := inject(bundle, ca)
+	if err != nil {
+		logf("injection failed for %s: %v", bundle, err)
+		return nil
+	}
+	return restore
+}
+
+// forwardSignals relays signals to runc until the returned function is called.
+// Named ones only: an unfiltered Notify also catches SIGURG, which the Go
+// runtime raises constantly. Called after cmd.Start, so cmd.Process is set
+// (reading it earlier would race cmd.Wait).
+func forwardSignals(cmd *exec.Cmd) (stop func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	go func() {
+		for s := range signals {
+			_ = cmd.Process.Signal(s)
+		}
+	}()
+	return func() { signal.Stop(signals) }
 }
