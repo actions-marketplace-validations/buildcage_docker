@@ -74,7 +74,7 @@ running builder container. Raw builder logs are also available via `docker compo
 
 ## Testing
 
-Each `setup_buildkit_{engine}_{mode}` target has a matching
+Most `setup_buildkit_{engine}_{mode}` targets have a matching
 `test_integration_buildkit_{engine}_{mode}` target (start → build the matching
 `test/Dockerfile.*` → verify → clean up):
 
@@ -83,12 +83,14 @@ make test_integration_buildkit_universal_audit
 make test_integration_buildkit_universal_restrict
 make test_integration_buildkit_explicit_audit
 make test_integration_buildkit_explicit_restrict
-make test_integration_buildkit_inspect_audit
 make test_integration_buildkit_inspect_restrict
 # Debian/apt build, which starts with no CA store at all
 make test_integration_buildkit_inspect_debian_audit
 make test_integration_buildkit_inspect_debian_restrict
-# Learns rules from an inspect audit run, then enforces them unedited
+# Asserts an inspect audit run, then enforces the rules it generated unedited.
+# There is no inspect_audit target of its own: this builds the same
+# test/Dockerfile.inspect-audit in the same audit mode, so the audit-mode
+# assertions belong to its first phase.
 make test_integration_buildkit_inspect_roundtrip
 # known_blocked_rules against fail_on_blocked, both matched and unmatched
 make test_integration_buildkit_universal_known_blocked
@@ -451,9 +453,9 @@ behavior, see [Inspect Proxy Engine](./security.md#inspect-proxy-engine) in Secu
   view is generated from the same host patterns. Widening a host widens what's logged as allowed
   DNS-side, not only what matches HTTP-side.
 - `make test_integration_buildkit_inspect_roundtrip` (see [Testing](#testing) above) runs an audit
-  build, feeds its own generated `allowed_url_rules` back as `restrict`, and checks both halves:
-  every request the audit saw still passes, and a path, method, host, or port it never saw is
-  refused.
+  build, asserts what it recorded, feeds its own generated `allowed_url_rules` back as `restrict`,
+  and checks both halves: every request the audit saw still passes, and a path, method, host, or
+  port it never saw is refused.
 
 ## Explicit Engine Internals
 

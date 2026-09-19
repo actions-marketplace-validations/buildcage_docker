@@ -205,7 +205,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_audit test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch ## Run all buildkit integration tests
 
 .PHONY: test_integration_buildkit_universal_audit
 test_integration_buildkit_universal_audit: ## Run universal-engine audit mode tests
@@ -288,24 +288,9 @@ test_integration_buildkit_explicit_restrict: ## Run explicit-engine restrict mod
 	@./test/assert-post.sh
 	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
 
-.PHONY: test_integration_buildkit_inspect_audit
-test_integration_buildkit_inspect_audit: ## Run inspect-engine audit mode tests
-	@echo "Running inspect-engine audit mode tests..."
-	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
-	  $(MAKE) setup_buildkit_inspect_audit
-	@docker buildx build --no-cache \
-	  --builder $(BUILDER_NAME) \
-	  --platform $(TEST_PLATFORM) \
-	  --progress=plain -f test/Dockerfile.inspect-audit test/ \
-	  --load -t $(TEST_IMAGE)
-	@./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
-	@./test/assert-inspect-no-layer-bloat.sh $(TEST_IMAGE)
-	@node report/src/main.ts || true
-	@./test/assert-inspect-audit.sh
-	@node src/post.ts
-	@./test/assert-post.sh
-	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
-
+# The Alpine build the CA-residue and layer-bloat guards run against. Every
+# inspect build injects the same CA the same way, so the other Alpine image
+# (Dockerfile.inspect-audit, built by the round trip) would prove nothing more.
 .PHONY: test_integration_buildkit_inspect_restrict
 test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode tests
 	@echo "Running inspect-engine restrict mode tests..."
@@ -324,6 +309,9 @@ test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode 
 	@./test/assert-post.sh
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
+# The Debian build those same two guards run against: it starts with no CA
+# store at all, which is the case Alpine cannot cover. The restrict run below
+# builds the same Dockerfile and differs only in how one request is answered.
 .PHONY: test_integration_buildkit_inspect_debian_audit
 test_integration_buildkit_inspect_debian_audit: ## Run inspect-engine audit mode tests against a Debian (apt) build
 	@echo "Running inspect-engine audit mode tests (Debian/apt)..."
@@ -350,8 +338,6 @@ test_integration_buildkit_inspect_debian_restrict: ## Run inspect-engine restric
 	  --platform $(TEST_PLATFORM) \
 	  --progress=plain -f test/Dockerfile.inspect-debian test/ \
 	  --load -t $(TEST_IMAGE)
-	@./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
-	@./test/assert-inspect-no-layer-bloat.sh $(TEST_IMAGE)
 	@node report/src/main.ts || true
 	@./test/assert-inspect-debian.sh restrict
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
@@ -385,7 +371,7 @@ test_integration_buildkit_inspect_byte_exact: ## Compare inspect vs universal la
 	@rm -f $(SCRATCH_PREFIX)-byte-exact-inspect.tar $(SCRATCH_PREFIX)-byte-exact-universal.tar
 
 .PHONY: test_integration_buildkit_inspect_roundtrip
-test_integration_buildkit_inspect_roundtrip: ## Learn rules from an inspect audit run, then enforce them
+test_integration_buildkit_inspect_roundtrip: ## Check an inspect audit run, then enforce the rules it generated
 	@echo "Running inspect-engine audit-to-restrict round trip..."
 	@./test/run-inspect-roundtrip.sh
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit

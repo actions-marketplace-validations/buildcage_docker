@@ -86,9 +86,6 @@ jobs:
           - mode: explicit-restrict
             target: test_integration_buildkit_explicit_restrict
             test_compose_file: compose.test-explicit.yaml
-          - mode: inspect-audit
-            target: test_integration_buildkit_inspect_audit
-            test_compose_file: compose.test-inspect.yaml
           - mode: inspect-restrict
             target: test_integration_buildkit_inspect_restrict
             test_compose_file: compose.test-inspect.yaml
@@ -153,9 +150,17 @@ jobs:
       # Two phases, the second configured by the first, so this is one script
       # rather than a matrix entry: the rules an audit run generates are fed
       # straight back as restrict and must both permit what happened and
-      # refuse what did not.
-      - name: Learn rules from audit, then enforce them
+      # refuse what did not. Phase 1 is also the suite's only build of
+      # test/Dockerfile.inspect-audit, so it carries the audit-mode
+      # assertions too.
+      - name: Assert the audit run, then enforce the rules it generated
         run: make test_integration_buildkit_inspect_roundtrip
+
+      # The audit assertions read the proxy log without printing it, so this is
+      # the only place a failure in them shows what the build actually did.
+      - name: Show logs
+        if: failure()
+        run: GITHUB_STEP_SUMMARY= make report_buildkit || true
 
       - name: Cleanup
         if: always()
