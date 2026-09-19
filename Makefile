@@ -209,6 +209,9 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 .PHONY: test_integration_buildkit
 test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
+# The target that verifies post.ts removed the builder. Every target below
+# runs post.ts as part of its teardown, but the removal does not depend on
+# the engine or the mode, so only this one asserts it.
 .PHONY: test_integration_buildkit_universal_audit
 test_integration_buildkit_universal_audit: ## Run universal-engine audit mode tests
 	@echo "Running universal-engine audit mode tests..."
@@ -238,7 +241,6 @@ test_integration_buildkit_universal_restrict: ## Run universal-engine restrict m
 	@node report/src/main.ts || true
 	@./test/assert-universal-restrict.sh
 	@node src/post.ts
-	@./test/assert-post.sh
 	@$(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_universal_restrict_no_traffic
@@ -254,7 +256,6 @@ test_integration_buildkit_universal_restrict_no_traffic: ## Run universal-engine
 	@INPUT_FAIL_ON_BLOCKED=true node report/src/main.ts
 	@./test/assert-universal-restrict-no-traffic.sh
 	@node src/post.ts
-	@./test/assert-post.sh
 	@$(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_explicit_audit
@@ -270,7 +271,6 @@ test_integration_buildkit_explicit_audit: ## Run explicit-engine audit mode test
 	@node report/src/main.ts || true
 	@./test/assert-explicit-audit.sh
 	@node src/post.ts
-	@./test/assert-post.sh
 	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_explicit_restrict
@@ -287,7 +287,6 @@ test_integration_buildkit_explicit_restrict: ## Run explicit-engine restrict mod
 	@./test/assert-explicit-restrict.sh
 	@./test/assert-explicit-source-policy-conflict.sh
 	@node src/post.ts
-	@./test/assert-post.sh
 	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
 
 # The Alpine build the CA-residue and layer-bloat guards run against. Every
@@ -308,7 +307,6 @@ test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode 
 	@node report/src/main.ts || true
 	@./test/assert-inspect-restrict.sh
 	@node src/post.ts
-	@./test/assert-post.sh
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 # The Debian build those same two guards run against: it starts with no CA
