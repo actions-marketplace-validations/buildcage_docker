@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { truncateForStepSummary } from "./truncate-communication-details.ts";
+import { COMMUNICATION_DETAILS_OPEN, wrapCommunicationDetails } from "./communication-section.ts";
 
 const HEADER = "## Outbound Traffic Report (restrict mode)\n\n### ✅ Allowed Hosts\n\n";
 const FOOTER = "\n*Reported by [buildcage/docker](https://github.com/buildcage/docker)*\n";
@@ -17,13 +18,8 @@ function logLines(count: number): string[] {
 }
 
 function withCommunicationDetails(lines: string[]): string {
-  return (
-    HEADER +
-    "\n<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n```\n" +
-    lines.map((l) => `${l}\n`).join("") +
-    "```\n\n</details>\n" +
-    FOOTER
-  );
+  const body = "```\n" + lines.map((l) => `${l}\n`).join("") + "```\n\n";
+  return HEADER + wrapCommunicationDetails(body) + FOOTER;
 }
 
 describe("truncateForStepSummary", () => {
@@ -107,10 +103,8 @@ describe("truncateForStepSummary", () => {
 });
 
 describe("markdown the truncator cannot work with", () => {
-  const DETAILS_OPEN = "<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n";
-
   it("returns it unchanged when the details block is never closed", () => {
-    const markdown = `${HEADER}${DETAILS_OPEN}${"y".repeat(SMALL_LIMIT)}`;
+    const markdown = `${HEADER}${COMMUNICATION_DETAILS_OPEN}${"y".repeat(SMALL_LIMIT)}`;
     expect(truncateForStepSummary(markdown, false, SMALL_LIMIT)).toBe(markdown);
   });
 });

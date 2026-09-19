@@ -3,10 +3,7 @@ import {
   renderCommunicationDetails,
   renderCommunicationDetailsBody,
 } from "./communication-details.ts";
-
-function wrap(body: string) {
-  return "\n<details>\n<summary>💬 Communication details</summary>\n\n" + body + "</details>\n";
-}
+import { wrapCommunicationDetails as wrap } from "./communication-section.ts";
 
 // No brackets in these two fixtures on purpose, so the non-escaping tests
 // below don't need to reason about escaped output — bracket/asterisk/etc.
