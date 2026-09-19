@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -283,5 +284,103 @@ func TestRemoveCARefusesADirectory(t *testing.T) {
 	mustMkdirAll(t, path)
 	if err := removeCA(path); err == nil {
 		t.Fatal("removeCA succeeded on a directory")
+	}
+}
+
+// "/" survives filepath.Clean as a path with nothing in it. A variable set to
+// it resolves to the rootfs itself, which containerPathOf then refuses to bind
+// over, rather than to some path made from an empty component.
+func TestResolveInRootResolvesTheRootItself(t *testing.T) {
+	root := t.TempDir()
+
+	resolved, err := resolveInRoot(root, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != root {
+		t.Errorf("resolveInRoot(%q, \"/\") = %q, want the rootfs itself", root, resolved)
+	}
+}
+
+// A chain long enough to be a loop is refused rather than followed: the rootfs
+// comes from an image the build chose, and following it is work done as root on
+// the host.
+func TestResolveInRootRefusesALongSymlinkChain(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc"))
+	// hops is allowed up to 32, so 33 links is one past the limit. The last
+	// one points at a real file, so only the length can be what refuses it.
+	const links = 33
+	for i := range links {
+		mustSymlink(t,
+			fmt.Sprintf("/etc/link%d", i+1),
+			filepath.Join(root, "etc", fmt.Sprintf("link%d", i)))
+	}
+	mustWriteFile(t, filepath.Join(root, "etc", fmt.Sprintf("link%d", links)), "ROOTS")
+
+	if _, err := resolveInRoot(root, "/etc/link0"); !errors.Is(err, errTooManySymlinks) {
+		t.Fatalf("got %v, want errTooManySymlinks", err)
+	}
+
+	// One shorter, and the same chain resolves, so it is the count that decides.
+	if _, err := resolveInRoot(root, "/etc/link1"); err != nil {
+		t.Fatalf("a chain of %d should still resolve: %v", links-1, err)
+	}
+}
+
+// The CA path can name a directory the image does not have. Creating it is
+// fine; being unable to is not something to write through.
+func TestAppendCARefusesAPathItCannotCreateADirectoryFor(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "blocked"), "")
+	// A regular file stands where the directory would have to go.
+	if err := appendCA(filepath.Join(dir, "blocked", "bundle.pem"), []byte("CA")); err == nil {
+		t.Fatal("expected appendCA to refuse the path")
+	}
+}
+
+// A step is free to delete the bundle outright. There is then no block to
+// strip, and no reason to fail the build over it.
+func TestRemoveCAIsANoOpWhenTheFileIsGone(t *testing.T) {
+	if err := removeCA(filepath.Join(t.TempDir(), "gone.pem")); err != nil {
+		t.Fatalf("got %v, want nil", err)
+	}
+}
+
+// An empty bundle has no bytes to scan. The scan has to end on its own rather
+// than read past the end of the file.
+func TestRemoveCAIsANoOpOnAnEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	mustWriteFile(t, path, "")
+
+	if err := removeCA(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %q, want it left empty", got)
+	}
+}
+
+// A step that truncated the bundle mid-block leaves a begin marker with no end.
+// Cutting from there to the end of the file would take whatever the step wrote
+// with it, so nothing is removed.
+func TestRemoveCALeavesAnUnterminatedBlockAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	content := "ORIGINAL\n" + beginMarker + "\nCA-WITH-NO-END-MARKER\n"
+	mustWriteFile(t, path, content)
+
+	if err := removeCA(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("got %q, want it unchanged", got)
 	}
 }
