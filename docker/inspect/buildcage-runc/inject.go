@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // File the container is pointed at when a variable was not already set and the
@@ -52,78 +50,6 @@ var caVariables = []struct {
 	// search path: also read by Go's crypto/x509 on Unix, Ruby, wget, and
 	// Rust's rustls-native-certs.
 	{"SSL_CERT_FILE", pointAtSystemStore},
-}
-
-type spec struct {
-	raw    map[string]any
-	path   string
-	rootfs string
-	env    map[string]string
-}
-
-func loadSpec(bundle string) (*spec, error) {
-	path := filepath.Join(bundle, "config.json")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(content, &raw); err != nil {
-		return nil, err
-	}
-
-	rootfs := "rootfs"
-	if root, ok := raw["root"].(map[string]any); ok {
-		if p, ok := root["path"].(string); ok && p != "" {
-			rootfs = p
-		}
-	}
-	if !filepath.IsAbs(rootfs) {
-		rootfs = filepath.Join(bundle, rootfs)
-	}
-
-	s := &spec{raw: raw, path: path, rootfs: rootfs, env: map[string]string{}}
-	if proc, ok := raw["process"].(map[string]any); ok {
-		if env, ok := proc["env"].([]any); ok {
-			for _, entry := range env {
-				kv, ok := entry.(string)
-				if !ok {
-					continue
-				}
-				// runc keeps the last of a repeated key, so later wins here too.
-				if i := strings.IndexByte(kv, '='); i > 0 {
-					s.env[kv[:i]] = kv[i+1:]
-				}
-			}
-		}
-	}
-	return s, nil
-}
-
-// setEnv adds variables to the process spec in memory; call save to persist.
-func (s *spec) setEnv(extra map[string]string) {
-	if len(extra) == 0 {
-		return
-	}
-	proc, ok := s.raw["process"].(map[string]any)
-	if !ok {
-		return
-	}
-	env, _ := proc["env"].([]any)
-	for key, value := range extra {
-		// Appending is enough: runc de-duplicates and keeps the last entry.
-		env = append(env, key+"="+value)
-	}
-	proc["env"] = env
-	s.raw["process"] = proc
-}
-
-func (s *spec) save() error {
-	out, err := json.Marshal(s.raw)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, out, 0o644)
 }
 
 // inject makes the step trust the proxy's CA and returns a function that
@@ -216,7 +142,7 @@ func inject(bundle string, ca []byte) (func() error, error) {
 			logf("refusing to bind the container root; skipping CA injection for %v", files)
 			continue
 		}
-		if mountConflicts(s.raw, containerDir) {
+		if s.mountConflicts(containerDir) {
 			logf("a mount already covers %s; skipping CA injection there", containerDir)
 			continue
 		}
@@ -243,7 +169,7 @@ func inject(bundle string, ca []byte) (func() error, error) {
 			b.cleanup()
 			continue
 		}
-		addBindMount(s.raw, containerDir, scratch)
+		s.addBindMount(containerDir, scratch)
 		binds = append(binds, b)
 	}
 
