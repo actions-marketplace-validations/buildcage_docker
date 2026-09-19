@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,19 +228,13 @@ func TestInjectWritesBackWhenTheStepChangesTheStore(t *testing.T) {
 	scratchDir, _ := mount["source"].(string)
 	mustWriteFile(t, filepath.Join(scratchDir, "ca-certificates.crt"), "REGENERATED\n")
 
-	var calls int
-	orig := runRsync
-	runRsync = func(args []string) ([]byte, error) {
-		calls++
-		return orig(args)
-	}
-	defer func() { runRsync = orig }()
+	calls := countRsync(t)
 
 	if err := restore(); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 {
-		t.Fatalf("got %d rsync invocations for the write-back, want 2 (dry run, then apply)", calls)
+	if *calls != 2 {
+		t.Fatalf("got %d rsync invocations for the write-back, want 2 (dry run, then apply)", *calls)
 	}
 
 	got, err := os.ReadFile(filepath.Join(rootfs, "etc", "ssl", "certs", "ca-certificates.crt"))
@@ -268,16 +261,7 @@ func TestInjectWriteBackFailurePropagates(t *testing.T) {
 	scratchDir, _ := mount["source"].(string)
 	mustWriteFile(t, filepath.Join(scratchDir, "ca-certificates.crt"), "REGENERATED\n")
 
-	var calls int
-	orig := runRsync
-	runRsync = func(args []string) ([]byte, error) {
-		calls++
-		if calls == 2 { // the apply, right after a successful dry run
-			return []byte("boom"), fmt.Errorf("simulated failure")
-		}
-		return orig(args)
-	}
-	defer func() { runRsync = orig }()
+	failRsyncOn(t, 2) // the apply, right after a successful dry run
 
 	if err := restore(); err == nil {
 		t.Fatal("expected the write-back failure to propagate")

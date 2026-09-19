@@ -1,79 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
-
-// useFakeRsync makes dirBind's filesystem operations hermetic: a fake copy
-// instead of a real rsync process, and a scratch root under the test's own
-// temp directory instead of the real host path (which a test process
-// usually can't create or write to). The one test that needs the real
-// rsync binary and the real scratch root lives in mount_rsync_smoke_test.go.
-func useFakeRsync(t *testing.T) {
-	t.Helper()
-	oldRsync, oldScratchRoot := runRsync, scratchRoot
-	runRsync = fakeRsyncCopy
-	scratchRoot = t.TempDir()
-	t.Cleanup(func() {
-		runRsync = oldRsync
-		scratchRoot = oldScratchRoot
-	})
-}
-
-// fakeRsyncCopy stands in for `rsync -a[HAX] [--checksum] [--delete] ... src/ dst/`:
-// it only looks at the last two arguments and replaces dst wholesale with
-// src's tree, which is close enough to mirror/writeBack's actual usage for
-// unit tests to observe the resulting on-disk state.
-func fakeRsyncCopy(args []string) ([]byte, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("not enough args: %v", args)
-	}
-	src := strings.TrimSuffix(args[len(args)-2], "/")
-	dst := strings.TrimSuffix(args[len(args)-1], "/")
-	if err := os.RemoveAll(dst); err != nil {
-		return nil, err
-	}
-	return nil, copyTree(src, dst)
-}
-
-func copyTree(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case d.IsDir():
-			return os.MkdirAll(target, 0o755)
-		case info.Mode()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			return os.Symlink(link, target)
-		default:
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(target, data, info.Mode())
-		}
-	})
-}
 
 func TestGroupTargetsByDir(t *testing.T) {
 	targets := map[string]bool{
@@ -271,20 +203,6 @@ func redirectStoreDir(t *testing.T, rootfs string) {
 		t.Fatal(err)
 	}
 	mustSymlink(t, "/elsewhere", filepath.Join(rootfs, "etc/ssl"))
-}
-
-// countRsync counts from the call it is installed on, leaving out a bind's
-// own mirroring during prepare.
-func countRsync(t *testing.T) *int {
-	t.Helper()
-	var calls int
-	orig := runRsync
-	runRsync = func(args []string) ([]byte, error) {
-		calls++
-		return orig(args)
-	}
-	t.Cleanup(func() { runRsync = orig })
-	return &calls
 }
 
 // A destination that no longer resolves where injection left it fails the

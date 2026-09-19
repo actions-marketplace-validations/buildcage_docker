@@ -83,3 +83,29 @@ func TestLogfTagsEachSharedLine(t *testing.T) {
 		}
 	}
 }
+
+func TestParseArgs(t *testing.T) {
+	cases := []struct {
+		name   string
+		args   []string
+		sub    string
+		bundle string
+	}{
+		{"--bundle and its value as separate arguments",
+			[]string{"--log", "/x", "run", "--bundle", "/b", "--keep", "id"}, "run", "/b"},
+		{"--bundle=value as one argument",
+			[]string{"--log-format", "json", "create", "--bundle=/b", "id"}, "create", "/b"},
+		{"a subcommand carrying no bundle",
+			[]string{"delete", "id"}, "delete", ""},
+		{"a global flag's value is not mistaken for the subcommand",
+			[]string{"--log", "/x", "state", "id"}, "state", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sub, bundle := parseArgs(c.args)
+			if sub != c.sub || bundle != c.bundle {
+				t.Errorf("parseArgs(%v) = %q,%q want %q,%q", c.args, sub, bundle, c.sub, c.bundle)
+			}
+		})
+	}
+}

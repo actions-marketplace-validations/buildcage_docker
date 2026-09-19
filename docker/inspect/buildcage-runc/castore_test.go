@@ -285,22 +285,3 @@ func TestRemoveCARefusesADirectory(t *testing.T) {
 		t.Fatal("removeCA succeeded on a directory")
 	}
 }
-
-func TestParseArgs(t *testing.T) {
-	cases := []struct {
-		args   []string
-		sub    string
-		bundle string
-	}{
-		{[]string{"--log", "/x", "run", "--bundle", "/b", "--keep", "id"}, "run", "/b"},
-		{[]string{"--log-format", "json", "create", "--bundle=/b", "id"}, "create", "/b"},
-		{[]string{"delete", "id"}, "delete", ""},
-		{[]string{"--log", "/x", "state", "id"}, "state", ""},
-	}
-	for _, c := range cases {
-		sub, bundle := parseArgs(c.args)
-		if sub != c.sub || bundle != c.bundle {
-			t.Errorf("parseArgs(%v) = %q,%q want %q,%q", c.args, sub, bundle, c.sub, c.bundle)
-		}
-	}
-}
