@@ -79,8 +79,11 @@ jobs:
           cache-dependency-path: docker/explicit/buildkit-proxy/go.sum
 
       - name: Test buildcage-runc (inspect engine)
-        working-directory: docker/inspect/buildcage-runc
-        run: go test -cover ./...
+        run: make test_unit_go_coverage
+
+      - name: Test covfilter
+        working-directory: test/covfilter
+        run: go test ./...
 
       # No -cover here: vet rejects the cover tool's rewrite of the two
       # //go:build-constrained files in this package ("possible malformed

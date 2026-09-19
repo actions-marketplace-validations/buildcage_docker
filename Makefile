@@ -66,7 +66,7 @@ seccomp_profile: ## Regenerate the builder's seccomp profile from moby/profiles
 # ===========================================================================
 
 .PHONY: test_unit
-test_unit: test_unit_core test_unit_setup test_unit_report test_unit_qjs ## Run unit tests
+test_unit: test_unit_core test_unit_setup test_unit_report test_unit_qjs test_unit_go ## Run unit tests
 
 # vitest matches these by path substring, not glob, so keep them package-specific.
 .PHONY: test_unit_core
@@ -87,6 +87,27 @@ test_unit_report: ## Run report unit tests
 .PHONY: test_unit_coverage
 test_unit_coverage: ## Run every Node unit test once, with coverage
 	@vp test run --coverage
+
+.PHONY: test_unit_go
+test_unit_go: ## Run buildcage-runc's and covfilter's unit tests
+	@cd docker/inspect/buildcage-runc && go test ./...
+	@cd test/covfilter && go test ./...
+
+# buildcage-runc's coverage, with the statements a //coverage:ignore marker
+# excuses taken out first (see test/covfilter for why Go needs a second tool for
+# that at all). The threshold is a ratchet: raise it as gaps close, never lower
+# it.
+RUNC_COVERAGE := coverage/buildcage-runc.cov
+RUNC_COVERAGE_THRESHOLD := 83
+
+.PHONY: test_unit_go_coverage
+test_unit_go_coverage: ## Run buildcage-runc's tests with coverage and check the threshold
+	@mkdir -p coverage
+	@cd docker/inspect/buildcage-runc && go test -coverprofile="$(CURDIR)/$(RUNC_COVERAGE)" ./...
+	@cd test/covfilter && go run . \
+	  -profile="$(CURDIR)/$(RUNC_COVERAGE)" \
+	  -pkg="$(CURDIR)/docker/inspect/buildcage-runc" \
+	  -threshold=$(RUNC_COVERAGE_THRESHOLD)
 
 # qjs can't execute .ts directly, so compile fresh (vp run build:qjs-test)
 # and bind-mount the output in. qjs itself is identical across images, so one
