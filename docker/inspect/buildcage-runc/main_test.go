@@ -25,9 +25,9 @@ func useTempLog(t *testing.T) {
 // the concurrent steps ended up interleaved on disk.
 func TestDumpOwnLogCoversOnlyThisInvocation(t *testing.T) {
 	useTempLog(t)
-	appendToSharedLog(t, "[another-step] an earlier step on this builder\n")
+	mustAppendFile(t, logFile, "[another-step] an earlier step on this builder\n")
 	logf("CA write-back failed for %s: %v", "/etc/ssl/certs", "rsync exit status 23")
-	appendToSharedLog(t, "[another-step] a neighbouring step, still running\n")
+	mustAppendFile(t, logFile, "[another-step] a neighbouring step, still running\n")
 
 	var out strings.Builder
 	dumpOwnLog(&out)
@@ -54,7 +54,7 @@ func TestDumpOwnLogWithNothingToReport(t *testing.T) {
 		t.Errorf("expected no output before anything was logged, got %q", out.String())
 	}
 
-	appendToSharedLog(t, "[another-step] an earlier step on this builder\n")
+	mustAppendFile(t, logFile, "[another-step] an earlier step on this builder\n")
 	out.Reset()
 	dumpOwnLog(&out)
 	if out.String() != "" {
@@ -81,17 +81,5 @@ func TestLogfTagsEachSharedLine(t *testing.T) {
 		if !strings.HasPrefix(line, logTag+" ") {
 			t.Errorf("line %q is not tagged with %s", line, logTag)
 		}
-	}
-}
-
-func appendToSharedLog(t *testing.T, line string) {
-	t.Helper()
-	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(line); err != nil {
-		t.Fatal(err)
 	}
 }

@@ -16,12 +16,8 @@ import (
 func TestResolveInRootRefusesToEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "host-secret")
-	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, outside, "x")
+	mustMkdirAll(t, filepath.Join(root, "etc"))
 
 	cases := map[string]string{
 		"symlink to an absolute host path": outside,
@@ -30,10 +26,7 @@ func TestResolveInRootRefusesToEscape(t *testing.T) {
 	for name, target := range cases {
 		t.Run(name, func(t *testing.T) {
 			link := filepath.Join(root, "etc", "ca.pem")
-			_ = os.Remove(link)
-			if err := os.Symlink(target, link); err != nil {
-				t.Fatal(err)
-			}
+			mustSymlink(t, target, link)
 			// The property that matters is that nothing outside the rootfs is
 			// ever returned. Refusing outright and failing to find a path that
 			// only exists on the host are both acceptable.
@@ -52,16 +45,10 @@ func TestResolveInRootRefusesToEscape(t *testing.T) {
 // not the host's, and must keep working.
 func TestResolveInRootFollowsAbsoluteLinksInsideTheRootfs(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "etc", "ssl", "certs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	mustMkdirAll(t, filepath.Join(root, "etc", "ssl", "certs"))
 	real := filepath.Join(root, "etc", "ssl", "certs", "ca-certificates.crt")
-	if err := os.WriteFile(real, []byte("real"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/etc/ssl/certs/ca-certificates.crt", filepath.Join(root, "etc", "ssl", "cert.pem")); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, real, "real")
+	mustSymlink(t, "/etc/ssl/certs/ca-certificates.crt", filepath.Join(root, "etc", "ssl", "cert.pem"))
 	resolved, err := resolveInRoot(root, "/etc/ssl/cert.pem")
 	if err != nil {
 		t.Fatal(err)
@@ -73,9 +60,7 @@ func TestResolveInRootFollowsAbsoluteLinksInsideTheRootfs(t *testing.T) {
 
 func TestResolveInRootAllowsAMissingFinalComponent(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	mustMkdirAll(t, filepath.Join(root, "etc"))
 	resolved, err := resolveInRoot(root, "/etc/not-there.pem")
 	if err != nil {
 		t.Fatal(err)
@@ -91,20 +76,11 @@ func TestRemoveCALeavesLaterAdditionsIntact(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bundle.pem")
 	original := "ORIGINAL\n"
-	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, path, original)
 	if err := appendCA(path, []byte("BUILDCAGE-CA")); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.WriteString("USER-ADDED\n"); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
+	mustAppendFile(t, path, "USER-ADDED\n")
 
 	if err := removeCA(path); err != nil {
 		t.Fatal(err)
@@ -125,9 +101,7 @@ func TestRemoveCARestoresTheFileExactly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bundle.pem")
 	original := "ORIGINAL CONTENT\nSECOND LINE\n"
-	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, path, original)
 	if err := appendCA(path, []byte("CA")); err != nil {
 		t.Fatal(err)
 	}
@@ -144,9 +118,7 @@ func TestRemoveCARestoresTheFileExactly(t *testing.T) {
 func TestRemoveCAIsANoOpWhenTheBlockIsGone(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bundle.pem")
-	if err := os.WriteFile(path, []byte("REWRITTEN\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, path, "REWRITTEN\n")
 	if err := removeCA(path); err != nil {
 		t.Fatal(err)
 	}
@@ -161,18 +133,6 @@ func TestRemoveCAIsANoOpWhenTheBlockIsGone(t *testing.T) {
 func filler(n int) string {
 	const line = "FILLER-LINE\n"
 	return strings.Repeat(line, n/len(line)+1)[:n]
-}
-
-func mustAppendString(t *testing.T, path, s string) {
-	t.Helper()
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(s); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // A step can leave the bundle far larger than one window, so the block has to
@@ -192,13 +152,11 @@ func TestRemoveCAStripsABlockAcrossWindowBoundaries(t *testing.T) {
 			// appendCA opens the block with a newline, so the marker lands
 			// one byte past what is already there.
 			before, after := filler(c.beginAt-1), filler(c.after)
-			if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			mustWriteFile(t, path, before)
 			if err := appendCA(path, []byte(strings.Repeat("C", c.caSize))); err != nil {
 				t.Fatal(err)
 			}
-			mustAppendString(t, path, after)
+			mustAppendFile(t, path, after)
 
 			if err := removeCA(path); err != nil {
 				t.Fatal(err)
@@ -226,9 +184,7 @@ func TestRemoveCAStripsABlockWithoutSurroundingNewlines(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "bundle.pem")
-			if err := os.WriteFile(path, []byte(c.content), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			mustWriteFile(t, path, c.content)
 			if err := removeCA(path); err != nil {
 				t.Fatal(err)
 			}
@@ -246,13 +202,9 @@ func TestRemoveCAStripsABlockWithoutSurroundingNewlines(t *testing.T) {
 func TestRemoveCARefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "host-secret")
-	if err := os.WriteFile(outside, []byte("SECRET"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, outside, "SECRET")
 	path := filepath.Join(dir, "bundle.pem")
-	if err := os.Symlink(outside, path); err != nil {
-		t.Fatal(err)
-	}
+	mustSymlink(t, outside, path)
 
 	if err := removeCA(path); !errors.Is(err, errNotRegular) {
 		t.Fatalf("got %v, want errNotRegular", err)
@@ -269,13 +221,9 @@ func TestRemoveCARefusesASymlink(t *testing.T) {
 func TestAppendCARefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "host-secret")
-	if err := os.WriteFile(outside, []byte("SECRET"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	mustWriteFile(t, outside, "SECRET")
 	path := filepath.Join(dir, "bundle.pem")
-	if err := os.Symlink(outside, path); err != nil {
-		t.Fatal(err)
-	}
+	mustSymlink(t, outside, path)
 
 	if err := appendCA(path, []byte("CA")); !errors.Is(err, errNotRegular) {
 		t.Fatalf("got %v, want errNotRegular", err)
@@ -332,9 +280,7 @@ func TestAppendCARefusesAFIFOWithoutBlocking(t *testing.T) {
 func TestRemoveCARefusesADirectory(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bundle.pem")
-	if err := os.Mkdir(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	mustMkdirAll(t, path)
 	if err := removeCA(path); err == nil {
 		t.Fatal("removeCA succeeded on a directory")
 	}
