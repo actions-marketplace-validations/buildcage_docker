@@ -16,6 +16,13 @@
     },
     {
       "customType": "regex",
+      "managerFilePatterns": ["/^test/helpers\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nTEST_ALPINE_IMAGE=\"[^:]+:(?<currentValue>[\\d.]+)@(?<currentDigest>sha256:[a-f0-9]+)\""
+      ]
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nMOBY_PROFILES_SECCOMP_VERSION \\?= (?<currentValue>v[\\d.]+)"
