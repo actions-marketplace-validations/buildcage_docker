@@ -31,6 +31,30 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// skipIfRoot leaves out a test whose fixture is a permission bit. Root ignores
+// those, so the failure the test is after never happens. CI runs as an ordinary
+// user; this is for a developer who does not.
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not apply")
+	}
+}
+
+// mustMakeReadOnly takes the write bit off a directory and puts it back
+// afterwards, so t.TempDir can still clean up.
+func mustMakeReadOnly(t *testing.T, dir string) {
+	t.Helper()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, info.Mode().Perm()) })
+}
+
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
