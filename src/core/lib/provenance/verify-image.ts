@@ -1,12 +1,10 @@
 /**
- * verify-image.ts — Image provenance verification helpers
- *
  * Verifies the Docker image's Sigstore provenance bundle.
  *
- * Fail-closed policy:
- *   - Any failure for a verifiable ref (version tag / 40-char SHA) → throws
- *     VerifyImageError; the caller (main) is responsible for printing ::error::.
- *   - Unverifiable ref (branch / local ./setup) → returns null.
+ * Fail-closed:
+ *   - any failure for a verifiable ref (version tag, 40-char SHA) throws
+ *     VerifyImageError, and the caller is responsible for printing ::error::
+ *   - an unverifiable ref (branch, local ./setup) returns null
  */
 
 import { fetchManifestDigest, fetchRegistryToken, fetchImageConfigLabels } from "./oci-registry.ts";
@@ -36,7 +34,7 @@ export interface ResolvedImage {
  * Verify image provenance and return the verified manifest digest.
  *
  * Returns null for unverifiable refs (branch / local ./setup).
- * On failure, throws VerifyImageError — the caller is responsible for printing
+ * On failure, throws VerifyImageError; the caller is responsible for printing
  * the error message.
  *
  * Untested by design: every step it calls is tested directly. The order they
@@ -75,9 +73,8 @@ export function toProvenanceError(e: unknown): ProvenanceError {
 }
 
 /**
- * verifyImageDigest returns null for an unverifiable ref (branch name,
- * local ./setup) rather than throwing — this turns that into the
- * caller-facing error.
+ * verifyImageDigest returns null for an unverifiable ref (branch name, local
+ * ./setup) rather than throwing. This turns that into the caller-facing error.
  */
 export function requireDigest(digest: string | null, actionRef: string): string {
   if (digest === null) {

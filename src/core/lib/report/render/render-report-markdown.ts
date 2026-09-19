@@ -7,7 +7,7 @@ import { buildInspectRestrictExample } from "./inspect-example.ts";
 import type { ReportData } from "../types.ts";
 
 export interface RenderReportMarkdownOptions {
-  /** Full heading text, e.g. "Outbound Traffic Report — npm install".
+  /** Full heading text, e.g. "Outbound Traffic Report: npm install".
    *  Defaults to a bare "Outbound Traffic Report", which is what both
    *  engines' report scripts use. */
   title?: string;
@@ -17,7 +17,7 @@ export interface RenderReportMarkdownOptions {
 
 /** Branches on `report.engine`/`report.parameters.mode` rather than being
  *  duplicated per engine. actionRepo/actionRef are real values, not
- *  placeholders — this runs on the runner, with process.env available. */
+ *  placeholders: this runs on the runner, with process.env available. */
 export function renderReportMarkdown(
   report: ReportData,
   actionRepo: string,
@@ -70,7 +70,7 @@ export function renderReportMarkdown(
   }
   if (report.passed.length === 0 && report.blocked.length === 0) {
     // Otherwise a no-traffic build leaves nothing between the heading and the
-    // footer — indistinguishable from a report that failed to generate.
+    // footer, indistinguishable from a report that failed to generate.
     markdown += "_(no communication)_\n\n";
   }
 
@@ -79,7 +79,7 @@ export function renderReportMarkdown(
   } else if (report.engine === "inspect") {
     markdown += renderInspectDetails(report.timeline, report.startedAt);
   } else {
-    // SNI-based sniffing only applies to the universal engine — the
+    // SNI-based sniffing only applies to the universal engine: the
     // explicit engine terminates TLS itself, so this caveat doesn't apply
     // there (renderCommunicationDetails above covers explicit instead).
     markdown +=

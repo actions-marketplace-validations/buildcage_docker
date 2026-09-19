@@ -15,9 +15,9 @@
  * The URL pattern extends the host rule syntax to a path, reusing the same
  * wildcard vocabulary applied to path segments instead of dot-separated labels:
  *
- *   `**` — matches across separators
- *   `*`  — one or more characters, not crossing a separator
- *   `?`  — a single character
+ *   `**`: matches across separators
+ *   `*` : one or more characters, not crossing a separator
+ *   `?` : a single character
  *
  * A wildcard may sit among literal text, in a path segment as in a domain
  * label; see partial-wildcard.ts for why that matters.
@@ -27,9 +27,9 @@
  * authority and the path as two separate ACLs (see haproxy-rule-block.ts), and
  * the host half alone becomes the resolver's allowlist (see coredns-config.ts).
  *
- * Path traversal is NOT handled here. `*` cannot cross a `/`, but a segment
- * that IS `..` still matches it, and `**` crosses freely, so haproxy decodes
- * and strips `..` from the path before any rule sees it; see
+ * Path traversal is not handled here: `*` cannot cross a `/`, but a segment
+ * that is itself `..` still matches it, and `**` crosses freely, so haproxy
+ * decodes and strips `..` from the path before any rule sees it; see
  * haproxy-inspect-stage.ts.
  */
 
@@ -62,7 +62,7 @@ export interface UrlRule {
    * For a `~` rule: the host half's own regex, port included verbatim if the
    * user wrote one. The proxy matches this against the connection's host
    * both with and without a port, since the pattern's port (if any) is
-   * optional -- see haproxy-config.ts. Meaningless when `isRegex` is false,
+   * optional; see haproxy-config.ts. Meaningless when `isRegex` is false,
    * since a wildcard rule's host and (literal) port are matched separately.
    */
   hostRegex: string;
@@ -145,10 +145,10 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
  * tries it against the connection's host both bare and with the real port,
  * so a pattern with no port at all matches only the scheme's default port,
  * and one ending in an optional port group (`(:8443)?`) matches either.
- * `authorityRegex` is the same host half with its port pattern dropped --
- * from its own `:`, or the `(` opening a group right at the colon -- for
- * the resolver's allowlist, which has no notion of a port to match against
- * either way; see splitDomainFromPortPattern.
+ * `authorityRegex` is the same host half with its port pattern dropped, from
+ * its own `:` or from the `(` opening a group right at the colon, for the
+ * resolver's allowlist, which has no notion of a port to match against either
+ * way; see splitDomainFromPortPattern.
  *
  * @throws {Error} if the text can't be split into a host and a path, either
  *   half carries a top-level `|`, the host half holds a character no hostname
@@ -298,8 +298,8 @@ export function convertUrlRule(rule: string): UrlRule {
 /**
  * Split a rules input into rule lines. Newline-separated, because a rule
  * contains a space between its method list and its URL. A blank line, or a
- * line starting with `#`, is dropped — only a full-line `#`, since a `~`
- * rule's own regex might legitimately contain one.
+ * line starting with `#`, is dropped. Only a full-line `#` counts, since a
+ * `~` rule's own regex might legitimately contain one.
  */
 function splitUrlRuleLines(rulesInput: string | undefined): string[] {
   return (

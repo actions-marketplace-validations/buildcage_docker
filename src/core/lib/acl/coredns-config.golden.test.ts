@@ -1,5 +1,5 @@
 /**
- * Full-text golden coverage of generateCorednsConfig — the same argument as
+ * Full-text golden coverage of generateCorednsConfig, the same argument as
  * haproxy-config.golden.test.ts. The Corefile decides which names resolve at
  * all, so a silently reordered view block matters as much as a wrong one.
  */

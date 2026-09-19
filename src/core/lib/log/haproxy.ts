@@ -7,11 +7,11 @@ import { splitHostPort } from "./authority.ts";
 import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export interface HaproxyLogScanResult {
-  /** ALLOWED entries in restrict mode, AUDIT entries in audit mode — never
+  /** ALLOWED entries in restrict mode, AUDIT entries in audit mode, never
    *  both (see `isAudit`). */
   passed: AggregatedEntry[];
   blocked: AggregatedEntry[];
-  /** Raw BLOCKED line count, pre-aggregation — distinct from blocked.length. */
+  /** Raw BLOCKED line count, pre-aggregation: distinct from blocked.length. */
   blockedCount: number;
   /** True iff the log opens with the startup marker. Anything else means its
    *  beginning is gone, rotated away or erased. Only the marker counts:

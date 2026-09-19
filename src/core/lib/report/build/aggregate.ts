@@ -46,8 +46,8 @@ export function annotateKnownBlocked(
  *
  * A row with no port is a refused name, connected to nothing. It is tested as
  * port 0, which `host:*` matches (compiling to `host:\d+`) but `host:443` does
- * not -- right, since no port was involved. Without this a refused name could
- * never be marked expected.
+ * not, which is right since no port was involved. Without this a refused name
+ * could never be marked expected.
  */
 function targetOf(row: AggregatedEntry): string {
   return `${row.host}:${row.port === "-" ? "0" : row.port}`;

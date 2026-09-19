@@ -6,7 +6,7 @@ import {
 import { wrapCommunicationDetails as wrap } from "./communication-section.ts";
 
 // No brackets in these two fixtures on purpose, so the non-escaping tests
-// below don't need to reason about escaped output — bracket/asterisk/etc.
+// below don't need to reason about escaped output; bracket/asterisk/etc.
 // escaping is covered separately in the "markdown escaping" tests.
 const VERTEX_A = {
   command: "RUN echo no-network-here && mkdir -p /tmp/work",

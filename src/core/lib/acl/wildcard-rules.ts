@@ -26,8 +26,8 @@ export function buildRules(rulesInput: string): string[] {
 
 /**
  * Split+validate a space-separated rules string, returning the raw
- * (unconverted) rule tokens — for callers that need the original
- * wildcard/~regex syntax preserved, such as known_blocked_rules.
+ * (unconverted) rule tokens, for callers that need the original wildcard or
+ * `~`regex syntax preserved, such as known_blocked_rules.
  *
  * @throws {Error} if any rule has invalid wildcard/regex syntax
  */
@@ -89,9 +89,9 @@ export function convertRule(rule: string): string {
  * Convert a domain wildcard to a regex string (without anchors or port).
  *
  * Supported wildcards:
- *   `**` — matches one or more characters including dots
- *   `*`  — matches one or more characters excluding dots
- *   `?`  — matches a single character excluding dots
+ *   `**`: one or more characters, dots included
+ *   `*` : one or more characters, dots excluded
+ *   `?` : a single character, dots excluded
  *
  * A dot-separated part containing `*` must be exactly `*` or `**`.
  */
@@ -104,7 +104,7 @@ function domainToRegex(domain: string): string {
         `Invalid wildcard in "${domain}": part "${part}" mixes "*" with other characters`,
       );
     }
-    // Escape regex meta characters (`?` excluded — it is a wildcard, handled below)
+    // Escape regex meta characters, `?` excluded: it is a wildcard, handled below
     return part
       .replace(/[.+^$()[\]{}|\\]/g, "\\$&") // escape regex special chars except `?`
       .replace(/\?/g, "[^.]"); // `?` matches a single character excluding dots

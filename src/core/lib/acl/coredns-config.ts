@@ -1,24 +1,21 @@
 /**
  * Corefile generator for the `inspect` engine.
  *
- * Every name a build resolves, allowed or not, is answered locally with the
- * proxy's own address, not NXDOMAIN: the build connects to the proxy and its
- * full URL is recorded before being denied, and a name that is only looked
- * up, never connected to, still shows up in the log. CoreDNS never forwards a
- * query anywhere, so the query itself cannot reach a real nameserver and leak
- * whatever it looked up, with no connection ever needed.
+ * Every name resolves locally to the proxy's own address, allowed or not, so
+ * the build connects to the proxy and its full URL is recorded before being
+ * denied, and a name that was only looked up still shows up in the log.
+ * Nothing is ever forwarded, so the query itself cannot leak what it asked
+ * for.
  *
- * Real resolution happens once, in HAProxy, strictly after a request has
- * already passed its full host, path and method check; see
- * haproxy-config.ts. CoreDNS decides nothing a build can reach, only what
- * gets logged as allowed or denied, and that decision still has to match the
- * rules exactly, or a name outside them would be misreported as allowed.
- * That precision is why this engine uses CoreDNS (regex views) over dnsmasq
- * (suffix matching, which could only widen `abc*.amazonaws.com` to
- * `/amazonaws.com/`).
+ * Real resolution happens once, in HAProxy, after a request has passed its
+ * host, path and method check; see haproxy-config.ts. What this file decides
+ * is only what gets logged as allowed or denied, and that has to match the
+ * rules exactly, which is why the engine uses CoreDNS regex views over
+ * dnsmasq suffix matching: the latter could only widen `abc*.amazonaws.com`
+ * to `/amazonaws.com/`.
  *
- * Reverse lookups and service-discovery names are the two exceptions to all of
- * the above; see reverseZoneLines and discoveryZoneLines.
+ * Reverse lookups and service-discovery names are the exceptions; see
+ * reverseZoneLines and discoveryZoneLines.
  */
 
 import type { CompiledRuleSet } from "./haproxy-rules.ts";
@@ -38,8 +35,8 @@ export interface CorednsConfigOptions {
 export interface GeneratedCorednsConfig {
   config: string;
   /**
-   * Always empty: this module reads an already-compiled rule set, so there is
-   * nothing left for it to refuse. Present so a caller can merge it with
+   * Always empty: the rule set arrives already compiled, so there is nothing
+   * left to refuse. Present so a caller can merge it with
    * generateHaproxyConfig's warnings, which IP rules can still fill, and
    * report both the same way.
    */
@@ -60,16 +57,16 @@ export function escapeForCel(regex: string): string {
 
 /**
  * The lines answering a name with the proxy's own address: NOERROR with an
- * empty AAAA (NODATA), not NXDOMAIN. NXDOMAIN claims the name itself does not
- * exist, and musl's getaddrinfo(AF_UNSPEC) takes that literally and discards
- * the valid A answer along with it, so a build under Alpine (BusyBox wget,
- * apk, ...) would fail outright instead of falling back to the A record like
- * every other resolver does. Shared by every block below, so the answer
- * cannot drift between what an allowed name gets and what a denied one does.
+ * empty AAAA (NODATA), never NXDOMAIN. NXDOMAIN claims the name itself does
+ * not exist, and musl's getaddrinfo(AF_UNSPEC) takes that literally and
+ * discards the valid A answer with it, so a build under Alpine (BusyBox wget,
+ * apk) would fail outright instead of falling back to the A record. Shared by
+ * every block below, so the answer cannot drift between an allowed name and a
+ * denied one.
  *
- * `IN ANY` matches every type the two above do not, which would otherwise
- * reach no template at all and be answered SERVFAIL. NODATA refuses the same
- * query without telling the resolver the server is broken and worth retrying.
+ * `IN ANY` catches every type the two above do not, which would otherwise
+ * reach no template and be answered SERVFAIL. NODATA refuses the query
+ * without telling the resolver the server is broken and worth retrying.
  */
 function proxyAnswerLines(proxyAddress: string, ttlSeconds: number): string[] {
   return [
@@ -93,23 +90,15 @@ const REVERSE_NAME_REGEX =
   "^(([0-9]{1,3}[.]){1,4}in-addr[.]arpa|([0-9a-fA-F][.]){1,32}ip6[.]arpa)[.]$";
 
 /**
- * The reverse zones, where a PTR query is answered NXDOMAIN.
+ * The reverse zones, where a PTR query is answered NXDOMAIN. Nothing inside
+ * the cage has a name to give back, and NXDOMAIN matches what dnsmasq gives
+ * the universal engine for the same addresses through bogus-priv.
  *
- * Nothing inside the cage has a name to give back, so the only question is how
- * the lookup ends. SERVFAIL, which is what an unhandled query gets, reads to
- * musl as a server that may yet answer: it retries and then waits out its
- * whole resolver timeout, five seconds for every reverse lookup a step makes.
- * NXDOMAIN is final, so the caller stops at once, and it matches what dnsmasq
- * gives the universal engine for the same addresses through bogus-priv.
- *
- * The lookup is still recorded, but under a verb of its own: no rule can name
- * an address read backwards, so reporting one as denied would put a row in the
- * report that no rule could ever take away.
- *
- * The view is what stops that verb from becoming a hiding place. It holds the
- * block to names that really are an address backwards; `SECRET-DATA.in-addr.arpa`
- * and every other label a build might invent misses the view, falls through to
- * the blocks below, and is answered, logged and reported like any other name.
+ * Recorded under a verb of its own: no rule can name an address read
+ * backwards, so reporting one as denied would put a row in the report that no
+ * rule could ever take away. The view is what stops that verb from becoming a
+ * hiding place, holding the block to names that really are an address
+ * backwards.
  */
 function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
   const soa = `{{ .Zone }} ${ttlSeconds} IN SOA ns.buildcage.invalid. hostmaster.buildcage.invalid. 1 ${ttlSeconds} ${ttlSeconds} ${ttlSeconds} ${ttlSeconds}`;
@@ -139,8 +128,8 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
  * RFC 2782 allow so the caller chooses as little of the name as possible; see
  * discoveryZoneLines. Character classes rather than `\\.`, which CEL rejects.
  *
- * The only place a service name is recognised: the report reads the verbs the
- * blocks below log under, never the shape.
+ * The only place a service name is recognised: the report reads the verbs
+ * these blocks log under, never the shape.
  */
 const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";
 
@@ -153,22 +142,21 @@ const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";
 const DISCOVERY_TYPES = ["SRV", "TXT", "TLSA", "URI"];
 
 /**
- * The block answering service-discovery names, under a verb of their own.
+ * The block answering service-discovery names, under a verb of their own. No
+ * rule can permit one, since this resolver returns no discovery record to
+ * anybody, so reporting the lookup as denied would be a row no rule could
+ * take away and would fail a build that worked.
  *
- * No rule can permit one, this resolver returning no discovery record to
- * anybody, so reporting the lookup as denied would be a row no rule could take
- * away and would fail a build that worked.
- *
- * Both conditions are what keep that verb from becoming a hiding place; the
- * shape alone is nowhere near enough, `_a._tcp.SECRET.attacker.example` being
- * shaped like a service name too. `parentRegex` holds the block to names under
- * a host the rules already allow, which the build could have looked up
- * directly anyway; it is undefined in audit alone, which refuses nothing and
- * so has no blocked table to leave. The type is checked because the name does
- * not imply it, an underscore name being a convention for the owner name
- * (RFC 8552) rather than a promise about the question: an A query really is
- * answered by this resolver, with the proxy's address, so calling it a lookup
- * that got nothing back would be false.
+ * Both conditions keep that verb from becoming a hiding place, the shape alone
+ * being nowhere near enough: `_a._tcp.SECRET.attacker.example` is shaped like
+ * a service name too. `parentRegex` holds the block to names under a host the
+ * rules already allow, which the build could have looked up directly anyway;
+ * it is undefined in audit alone, which refuses nothing and so has no blocked
+ * table to leave. The type is checked because the name does not imply it, an
+ * underscore name being a convention for the owner name (RFC 8552) rather than
+ * a promise about the question: an A query really is answered here, with the
+ * proxy's address, so calling it a lookup that got nothing back would be
+ * false.
  */
 function discoveryZoneLines(
   proxyAddress: string,
@@ -197,16 +185,15 @@ function discoveryZoneLines(
 }
 
 /**
- * The block taking every other service name, under a verb of its own.
- *
- * A refusal like any other, but the remedy is not: the name is an attribute of
+ * The block taking every other service name, under a verb of its own. The
+ * refusal is like any other but the remedy is not: the name is an attribute of
  * the host below it (RFC 8552), so a rule naming it silences the row without
- * making the record resolve. Logging it apart is what lets the report point at
- * the host instead.
+ * making the record resolve, and logging it apart is what lets the report
+ * point at the host instead.
  *
  * It sits after the allowlist, so a name someone did write a rule for still
- * reads as allowed. The discovery block sits before it instead, so one under
- * an allowed host reads as `discovery` even when a rule names it, which is the
+ * reads as allowed. The discovery block sits before it, so one under an
+ * allowed host reads as `discovery` even when a rule names it, which is the
  * more accurate of the two.
  */
 function serviceZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
@@ -232,9 +219,9 @@ function serviceZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
 const HEALTH_LINE = "    health 127.0.0.1:8080";
 
 /**
- * Generate a Corefile from the same compiled rules the proxy's own config is
- * generated from, so what this logs as allowed and what HAProxy lets through
- * cannot disagree about a name.
+ * Generate a Corefile from the same compiled rules the proxy's own config comes
+ * from, so what this logs as allowed and what HAProxy lets through cannot
+ * disagree about a name.
  */
 export function generateCorednsConfig(
   rules: CompiledRuleSet,
@@ -244,10 +231,6 @@ export function generateCorednsConfig(
   const warnings: string[] = [];
   const hostRegexes = rules.resolverHosts;
 
-  // Audit refuses nothing, so every name is logged as allowed. It is still
-  // answered locally, not forwarded: audit records what a build tried, it
-  // does not need a real answer to do that, and forwarding would make this
-  // resolver a live exfiltration channel for any name a build only looks up.
   if (mode === "audit") {
     const lines = [
       "# Generated by buildcage. Do not edit.",

@@ -27,14 +27,14 @@ export interface VerifyBundleOptions {
  * payload is needed for this format.
  *
  * Policy fields in options:
- *   certificateIssuer      – expected Fulcio OIDC issuer URL
- *   certificateIdentityURI – SAN URI regexp pattern string
- *   certificateOIDs        – { [oid]: derUtf8EncodedValue } map
- *   tlogThreshold          – minimum transparency log entries (default 1)
- *   ctLogThreshold         – minimum CT log entries (default 1)
+ *   certificateIssuer:      expected Fulcio OIDC issuer URL
+ *   certificateIdentityURI: SAN URI regexp pattern string
+ *   certificateOIDs:        { [oid]: derUtf8EncodedValue } map
+ *   tlogThreshold:          minimum transparency log entries (default 1)
+ *   ctLogThreshold:         minimum CT log entries (default 1)
  *
- * expectedDigest — "sha256:<hex>" fetched from the registry;
- * must match the digest inside the signed payload.
+ * expectedDigest is the "sha256:<hex>" fetched from the registry, and must
+ * match the digest inside the signed payload.
  */
 export async function verifyBundle(
   bundleJson: DsseBundle,
@@ -73,13 +73,13 @@ export async function verifyBundle(
     );
   }
 
-  // Assert that the bundle's signed payload targets the digest we fetched.
-  // The Referrers API that links a bundle to a digest is registry metadata,
-  // not a cryptographic binding — an attacker with package-write access could
-  // re-attach a valid bundle to a different image.  This check closes that gap.
+  // Assert that the bundle's signed payload targets the digest that was
+  // fetched. The Referrers API linking a bundle to a digest is registry
+  // metadata, not a cryptographic binding: an attacker with package-write
+  // access could re-attach a valid bundle to a different image.
   // The DSSE payload parsed by assertSignedDigest is the exact byte sequence covered by the
   // signature that verifier.verify() above just cryptographically verified (same in-memory
   // bundle). @sigstore/verify exposes no accessor for the verified payload, so parsing it
-  // directly is both necessary and sound — it is read only after verification succeeds.
+  // directly is both necessary and sound: it is read only after verification succeeds.
   assertSignedDigest(bundleJson, expectedDigest);
 }

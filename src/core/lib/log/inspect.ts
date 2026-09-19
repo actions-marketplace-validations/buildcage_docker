@@ -34,8 +34,8 @@
  * The URL and the SNI are last because the build chooses their length: a cut
  * line costs their tail, not the decision. Nothing should cut one, since both
  * the configured line length and s6-log's split are above the longest request
- * haproxy accepts, so `unparsed` counts what arrives unreadable anyway rather
- * than skipping it. A line the log pipe dropped whole leaves no trace at all.
+ * haproxy accepts, so `unparsed` counts what arrives unreadable rather than
+ * skipping it.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
@@ -187,7 +187,7 @@ export interface InspectLogScan {
   events: TrafficEvent[];
   /** Seconds since the epoch the proxy itself started, matching
    *  TrafficEvent.time's unit. Undefined exactly when hasProxyStarted would
-   *  be false -- the marker line never showed up at all. */
+   *  be false: the marker line never showed up at all. */
   startedAt: number | undefined;
   /** True iff the log opens with the startup marker. Stricter than
    *  `startedAt`: a restart writes a second marker, which would otherwise

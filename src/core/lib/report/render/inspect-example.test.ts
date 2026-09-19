@@ -246,7 +246,7 @@ describe("buildInspectRestrictExample", () => {
 
   it("echoes allowed_tls_rules and allowed_ip_rules as configured, not derived from traffic", () => {
     // Neither is ever decrypted, so there is nothing in `requests` to build
-    // them from -- they are the same values the audit run was given.
+    // them from; they are the same values the audit run was given.
     const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
       allowedIpRules: ["10.0.0.5:5432"],
     });

@@ -3,7 +3,7 @@ import { annotateKnownBlocked } from "./aggregate.ts";
 import type { GenReportParameters, UniversalReportData } from "../types.ts";
 
 /**
- * Pure — no I/O; the caller fetches the lines and the parameters itself. An
+ * Pure: no I/O; the caller fetches the lines and the parameters itself. An
  * empty input naturally yields passed:[]/blocked:[]/blockedCount:0, so no
  * special-case branch is needed.
  */

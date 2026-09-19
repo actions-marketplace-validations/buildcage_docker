@@ -2,9 +2,8 @@
  * The parts every "Switch to restrict mode" snippet shares, whichever engine
  * built it: the `uses:` line and the <details> block the YAML sits in.
  *
- * These were written out once per renderer, and the indentation comment was
- * copied verbatim with them — which is exactly the kind of thing that gets
- * fixed in one copy and not the other.
+ * Shared rather than written out per renderer, so the indentation comment
+ * cannot be fixed in one copy and missed in the other.
  */
 
 /**

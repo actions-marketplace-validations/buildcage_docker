@@ -28,8 +28,8 @@ describe("splitHostPort", () => {
     });
 
     // The address's own colons come before the closing bracket, so the last
-    // one is not a separator. Reading it as one would give host "[:" and
-    // port "1]", which is what each of these call sites used to do.
+    // one is not a separator. Reading it as one would give host "[:" and port
+    // "1]".
     it("leaves a bracketed address with no port intact", () => {
       expect(splitHostPort("[::1]")).toStrictEqual({ host: "[::1]", port: undefined });
       expect(splitHostPort("[2001:db8::1]")).toStrictEqual({

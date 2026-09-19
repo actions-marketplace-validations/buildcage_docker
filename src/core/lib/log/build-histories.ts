@@ -17,7 +17,7 @@ interface CreatedAt {
 export function selectAllRefs(historiesText: string): string[] {
   // Keyed by ref: buildctl reports each build's history record more than
   // once as it progresses (e.g. started, then completed), so the same ref
-  // can appear on multiple lines — the last one wins, though CreatedAt is
+  // can appear on multiple lines and the last one wins, though CreatedAt is
   // fixed at build start and doesn't actually change across those lines.
   const byRef = new Map<string, CreatedAt>();
   for (const line of historiesText.split("\n")) {

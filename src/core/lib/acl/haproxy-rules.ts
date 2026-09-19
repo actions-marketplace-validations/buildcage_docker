@@ -20,7 +20,7 @@ export const HOST_IS_ADDRESS = `^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`;
 
 /**
  * Ranges a resolved name may not point at, refused to stop an allowlisted name
- * resolving to somewhere the proxy can reach but the build cannot -- a cloud
+ * resolving to somewhere the proxy can reach but the build cannot, a cloud
  * metadata endpoint above all. Only never-public ranges; RFC1918 (and its v6
  * equivalent, fc00::/7 ULA) is allowed, since a name pointing at an internal
  * mirror is legitimate. An address named directly in a rule is exempt.
@@ -52,9 +52,9 @@ export const INTERNAL_RANGES = [
  *    literal number matched separately (HAProxy's dst_port ACL).
  *  - "hostPort": a `~` host/tls/ip rule. `hostRegex` is the user's whole
  *    regex, covering host and port together, matched as one expression
- *    against the connection stringified. `port` is always null -- the
- *    pattern's own port coverage replaces it, and a port can never be
- *    matched with a regex through dst_port.
+ *    against the connection stringified. `port` is always null, since the
+ *    pattern's own port coverage replaces it and a port can never be matched
+ *    with a regex through dst_port.
  *  - "hostBareFull": a `~` URL rule's host half. `hostRegex` covers the host
  *    alone (port optional in the pattern), tried against two forms of the
  *    connection: without a port when the connection is on the scheme's
@@ -258,7 +258,7 @@ function compileIpRules(rules: string[] | undefined, warnings: string[]): Compil
   const out: CompiledIpRule[] = [];
   (rules ?? []).forEach((rule, index) => {
     if (rule.startsWith("~")) {
-      // Validates: the regex compiles and it names a port -- see
+      // Validates: the regex compiles and it names a port. See
       // hostRuleToMatcher for why this is checked here too.
       splitRawRegexHost(rule);
       out.push({

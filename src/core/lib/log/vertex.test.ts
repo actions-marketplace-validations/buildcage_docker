@@ -17,7 +17,7 @@ const MULTISTAGE_RAWJSON = readFileSync(join(fixturesDir, "multistage-rawjson.js
 // Captured from a live moby/buildkit v0.31.1 explicit-mode container building
 // test/Dockerfile.explicit-restrict (15 steps, single stage). BuildKit right-
 // pads single-digit step counters with a leading space to align with the
-// build's total ("[ 2/15]" vs "[10/15]") — regression coverage for
+// build's total ("[ 2/15]" vs "[10/15]"). Regression coverage for
 // runVertexPattern correctly matching a padded counter like that.
 const PADDED_STEPS_RAWJSON = readFileSync(join(fixturesDir, "padded-steps-rawjson.json"), "utf8");
 
@@ -244,8 +244,8 @@ describe("parseVertexAllowedLog", () => {
       ],
     });
     // A single JSON.parse(rawJsonText) on this combined text would throw
-    // ("Unexpected non-whitespace character after JSON ... line 2 column 1")
-    // — this is the exact failure this parses around.
+    // ("Unexpected non-whitespace character after JSON ... line 2 column 1"),
+    // the exact failure this parses around.
     const result = parseVertexAllowedLog(`${doc1}\n${doc2}\n`);
     expect(result.length).toBe(2);
     expect(result[0].entries[0].url).toBe("https://one.example.com/");

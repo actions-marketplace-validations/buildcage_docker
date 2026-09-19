@@ -56,7 +56,7 @@ describe("scanHaproxyLog – properties", () => {
             expect(result.passed[0].port).toBe(p);
             expect(result.passed[0].reason).toBe(r);
           } else {
-            // The "other" of ALLOWED/AUDIT for this mode — dropped entirely.
+            // The "other" of ALLOWED/AUDIT for this mode: dropped entirely.
             expect(result.passed.length).toBe(0);
             expect(result.blocked.length).toBe(0);
           }

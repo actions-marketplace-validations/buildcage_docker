@@ -25,7 +25,7 @@ export interface DsseBundle {
  *    Digest is stored in critical.image.docker-manifest-digest.
  *
  * This check closes the gap between Referrers-API attribution (registry
- * metadata, not cryptographic) and the actual signed content — an attacker
+ * metadata, not cryptographic) and the actual signed content: an attacker
  * with package-write access could re-attach a valid bundle to a different
  * image; this assertion prevents accepting such a re-attached bundle.
  *

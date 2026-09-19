@@ -34,7 +34,7 @@ export interface HaproxyConfigOptions extends RuleInputs {
   /**
    * Upstream DNS servers a name is resolved against, once a request has
    * already passed the rule ACLs. Not the resolver the build itself
-   * uses -- CoreDNS never gives out a real answer; see coredns-config.ts.
+   * uses, which never gives out a real answer; see coredns-config.ts.
    */
   resolverAddress?: string[];
   /**

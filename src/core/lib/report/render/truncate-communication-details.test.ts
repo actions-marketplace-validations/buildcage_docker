@@ -49,7 +49,7 @@ describe("truncateForStepSummary", () => {
 
     const truncated = truncateForStepSummary(md, false);
     expect(Buffer.byteLength(truncated, "utf8") <= 1024 * 1024).toBe(true);
-    // Every kept line of the log survived whole -- no line is cut mid-way. A
+    // Every kept line of the log survived whole, with no line cut mid-way. A
     // Set, not lines.includes per line: ~17000 kept against 40000 is 680M
     // comparisons, which put this one test within reach of the 5s timeout.
     const known = new Set(lines);

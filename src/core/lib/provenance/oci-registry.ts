@@ -1,5 +1,5 @@
 /**
- * oci-registry.ts — OCI registry transport, auth and manifest reads
+ * OCI registry transport, auth and manifest reads.
  *
  * All errors are thrown as VerifyImageError (see errors.ts).
  * Callers do not need to catch and re-wrap; just let them propagate.
@@ -32,7 +32,7 @@ const INDEX_MEDIA_TYPES = [
 
 /**
  * Runs a registry call, turning anything that isn't already a VerifyImageError
- * -- a DNS failure, a socket reset, a malformed JSON body -- into a transient
+ * (a DNS failure, a socket reset, a malformed JSON body) into a transient
  * one naming what was being fetched.
  *
  * `what` is the phrase after "Transient error", e.g. "fetching bundle blob".
@@ -182,10 +182,10 @@ export async function fetchManifestDigest(
   const image = `${registry}/${repo}:${tag}`;
 
   return withRegistryErrors(`fetching manifest digest for ${image}`, async () => {
-    // Accept only index/manifest-list types so the registry returns the image index
-    // digest — not a per-platform manifest digest. The Sigstore bundle is signed
-    // against the index digest, so content-negotiating down to a platform manifest
-    // would cause the bundle lookup to fail.
+    // Accept only index/manifest-list types so the registry returns the image
+    // index digest, not a per-platform manifest digest. The Sigstore bundle is
+    // signed against the index digest, so content-negotiating down to a
+    // platform manifest would make the bundle lookup fail.
     const resp = await client.request(`/manifests/${tag}`, {
       method: "HEAD",
       accept: INDEX_MEDIA_TYPES.join(", "),
@@ -256,7 +256,7 @@ export async function fetchImageConfigLabels(
  * Fetch a pull token via Docker Token Authentication.
  *
  * If Docker credentials for the registry are available (basicAuth from
- * readGhcrBasicAuth), uses Basic auth directly — no anonymous attempt.
+ * readGhcrBasicAuth), uses Basic auth directly, with no anonymous attempt.
  * Otherwise falls back to anonymous access (public packages).
  */
 export async function fetchRegistryToken(

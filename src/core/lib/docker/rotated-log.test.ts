@@ -36,7 +36,7 @@ describe("parseLogSegments", () => {
 
   // Archive names are a fixed-width 24-hex-digit TAI64N timestamp, not a
   // decimal counter, so there's no "10" sorting before "9" the way there
-  // would be for variable-width numbers -- string order already is
+  // would be for variable-width numbers: string order already is
   // chronological order, however many archives exist. n100 (see the
   // haproxy-log/coredns-log run scripts) means a build can genuinely produce
   // more than 10, so this is exercised past double digits, not just at 2.

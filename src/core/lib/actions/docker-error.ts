@@ -40,7 +40,7 @@ export function capturedStderr(e: unknown): string {
  * pointing at the runner requirement instead of surfacing execFileSync's
  * opaque "Command failed: docker ...args..." text. Deliberately doesn't
  * echo `e.message` when stderr was inherited (already visible live in the
- * Actions log) — only captured stderr (e.g. from a piped call) is included,
+ * Actions log): only captured stderr (e.g. from a piped call) is included,
  * since otherwise nothing points the reader back to it.
  */
 export function describeDockerFailure(
@@ -70,7 +70,7 @@ export function describeDockerFailure(
 
 /**
  * Best-effort detection of GitHub's container-based hosted runner images
- * (currently: ubuntu-slim) — these run jobs inside a container rather than
+ * (currently: ubuntu-slim), which run jobs inside a container rather than
  * a dedicated VM, so unlike VM-based ubuntu-latest/22.04/24.04/26.04 they
  * ship a Docker client with no daemon.
  *
@@ -78,7 +78,7 @@ export function describeDockerFailure(
  * "ubuntu24" etc. on VM images) and /run/.containerenv is baked into the
  * image at build time by GitHub's own Dockerfile
  * (github.com/actions/runner-images/blob/main/images/ubuntu-slim/Dockerfile).
- * Both signals could change without notice — failing to detect just falls
+ * Both signals could change without notice, and failing to detect just falls
  * back to the generic message in describeDockerFailure, so this is safe to
  * get wrong.
  */

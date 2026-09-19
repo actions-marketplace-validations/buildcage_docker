@@ -39,7 +39,7 @@ describe("passthrough", () => {
     expect(config.includes("acl tls0_sni req.ssl_sni -m reg -i ^db\\\\.example\\\\.com$")).toBe(
       true,
     );
-    // The port used to be dropped, so db.example.com:443 was permitted too.
+    // Without the port ACL, db.example.com would be permitted on any port.
     expect(config.includes("acl tls0_port dst_port 443")).toBe(true);
     expect(
       config.includes("tcp-request content set-var(txn.pass) int(1) if tls0_sni tls0_port"),
@@ -59,17 +59,17 @@ describe("passthrough", () => {
   });
 
   it("also scopes the early do-resolve trigger by port, not just the backend selection", () => {
-    // Regression: this used to set txn.tlsrule from the SNI ACL alone, so an
-    // SNI matching db.example.com on a *different* port than the rule names
-    // still triggered do-resolve/set-dst here -- overwriting the connection's
-    // destination before the inspected path ever saw it -- even though
-    // txn.pass (gated on sni+port together) correctly never fired for it.
+    // txn.tlsrule is gated on the port as well as the SNI. From the SNI alone,
+    // an SNI matching db.example.com on a port the rule does not name would
+    // still trigger do-resolve/set-dst here, overwriting the connection's
+    // destination before the inspected path ever saw it, even though txn.pass
+    // (gated on sni+port together) correctly never fired for it.
     expect(config.includes("set-var(txn.tlsrule) int(1) if tls0_sni tls0_port")).toBe(true);
   });
 
   it("runs every content rule before the accept that ends their evaluation", () => {
     // `tcp-request content accept` stops the rest of the content rules, so a
-    // set-var or do-resolve placed after it never runs at all -- silently, and
+    // set-var or do-resolve placed after it never runs at all, silently, and
     // with the passthrough still working, just to the client's own address.
     const resolve = config.indexOf("tcp-request content do-resolve");
     const accept = config.indexOf("tcp-request content accept");
@@ -105,7 +105,7 @@ describe("passthrough", () => {
 
   it("selects that backend below the accept, where the file reads as it runs", () => {
     // Backend selection happens after every content rule whatever the written
-    // order, so a use_backend above the accept is only misleading -- and
+    // order, so a use_backend above the accept is only misleading, and
     // HAProxy warns about it.
     const accept = config.indexOf("tcp-request content accept");
     const select = config.indexOf("use_backend passthrough");
@@ -128,7 +128,7 @@ describe("passthrough", () => {
     ).toBe(true);
     // The pattern's own port coverage replaces dst_port entirely.
     expect(result.includes("ip0_port")).toBe(false);
-    // A literal rule still matches dst directly -- no need to stringify it.
+    // A literal rule still matches dst directly, with no need to stringify it.
     expect(detect({ ipRules: ["10.0.0.5:5432"] }).includes("set-var-fmt(txn.dst_str)")).toBe(false);
   });
 

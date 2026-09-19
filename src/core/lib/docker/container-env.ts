@@ -1,6 +1,6 @@
 /**
- * Parses `docker inspect <id> --format '{{json .Config.Env}}'`'s output — a
- * JSON array of "KEY=VALUE" strings — into a lookup map. Used to read a
+ * Parses `docker inspect <id> --format '{{json .Config.Env}}'`'s output, a
+ * JSON array of "KEY=VALUE" strings, into a lookup map. Used to read a
  * running container's own env from the runner side (report-action.node.ts
  * doesn't run inside the container, so it can't read process.env directly).
  */

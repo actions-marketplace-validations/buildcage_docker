@@ -112,9 +112,9 @@ describe("renderReportMarkdown — universal", () => {
 
   it("uses the title option verbatim, e.g. a run step's em-dash label", () => {
     const md = renderReportMarkdown(base, "buildcage/docker", "v2", {
-      title: "Outbound Traffic Report — npm install",
+      title: "Outbound Traffic Report: npm install",
     });
-    expect(md).toMatch(/^## Outbound Traffic Report — npm install\n/);
+    expect(md).toMatch(/^## Outbound Traffic Report: npm install\n/);
   });
 
   it("adds an Expected column marking known_blocked_rules matches when set", () => {

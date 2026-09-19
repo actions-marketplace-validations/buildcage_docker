@@ -1,6 +1,4 @@
-/**
- * docker-credentials.ts — the registry credential `docker login` leaves behind
- */
+/** The registry credential `docker login` leaves behind. */
 
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -13,7 +11,7 @@ export type ReadFileSyncLike = (path: string, encoding: string) => string;
 /**
  * Read the base64 Basic-auth credential for ghcr.io from Docker's config.json.
  * Returns the raw `auth` string (base64) if found, or null if not logged in.
- * Credential helpers (credsStore/credHelpers) are not supported — only direct
+ * Credential helpers (credsStore/credHelpers) are not supported: only direct
  * base64 auth written by `docker login` / `docker/login-action` is detected.
  */
 export function readGhcrBasicAuth(

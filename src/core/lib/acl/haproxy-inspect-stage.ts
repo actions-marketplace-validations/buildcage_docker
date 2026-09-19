@@ -68,8 +68,8 @@ export function inspectStage(
   // The rules decide first, on the request alone (host, path, method): none
   // of them depend on where the name resolves. Only a request they already
   // allow reaches the do-resolve below, so a name a request would be denied
-  // for never triggers a real DNS query -- do-resolve is the only place a
-  // real query leaves this proxy, and it must never run ahead of a deny.
+  // for never triggers a real DNS query. do-resolve is the only place a real
+  // query leaves this proxy, and it must never run ahead of a deny.
   l.push(...ruleBlock(rules, mode, scheme));
   // Skipped entirely when the block above denies unconditionally: HAProxy
   // would never reach these rules, and warns that they are NOOP.
