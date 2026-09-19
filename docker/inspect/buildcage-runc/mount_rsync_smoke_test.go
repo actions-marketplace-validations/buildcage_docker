@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,8 +12,12 @@ import (
 // on rsync being installed; this test instead skips when it isn't, or when
 // it's a variant that doesn't support -aHAX (macOS ships openrsync, which
 // doesn't; the production image installs GNU rsync via apk).
+//
+// The probe goes through runRsync rather than around it, so the default that
+// spawns rsync is exercised wherever the tests run -- on a machine without one
+// it is the call whose failure decides to skip.
 func TestRealRsyncMirrorsAndWritesBack(t *testing.T) {
-	if out, err := exec.Command("rsync", "--version").CombinedOutput(); err != nil || strings.Contains(string(out), "openrsync") {
+	if out, err := runRsync([]string{"--version"}); err != nil || strings.Contains(string(out), "openrsync") {
 		t.Skip("no GNU-compatible rsync available")
 	}
 

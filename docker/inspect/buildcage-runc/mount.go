@@ -31,16 +31,9 @@ const (
 
 // runRsync is the only place this file spawns a process, so tests can
 // replace it to exercise the decision logic without rsync installed.
-// Untested by design: the spawn itself, which useFakeRsync replaces in
-// every test. mount_rsync_smoke_test.go runs the real thing when there is
-// one installed.
-//
-//coverage:ignore start
 var runRsync = func(args []string) ([]byte, error) {
 	return exec.Command("rsync", args...).CombinedOutput()
 }
-
-//coverage:ignore stop
 
 // dirBind mounts a scratch mirror of one directory over the step's view of
 // it, so the CA can be added without ever opening the real rootfs file for
