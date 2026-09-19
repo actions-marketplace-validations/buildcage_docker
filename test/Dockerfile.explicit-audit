@@ -38,7 +38,7 @@ RUN echo "=== [Direct IP - audit mode] ===" && \
 # Note: unlike test/Dockerfile.universal-audit, this Dockerfile has
 # no dns-failed / missing-sni / missing-host-header probes. Those exercise
 # buildcage's universal-mode network-layer interception; explicit mode has
-# no equivalent (see docs/security.md's "Coverage and known limitations").
+# no equivalent (see docs/security.md's "Coverage and Visibility").
 
 # Network configuration check
 RUN echo "=== Network Configuration ===" && \
