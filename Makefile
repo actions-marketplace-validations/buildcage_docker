@@ -104,7 +104,7 @@ test_unit_go: ## Run buildcage-runc's and covfilter's unit tests
 # toolchain fails under another. Only the destination is exact: at 100 every
 # statement is either reached or marked, whichever toolchain counts them.
 RUNC_COVERAGE := coverage/buildcage-runc.cov
-RUNC_COVERAGE_THRESHOLD := 89
+RUNC_COVERAGE_THRESHOLD := 92
 
 .PHONY: test_unit_go_coverage
 test_unit_go_coverage: ## Run buildcage-runc's tests with coverage and check the threshold

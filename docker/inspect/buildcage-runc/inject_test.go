@@ -488,3 +488,147 @@ func TestInjectLeavesAnUnresolvableVariableAlone(t *testing.T) {
 		t.Fatalf("expected only the store's own mount, got %v", mounts)
 	}
 }
+
+// Injection is best-effort: anything that stops the CA getting in is logged and
+// the step still runs, so a build never fails because the wrapper could not
+// place a certificate. Its TLS failures say what happened.
+func TestInjectCarriesOnWhenItCannotPlaceItsOwnCAFile(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	// /etc points outside the rootfs, so resolveInRoot refuses it.
+	mustSymlink(t, "../../../../outside", filepath.Join(rootfs, "etc"))
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	env := loadEnv(t, bundle)
+	for _, variable := range caVariables {
+		if _, set := env[variable.name]; set {
+			t.Errorf("%s was set to a file that could not be placed", variable.name)
+		}
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot place") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+func TestInjectCarriesOnWhenItCannotWriteItsOwnCAFile(t *testing.T) {
+	skipIfRoot(t)
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	// The path resolves -- /etc is a real directory and the file is simply not
+	// there yet -- but nothing can be created in it.
+	mustMakeReadOnly(t, filepath.Join(rootfs, "etc"))
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	if got := loadEnv(t, bundle)["NODE_EXTRA_CA_CERTS"]; got != "" {
+		t.Errorf("NODE_EXTRA_CA_CERTS = %q, want it left unset", got)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot write") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// The own-CA file is removed when the step ends. Failing to remove it leaves
+// a file in the layer, which is worth saying, but the write-back's own result
+// is what decides the build.
+func TestInjectFinishReportsAnOwnCAFileItCannotRemove(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Swap the file for a directory that is not empty, which os.Remove cannot
+	// take away.
+	ownCA := filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))
+	if err := os.Remove(ownCA); err != nil {
+		t.Fatal(err)
+	}
+	mustMkdirAll(t, filepath.Join(ownCA, "in-the-way"))
+
+	if err := restore.finish(); err != nil {
+		t.Fatalf("a leftover own-CA file must not fail the step: %v", err)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot remove") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// A bundle without a spec is not something to guess at: there is nothing to
+// read the rootfs or the environment out of.
+func TestInjectRefusesABundleWithoutASpec(t *testing.T) {
+	if _, err := inject(t.TempDir(), []byte("BUILDCAGE-CA")); err == nil {
+		t.Fatal("expected inject to refuse the bundle")
+	}
+}
+
+// Without a scratch directory there is nowhere to mirror the store to, so that
+// directory is skipped rather than the CA going into the real rootfs.
+func TestInjectSkipsADirectoryItCannotGetAScratchDirFor(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
+	blocked := t.TempDir()
+	mustWriteFile(t, filepath.Join(blocked, "blocked"), "")
+	scratchRoot = filepath.Join(blocked, "blocked", "ca")
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
+		t.Fatalf("expected no mounts, got %v", mounts)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot create a scratch directory") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// The variables only take effect once the spec is written back. A spec that
+// cannot be saved is logged; the binds are already in place, so the step still
+// gets the store it was going to get.
+func TestInjectReportsASpecItCannotSave(t *testing.T) {
+	skipIfRoot(t)
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
+	if err := os.Chmod(filepath.Join(bundle, "config.json"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish()
+
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "cannot update the process spec") {
+		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
