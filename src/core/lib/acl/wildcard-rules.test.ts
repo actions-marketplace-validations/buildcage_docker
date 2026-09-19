@@ -178,6 +178,11 @@ describe("parseAndValidateRules", () => {
       "example.com:443",
       "*.foo.com:8443",
     ]);
+    // A YAML block scalar hands the action newlines rather than spaces.
+    expect(parseAndValidateRules("example.com:443\n*.foo.com:8443")).toStrictEqual([
+      "example.com:443",
+      "*.foo.com:8443",
+    ]);
   });
 
   it("validates syntax eagerly, throwing on invalid wildcard rules", () => {
