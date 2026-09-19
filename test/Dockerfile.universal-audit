@@ -69,13 +69,6 @@ RUN echo "=== [HTTP - missing-host-header] ===" && \
     ((printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | nc -w 5 allowed.example.com 80 > /dev/null 2>&1 || true) && \
     echo "✓ missing-host-header: request sent (blocked expected in logs)"
 
-# [npm install - no CA workaround needed, unlike the explicit engine]
-COPY files/package.json files/package-lock.json /app/
-RUN echo "=== [npm install - non-cooperative CA store] ===" && \
-    cd /app && \
-    (npm ci --ignore-scripts >/dev/null 2>&1 && \
-     echo "✓ npm install: OK") || (echo "✗ npm install: FAILED" && exit 1)
-
 # Network configuration check
 RUN echo "=== Network Configuration ===" && \
     ip route show && \

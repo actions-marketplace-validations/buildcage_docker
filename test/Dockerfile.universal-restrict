@@ -177,13 +177,22 @@ RUN echo "=== [HTTP keep-alive - blocked then allowed] ===" && \
      | nc -w 5 allowed.example.com 80 > /dev/null 2>&1 || true) && \
     echo "✓ keep-alive blocked-then-allowed: requests sent (second request must log ALLOWED with reason -, not not-allowed)"
 
-# [npm install - allowed - registry.npmjs.org is in ALLOWED_HTTPS_RULES; no CA
-# workaround needed, unlike the explicit engine]
-COPY files/package.json files/package-lock.json /app/
-RUN echo "=== [npm install - allowed registry] ===" && \
-    cd /app && \
-    (npm ci --ignore-scripts >/dev/null 2>&1 && \
-     echo "✓ npm install: OK") || (echo "✗ npm install: FAILED" && exit 1)
+# [Package manager - npm has a CA store of its own and nothing is injected]
+# universal never terminates TLS, so the certificate npm judges here is the
+# fixture origin's own self-signed one, and rejecting it is the expected
+# outcome: an engine that had re-signed the traffic would have handed npm one
+# its own store could verify. Getting as far as the certificate is the other
+# half -- a refused connection never does. The origin is not a registry, so
+# nothing past the handshake would have worked either way. It gets a host of
+# its own (the wildcard rule covers it) so that no other case's expected
+# request count depends on how many requests npm decides to make.
+RUN echo "=== [Package manager - npm over end-to-end TLS] ===" && \
+    OUT=$(npm ping --registry=https://npm.wildcard.example.com/ --fetch-retries=0 2>&1); \
+    echo "$OUT" && \
+    case "$OUT" in \
+      *cert*|*CERT*) echo "✓ npm: judged the origin's own certificate" ;; \
+      *) echo "✗ npm: never saw the origin's own certificate" && exit 1 ;; \
+    esac
 
 # Network configuration check
 RUN echo "=== Network Configuration ===" && \
