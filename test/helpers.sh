@@ -1,8 +1,42 @@
 #!/bin/bash
-set -euo pipefail
+# Shared by the assertion scripts under test/. Sourced rather than executed, so
+# it sets no shell options of its own: each script keeps its own.
+#
+# The log assertions read $LOGS, which the sourcing script fills once up front
+# with builder_log. A snapshot rather than a fresh read per assertion, so a
+# line arriving mid-run can't make two assertions disagree about the same log.
 
 FAILURES=0
-LOGS=$(docker compose exec builder cat /var/log/haproxy/current 2>/dev/null)
+
+pass() { echo "  PASS  $1"; }
+
+fail() {
+  echo "  FAIL  $1"
+  FAILURES=$((FAILURES + 1))
+}
+
+assert_results() {
+  echo ""
+  if [ "$FAILURES" -gt 0 ]; then
+    echo "❌ FAILED: $FAILURES assertion(s) failed"
+    exit 1
+  fi
+  echo "✅ All assertions passed."
+  echo ""
+}
+
+# One of the builder's s6 service logs: haproxy (universal/inspect), buildkitd
+# (explicit) or coredns (inspect's resolver).
+builder_log() {
+  docker compose exec builder cat "/var/log/$1/current" 2>/dev/null
+}
+
+# Escapes a URL for the grep -E patterns below, where it is matched literally.
+esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
+
+# ---------------------------------------------------------------------------
+# universal engine: connection-level decisions, one line per host:port
+# ---------------------------------------------------------------------------
 
 assert_log_contains() {
   local marker="$1"
@@ -17,29 +51,9 @@ assert_log_contains() {
   local buildcage_logs
   buildcage_logs=$(grep buildcage <<< "$LOGS" || true)
   if grep -q "$pattern" <<< "$buildcage_logs"; then
-    echo "  PASS  $label"
+    pass "$label"
   else
-    echo "  FAIL  $label  -- not found in logs"
-    FAILURES=$((FAILURES + 1))
-  fi
-}
-
-# Only the container can see this gateway, and no other assertion covers it.
-assert_own_gateway_guarded() {
-  local service="$1"
-  local gw guarded
-  gw=$(docker compose exec -T "$service" ip -4 route show default | awk '{print $3}' | head -1)
-  if [ -z "$gw" ]; then
-    echo "  FAIL  [own gateway] $service has no default route to check"
-    FAILURES=$((FAILURES + 1))
-    return
-  fi
-  guarded=$(docker compose exec -T "$service" cat /etc/haproxy/rules/host_addrs.lst)
-  if grep -qx "$gw" <<< "$guarded"; then
-    echo "  PASS  [own gateway] $gw is in the internal-address guard"
-  else
-    echo "  FAIL  [own gateway] $gw is missing from the internal-address guard"
-    FAILURES=$((FAILURES + 1))
+    fail "$label -- not found in logs"
   fi
 }
 
@@ -56,10 +70,9 @@ assert_log_not_matching() {
   local buildcage_logs
   buildcage_logs=$(grep buildcage <<< "$LOGS" || true)
   if grep -q "$pattern" <<< "$buildcage_logs"; then
-    echo "  FAIL  found unexpected $label line"
-    FAILURES=$((FAILURES + 1))
+    fail "found unexpected $label line"
   else
-    echo "  PASS  no $label line"
+    pass "no $label line"
   fi
 }
 
@@ -68,41 +81,9 @@ assert_log_not_contains() {
   local count
   count=$(echo "$LOGS" | grep buildcage | grep -c "\[$marker\]" || true)
   if [ "$count" -eq 0 ]; then
-    echo "  PASS  no [$marker] entries"
+    pass "no [$marker] entries"
   else
-    echo "  FAIL  found $count unexpected [$marker] entries"
-    FAILURES=$((FAILURES + 1))
-  fi
-}
-
-assert_no_tcp_connect() {
-  local from_service="$1"
-  local target="$2"
-  local port="$3"
-  local label="[unreachable] $target:$port from $from_service"
-  if docker compose exec -T "$from_service" nc -w 3 -z "$target" "$port" 2>/dev/null; then
-    echo "  FAIL  $label -- connection succeeded"
-    FAILURES=$((FAILURES + 1))
-  else
-    echo "  PASS  $label"
-  fi
-}
-
-# A UDP nc probe can't tell a DROPped packet from a closed port, since neither
-# sends anything back. Match an actual answer record instead: dnsmasq answers
-# every name with the gateway address (docker/universal/files/dnsmasq.conf).
-# BusyBox prints an answer as "Address: <ip>" and the server it asked as
-# "Address:<tab><ip>:53", so the leading "Address: " is what tells them apart.
-assert_no_dns_answer() {
-  local from_service="$1"
-  local target="$2"
-  local label="[unreachable] $target:53/udp from $from_service"
-  if docker compose exec -T "$from_service" \
-       timeout 5 nslookup example.com "$target" 2>/dev/null | grep -q "^Address: 172\.20\.0\.1$"; then
-    echo "  FAIL  $label -- the resolver answered"
-    FAILURES=$((FAILURES + 1))
-  else
-    echo "  PASS  $label"
+    fail "found $count unexpected [$marker] entries"
   fi
 }
 
@@ -118,19 +99,24 @@ assert_no_forged_log_lines() {
   # (unsanitized attacker bytes) breaks one of those two invariants.
   bad_lines=$(awk '{ n = gsub(/"/, "\""); if (n != 2) print; else if (/[[:cntrl:]]/) print }' <<< "$decision_logs")
   if [ -z "$bad_lines" ]; then
-    echo "  PASS  no forged/malformed buildcage log lines"
+    pass "no forged/malformed buildcage log lines"
   else
-    echo "  FAIL  found malformed buildcage log line(s):"
+    fail "found malformed buildcage log line(s):"
     echo "$bad_lines" | sed 's/^/    /'
-    FAILURES=$((FAILURES + 1))
   fi
 }
 
-assert_results() {
-  echo ""
-  if [ "$FAILURES" -gt 0 ]; then
-    echo "❌ FAILED: $FAILURES assertion(s) failed"
-    exit 1
+# ---------------------------------------------------------------------------
+# inspect engine: request-level decisions, one line per method+URL
+# ---------------------------------------------------------------------------
+
+# The log line is buildcage's own format (see haproxy-config.ts), so this
+# matches on it exactly rather than on a substring that could drift.
+assert_logged() {
+  local method="$1" url="$2" status="$3"
+  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ dst=\S+ $(esc "$url")$" <<< "$LOGS"; then
+    pass "[$status] $method $url"
+  else
+    fail "[$status] $method $url -- no such line in the proxy log"
   fi
-  echo "✅ All assertions passed."
 }

@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 # Checks that each CA bundle candidate appears in at most one image layer:
 # it should only ever be introduced once, by whichever RUN step installs it.
@@ -9,7 +10,6 @@ set -euo pipefail
 # CANDIDATES mirrors the system CA store paths inspect looks for.
 
 IMAGE="${1:-buildcage-test}"
-FAILURES=0
 
 CANDIDATES=(
   "etc/ssl/certs/ca-certificates.crt"
@@ -18,12 +18,6 @@ CANDIDATES=(
   "etc/pki/tls/cacert.pem"
   "etc/ssl/cert.pem"
 )
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
 
 echo ""
 echo "=== No Per-Layer CA Bundle Duplication ($IMAGE) ==="
@@ -64,10 +58,4 @@ for candidate in "${CANDIDATES[@]}"; do
   fi
 done
 
-echo ""
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

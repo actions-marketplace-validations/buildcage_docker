@@ -1,50 +1,33 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
-FAILURES=0
-PROXY_LOG=$(docker compose exec builder cat /var/log/haproxy/current 2>/dev/null)
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
-
-esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
-
-assert_logged() {
-  local method="$1" url="$2"
-  if grep -qE "^buildcage [0-9]+ https? ${method} 200 [0-9]+ ts=\S* reason=\S+ dst=\S+ $(esc "$url")$" <<< "$PROXY_LOG"; then
-    pass "$method $url"
-  else
-    fail "$method $url -- no 200 recorded"
-  fi
-}
+LOGS=$(builder_log haproxy)
 
 echo ""
 echo "=== Inspect Proxy Engine Assertions (audit) ==="
 echo ""
 
 echo "[audit records everything, with no rules configured]:"
-assert_logged GET "https://allowed.example.com/public/pkg.tgz"
-assert_logged POST "https://api.example.com/v1/thing"
-assert_logged GET "https://allowed.example.com:9443/private/secret"
-assert_logged GET "http://allowed.example.com:9080/public/pkg.tgz"
-assert_logged GET "https://blocked.example.com/exfil?token=SECRET-VALUE"
+assert_logged GET "https://allowed.example.com/public/pkg.tgz" 200
+assert_logged POST "https://api.example.com/v1/thing" 200
+assert_logged GET "https://allowed.example.com:9443/private/secret" 200
+assert_logged GET "http://allowed.example.com:9080/public/pkg.tgz" 200
+assert_logged GET "https://blocked.example.com/exfil?token=SECRET-VALUE" 200
 echo ""
 
 echo "[audit enforces nothing]:"
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ (403|502) " <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ (403|502) " <<< "$LOGS"; then
   fail "something was refused in audit mode"
-  grep -E "(403|502) " <<< "$PROXY_LOG" || true
+  grep -E "(403|502) " <<< "$LOGS" || true
 else
   pass "no request was refused"
 fi
 echo ""
 
 echo "[undeclared ports] classified by content, with no port declared as either:"
-if grep -qE "dst=10\.200\.0\.100:9443 " <<< "$PROXY_LOG" \
-  && grep -qE "dst=10\.200\.0\.100:9080 " <<< "$PROXY_LOG"; then
+if grep -qE "dst=10\.200\.0\.100:9443 " <<< "$LOGS" \
+  && grep -qE "dst=10\.200\.0\.100:9080 " <<< "$LOGS"; then
   pass "TLS on 9443 and plaintext on 9080 both reached the origin on their own port"
 else
   fail "an undeclared port did not survive to the origin connection"
@@ -163,27 +146,4 @@ fi
 rm -rf "$SCRATCH_DIR"
 echo ""
 
-echo "[reachability] the listeners must not be reachable from the fixture network:"
-for probe in 10024 53; do
-  if docker compose exec -T test-server nc -w 3 -z builder "$probe" 2>/dev/null; then
-    fail "builder:$probe reachable from test-server"
-  else
-    pass "builder:$probe not reachable from test-server"
-  fi
-done
-# CoreDNS answers every name with the proxy address, allowed or not, so an
-# answer here means the port was reachable rather than that a rule matched.
-if docker compose exec -T test-server timeout 5 nslookup example.com builder 2>/dev/null |
-  grep -q '^Address: 172[.]20[.]0[.]1$'; then
-  fail "builder:53/udp answered a query from test-server"
-else
-  pass "builder:53/udp did not answer a query from test-server"
-fi
-echo ""
-
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

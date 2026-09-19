@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 # Builds the same Dockerfile under universal and inspect with a shared
 # SOURCE_DATE_EPOCH, and checks the resulting layers are byte-identical:
@@ -7,13 +8,6 @@ set -euo pipefail
 
 IMAGE_A="${1:?usage: $0 IMAGE_A IMAGE_B}"
 IMAGE_B="${2:?usage: $0 IMAGE_A IMAGE_B}"
-FAILURES=0
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
 
 echo ""
 echo "=== Byte-Exact Layer Comparison ($IMAGE_A vs $IMAGE_B) ==="
@@ -105,10 +99,4 @@ while [ "$i" -lt "$count" ]; do
   i=$((i + 1))
 done
 
-echo ""
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

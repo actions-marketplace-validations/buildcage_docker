@@ -4,11 +4,11 @@
 # builder runs BuildKit itself, so a broken platform hand-off would silently
 # produce an image for the wrong architecture rather than fail.
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 NATIVE_IMAGE="$1"
 CROSS_IMAGE="$2"
 CROSS_PLATFORM="$3"
-FAILURES=0
 
 # `docker version` and a platform string name an architecture the way Go does;
 # `uname -m` inside the image names it the way the kernel does.
@@ -26,10 +26,9 @@ uname_arch() {
 assert_arch() {
   local label="$1" expected="$2" actual="$3"
   if [ "$actual" = "$expected" ]; then
-    echo "  PASS  $label is $actual"
+    pass "$label is $actual"
   else
-    echo "  FAIL  $label is $actual, expected $expected"
-    FAILURES=$((FAILURES + 1))
+    fail "$label is $actual, expected $expected"
   fi
 }
 
@@ -44,11 +43,5 @@ assert_arch "[default platform] the image built without --platform" \
 CROSS_ARCH=$(uname_arch "$CROSS_PLATFORM")
 assert_arch "[cross platform] the image built for $CROSS_PLATFORM" \
   "$CROSS_ARCH" "$(docker run --rm --platform "$CROSS_PLATFORM" "$CROSS_IMAGE" uname -m)"
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

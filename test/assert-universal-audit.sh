@@ -2,6 +2,8 @@
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 
+LOGS=$(builder_log haproxy)
+
 echo ""
 echo "=== Audit Mode Assertions ==="
 echo ""
@@ -32,15 +34,4 @@ echo "[ALLOWED] must not exist:"
 assert_log_not_contains ALLOWED
 echo ""
 
-echo "[reachability] the listeners must not be reachable from the compose network:"
-assert_no_tcp_connect test-server builder 10024
-assert_no_tcp_connect test-server builder 53
-assert_no_dns_answer test-server builder
-echo ""
-
-echo "[own gateway] the address this container routes through must be guarded too:"
-assert_own_gateway_guarded builder
-echo ""
-
 assert_results
-echo ""

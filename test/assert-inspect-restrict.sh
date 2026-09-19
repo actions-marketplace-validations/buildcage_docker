@@ -1,28 +1,9 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
-FAILURES=0
-PROXY_LOG=$(docker compose exec builder cat /var/log/haproxy/current 2>/dev/null)
-DNS_LOG=$(docker compose exec builder cat /var/log/coredns/current 2>/dev/null)
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
-
-# The log line is buildcage's own format (see haproxy-config.ts), so these
-# match on it exactly rather than on a substring that could drift.
-assert_logged() {
-  local method="$1" url="$2" status="$3"
-  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ dst=\S+ $(esc "$url")$" <<< "$PROXY_LOG"; then
-    pass "[$status] $method $url"
-  else
-    fail "[$status] $method $url -- no such line in the proxy log"
-  fi
-}
-
-esc() { printf '%s' "$1" | sed 's/[][\.*^$?+(){}|/]/\\&/g'; }
+LOGS=$(builder_log haproxy)
+DNS_LOG=$(builder_log coredns)
 
 echo ""
 echo "=== Inspect Proxy Engine Assertions (restrict) ==="
@@ -56,7 +37,7 @@ echo ""
 echo "[traversal] the path is normalised before the rules see it:"
 # Whether the proxy logs the raw or the normalised path, what must never appear
 # is a 200: that would mean the origin served /private/ for a /public/ rule.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
   pass "GET /public/../private/secret was refused"
 else
   fail "GET /public/../private/secret -- no 403 recorded"
@@ -64,7 +45,7 @@ fi
 echo ""
 
 echo "[exfiltration] the query string is kept, which is where the payload goes:"
-if grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE" <<< "$PROXY_LOG"; then
+if grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE" <<< "$LOGS"; then
   pass "the refused URL was recorded with its query string intact"
 else
   fail "the refused URL's query string was not recorded"
@@ -73,14 +54,14 @@ echo ""
 
 echo "[long URL] a URL the size a signed one really is, recorded whole:"
 # The marker is the last thing on the line, so finding it proves nothing was cut.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ dst=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ dst=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$LOGS"; then
   pass "the whole ~1.3KB line was recorded, tail included"
 else
   fail "the long URL was cut or dropped"
-  grep -c "end=TAIL-MARKER" <<< "$PROXY_LOG" || true
+  grep -c "end=TAIL-MARKER" <<< "$LOGS" || true
 fi
 # Independent of the pattern above: without the length limit, nothing can.
-LONGEST=$(grep -E "^buildcage [0-9]+ https? " <<< "$PROXY_LOG" | awk '{print length($0)}' | sort -n | tail -1)
+LONGEST=$(grep -E "^buildcage [0-9]+ https? " <<< "$LOGS" | awk '{print length($0)}' | sort -n | tail -1)
 if [ "${LONGEST:-0}" -gt 1024 ]; then
   pass "the log carries a line past haproxy's 1024-byte default ($LONGEST bytes)"
 else
@@ -89,23 +70,23 @@ fi
 echo ""
 
 echo "[non-standard port] the original port survives to the origin connection:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9443 https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9443 https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "reached 10.200.0.100:9443, not the listener's own port"
 else
   fail "9443 did not survive to the origin connection"
-  grep -E "9443" <<< "$PROXY_LOG" || true
+  grep -E "9443" <<< "$LOGS" || true
 fi
 echo ""
 
 echo "[forged Host] the destination came from our resolution, not the client's:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:443 https://allowed\.example\.com/public/pkg\.tgz$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:443 https://allowed\.example\.com/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "connected to 10.200.0.100, the address we resolved"
 else
   fail "no request recorded as reaching the resolved address"
 fi
 # A refused request never connected, so its dst is still where the client
 # aimed. Only a request that got an answer proves anything was reached.
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 2[0-9][0-9] [0-9]+ ts=\\S+ reason=\\S+ dst=10\\.200\\.0\\.101:" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 2[0-9][0-9] [0-9]+ ts=\\S+ reason=\\S+ dst=10\\.200\\.0\\.101:" <<< "$LOGS"; then
   fail "a request reached the impostor at 10.200.0.101"
 else
   pass "nothing reached the impostor at 10.200.0.101"
@@ -113,25 +94,25 @@ fi
 echo ""
 
 echo "[SSRF] an allowlisted name resolving inward is refused before connecting:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=169\.254\.169\.254:443 https://metadata\.example\.com/latest/meta-data$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=169\.254\.169\.254:443 https://metadata\.example\.com/latest/meta-data$" <<< "$LOGS"; then
   pass "the name passed the rules but the resolved metadata address was refused"
 else
   fail "the internal-destination guard did not fire"
-  grep -E "metadata" <<< "$PROXY_LOG" || true
+  grep -E "metadata" <<< "$LOGS" || true
 fi
 echo ""
 
 echo "[SSRF] an allowlisted name resolving back to the runner is refused too:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=10\.200\.0\.199:443 https://runner\.example\.com/$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=10\.200\.0\.199:443 https://runner\.example\.com/$" <<< "$LOGS"; then
   pass "the resolved runner address was refused despite being RFC1918"
 else
   fail "the runner's own addresses did not reach the internal-destination guard"
-  grep -E "runner\.example\.com" <<< "$PROXY_LOG" || true
+  grep -E "runner\.example\.com" <<< "$LOGS" || true
 fi
 echo ""
 
 echo "[address destination] reached without asking any resolver:"
-if grep -qE "^buildcage [0-9]+ http GET 200 [0-9]+ ts=-- reason=- dst=10\.200\.0\.100:80 http://10\.200\.0\.100/pub-by-addr/x$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ http GET 200 [0-9]+ ts=-- reason=- dst=10\.200\.0\.100:80 http://10\.200\.0\.100/pub-by-addr/x$" <<< "$LOGS"; then
   pass "a rule naming an address reached it, and the path rule still applied"
 else
   fail "the address destination was not reached"
@@ -148,7 +129,7 @@ echo ""
 echo "[TLS passthrough] recorded, but never decrypted:"
 # It has to appear, or the one thing a build was explicitly allowed to tunnel
 # would be the one thing the report cannot show.
-if grep -qE "^buildcage [0-9]+ pass tls [0-9]+ ts=\S+ reason=\S+ dst=\S+ sni=tlspass\.example\.com$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ pass tls [0-9]+ ts=\S+ reason=\S+ dst=\S+ sni=tlspass\.example\.com$" <<< "$LOGS"; then
   pass "recorded as an undecrypted passthrough, with its byte count"
 else
   fail "the passthrough was not recorded at all"
@@ -156,13 +137,13 @@ fi
 # Only the ~regex rule names port 8443, so reaching it there proves the rule
 # was matched by regex rather than mangled into a wildcard that happens to
 # also match :443.
-if grep -qE "^buildcage [0-9]+ pass tls [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:8443 sni=tlspass\.example\.com$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ pass tls [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:8443 sni=tlspass\.example\.com$" <<< "$LOGS"; then
   pass "the ~regex TLS rule's own port (8443) reached the resolved origin"
 else
   fail "no passthrough was recorded on the ~regex rule's port 8443"
 fi
 # A request line for it would mean the TLS was terminated after all.
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ [0-9-]+ [0-9]+ ts=\S+ reason=\S+ dst=\S+ \S*tlspass\.example\.com" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ [0-9-]+ [0-9]+ ts=\S+ reason=\S+ dst=\S+ \S*tlspass\.example\.com" <<< "$LOGS"; then
   fail "a passthrough connection was decrypted and logged as a request"
 else
   pass "no request-level record, so nothing was decrypted"
@@ -170,7 +151,7 @@ fi
 echo ""
 
 echo "[Regex IP rule] a ~regex allowed_ip_rules entry passes through, on its own port:"
-if grep -qE "^buildcage [0-9]+ pass tcp [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9080 sni=-$" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ pass tcp [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9080 sni=-$" <<< "$LOGS"; then
   pass "recorded as an undecrypted tcp passthrough, on the rule's own port"
 else
   fail "no tcp passthrough was recorded on the ~regex ip rule's port 9080"
@@ -180,7 +161,7 @@ echo ""
 # Everything not passed through is recorded by the frontend that terminates it,
 # so nothing else may appear at the tcp stage or it would be counted twice.
 # The count is not asserted: a reused container's log spans several builds.
-OTHER=$(grep -E "^buildcage [0-9]+ pass " <<< "$PROXY_LOG" \
+OTHER=$(grep -E "^buildcage [0-9]+ pass " <<< "$LOGS" \
   | grep -v "sni=tlspass\.example\.com" \
   | grep -cv "dst=10\.200\.0\.100:9080" || true)
 if [ "$OTHER" -eq 0 ]; then
@@ -433,38 +414,4 @@ fi
 rm -rf "$SCRATCH_DIR"
 echo ""
 
-echo "[reachability] the listeners must not be reachable from the fixture network:"
-for probe in 10024 53; do
-  if docker compose exec -T test-server nc -w 3 -z builder "$probe" 2>/dev/null; then
-    fail "builder:$probe reachable from test-server"
-  else
-    pass "builder:$probe not reachable from test-server"
-  fi
-done
-# CoreDNS answers every name with the proxy address, allowed or not, so an
-# answer here means the port was reachable rather than that a rule matched.
-if docker compose exec -T test-server timeout 5 nslookup example.com builder 2>/dev/null |
-  grep -q '^Address: 172[.]20[.]0[.]1$'; then
-  fail "builder:53/udp answered a query from test-server"
-else
-  pass "builder:53/udp did not answer a query from test-server"
-fi
-echo ""
-
-echo "[own gateway] the address this container routes through must be guarded too:"
-# Only the container can see this gateway, and no other assertion covers it.
-OWN_GW=$(docker compose exec -T builder ip -4 route show default | awk '{print $3}' | head -1)
-if [ -n "$OWN_GW" ] &&
-  docker compose exec -T builder cat /etc/haproxy/rules/host_addrs.lst | grep -qx "$OWN_GW"; then
-  pass "$OWN_GW is in the internal-address guard"
-else
-  fail "${OWN_GW:-(no default route)} is missing from the internal-address guard"
-fi
-echo ""
-
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

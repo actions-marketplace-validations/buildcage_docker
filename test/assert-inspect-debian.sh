@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+source "$(dirname "$0")/helpers.sh"
 
 # Usage: assert-inspect-debian.sh <audit|restrict>
 #
@@ -18,21 +19,14 @@ case "$MODE" in
     ;;
 esac
 
-FAILURES=0
-PROXY_LOG=$(docker compose exec builder cat /var/log/haproxy/current 2>/dev/null)
-
-pass() { echo "  PASS  $1"; }
-fail() {
-  echo "  FAIL  $1"
-  FAILURES=$((FAILURES + 1))
-}
+LOGS=$(builder_log haproxy)
 
 echo ""
 echo "=== Inspect Proxy Engine Assertions (Debian/apt, $MODE) ==="
 echo ""
 
 echo "[apt bootstrap] ca-certificates fetched over plain HTTP:"
-if grep -qE "^buildcage [0-9]+ http GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ dst=\S+ http://deb\.debian\.org/" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ http GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ dst=\S+ http://deb\.debian\.org/" <<< "$LOGS"; then
   pass "reached deb.debian.org"
 else
   fail "no request to deb.debian.org was recorded"
@@ -40,7 +34,7 @@ fi
 echo ""
 
 echo "[apt over HTTPS] the fixture reached on the CA the wrapper injected:"
-if grep -qE "^buildcage [0-9]+ https GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/public/debian" <<< "$PROXY_LOG"; then
+if grep -qE "^buildcage [0-9]+ https GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/public/debian" <<< "$LOGS"; then
   pass "reached the fixture over TLS"
 else
   fail "no HTTPS request to the fixture was recorded"
@@ -56,30 +50,24 @@ OUTSIDE_URL="https://allowed\.example\.com/private/debian"
 outside() { printf '%s' "^buildcage [0-9]+ https GET $1 [0-9]+ ts=\S* reason=\S+ dst=\S+ $OUTSIDE_URL"; }
 echo "[apt outside the rules] the request $MODE should have produced:"
 if [ "$MODE" = "restrict" ]; then
-  if grep -qE "$(outside 403)" <<< "$PROXY_LOG"; then
+  if grep -qE "$(outside 403)" <<< "$LOGS"; then
     pass "refused with 403, so apt never reached the origin"
   else
     fail "the out-of-rules request was not refused"
-    grep -E "$OUTSIDE_URL" <<< "$PROXY_LOG" || echo "    (no matching log line at all)"
+    grep -E "$OUTSIDE_URL" <<< "$LOGS" || echo "    (no matching log line at all)"
   fi
 else
-  if grep -qE "$(outside 200)" <<< "$PROXY_LOG"; then
+  if grep -qE "$(outside 200)" <<< "$LOGS"; then
     pass "recorded and allowed through to the origin, as audit refuses nothing"
   else
     fail "the out-of-rules request did not reach the origin"
-    grep -E "$OUTSIDE_URL" <<< "$PROXY_LOG" || echo "    (no matching log line at all)"
+    grep -E "$OUTSIDE_URL" <<< "$LOGS" || echo "    (no matching log line at all)"
   fi
-  if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 403 " <<< "$PROXY_LOG"; then
+  if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 403 " <<< "$LOGS"; then
     fail "something was refused with 403, which audit must never do"
   else
     pass "nothing was refused anywhere in this build"
   fi
 fi
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results

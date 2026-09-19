@@ -5,24 +5,16 @@
 # buildcage-proxy is started separately by the Makefile's dev-only root
 # compose.yaml and isn't post.ts's responsibility.
 set -euo pipefail
-
-FAILURES=0
+source "$(dirname "$0")/helpers.sh"
 
 BUILDER_NAME="${BUILDER_NAME:-buildcage}"
 
 echo ""
 echo "[setup post] verifying post.ts actually removed the builder container:"
 if docker inspect "$BUILDER_NAME" >/dev/null 2>&1; then
-  echo "  FAIL  $BUILDER_NAME still exists after post.ts cleanup"
-  FAILURES=$((FAILURES + 1))
+  fail "$BUILDER_NAME still exists after post.ts cleanup"
 else
-  echo "  PASS  $BUILDER_NAME removed by post.ts"
+  pass "$BUILDER_NAME removed by post.ts"
 fi
-echo ""
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "❌ FAILED: $FAILURES assertion(s) failed"
-  exit 1
-fi
-echo "✅ All assertions passed."
-echo ""
+assert_results
