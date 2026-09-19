@@ -41,8 +41,8 @@ const deniedLinePattern = /msg="Evaluated source policy".*denied by policy/;
 const refFieldPattern = /\bref="((?:[^"\\]|\\.)*)"/;
 const timeFieldPattern = /^time="([^"]*)"/;
 
-// Shared for logrus text-format quoted values ("ref=\"...\"", "span=\"...\""),
-// which escape embedded quotes as \" and backslashes as \\.
+// Logrus text format escapes embedded quotes as \" and backslashes as \\
+// inside a quoted value such as ref="...".
 function unescapeLogrusValue(s: string): string {
   return s.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }

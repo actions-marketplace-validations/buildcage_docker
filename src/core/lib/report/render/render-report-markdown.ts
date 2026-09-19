@@ -29,7 +29,7 @@ export function renderReportMarkdown(
   const heading = isAudit ? "📋 Audited Hosts" : "✅ Allowed Hosts";
 
   // restrict is what a real run normally uses day to day, so its heading
-  // stays bare; audit is the occasional, deliberately-different mode and
+  // stays bare; audit is the occasional, deliberately different mode and
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
   let markdown = `## ${title}${isAudit ? " (audit mode)" : ""}\n\n`;
 
@@ -79,9 +79,8 @@ export function renderReportMarkdown(
   } else if (report.engine === "inspect") {
     markdown += renderInspectDetails(report.timeline, report.startedAt);
   } else {
-    // SNI-based sniffing only applies to the universal engine: the
-    // explicit engine terminates TLS itself, so this caveat doesn't apply
-    // there (renderCommunicationDetails above covers explicit instead).
+    // Only the universal engine identifies a host this way; the explicit
+    // engine terminates TLS itself and gets renderCommunicationDetails above.
     markdown +=
       "\n<sub>*Note: HTTP rules are based on the Host header, HTTPS rules on SNI, and IP rules on the destination IP address.*</sub>\n";
   }

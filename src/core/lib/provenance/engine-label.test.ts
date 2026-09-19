@@ -1,8 +1,3 @@
-/**
- * Unit tests for core/lib/provenance/engine-label.ts
- *
- * Run with: vp test run core/lib/provenance/engine-label.test.ts
- */
 import { describe, it, expect, assert } from "vitest";
 
 import { checkImageEngine, IMAGE_VERSION_LABEL } from "./engine-label.ts";

@@ -58,7 +58,7 @@ describe("convertRule: properties", () => {
 
   // A domain label that contains '*' but is not exactly '*' or '**' is always invalid.
   // Labels starting with '~' are excluded: they make the full pattern a raw-regex rule,
-  // which bypasses wildcard validation (same escape hatch as in buildACLRules).
+  // which bypasses wildcard validation.
   it("label with * mixed with other characters always throws", () => {
     const mixedWildcardLabel = fc
       .string({ minLength: 1, maxLength: 8 })

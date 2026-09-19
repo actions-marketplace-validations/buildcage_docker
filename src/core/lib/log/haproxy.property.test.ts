@@ -17,7 +17,7 @@ describe("scanHaproxyLog: properties", () => {
   // A well-formed log line always round-trips into the right bucket:
   // BLOCKED always lands in `blocked`; ALLOWED/AUDIT lands in `passed` only
   // if it matches the decision `isAudit` selects, otherwise it's dropped.
-  it("valid log line always aggregates to exactly one entry in the right bucket", async () => {
+  it("a valid log line always aggregates to exactly one entry in the right bucket", async () => {
     const decision = fc.constantFrom("ALLOWED", "BLOCKED", "AUDIT");
     const isAudit = fc.boolean();
     // ruleType must match \w+ in the log pattern
@@ -25,7 +25,7 @@ describe("scanHaproxyLog: properties", () => {
     // host: no '"' or ':' to keep the lastIndexOf split unambiguous
     const host = fc.stringMatching(/^[a-z][a-z0-9.]{0,20}$/);
     const port = fc.integer({ min: 1, max: 65535 }).map(String);
-    // reason: restricted to the kebab-case charset the log pattern now requires
+    // reason: restricted to the kebab-case charset the log pattern requires
     const reason = fc.oneof(fc.constant("-"), fc.stringMatching(/^[A-Za-z0-9-]{1,15}$/));
 
     await fc.assert(

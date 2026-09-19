@@ -16,9 +16,8 @@ function matches(pattern: string, name: string): boolean {
 
 // ---------------------------------------------------------------------------
 // The point of this compiler: a wildcard may sit among literal text in a
-// label. The shared compiler rejects that, which would force an author to
-// widen the pattern to a whole label, and the resolver's scope is generated
-// from these patterns.
+// label. The shared compiler rejects that, forcing an author to widen the
+// pattern to a whole label, which widens the resolver's scope with it.
 // ---------------------------------------------------------------------------
 describe("wildcard inside a label", () => {
   it("accepts a trailing wildcard", () => {
@@ -46,7 +45,7 @@ describe("wildcard inside a label", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Everything the shared compiler already meant keeps meaning it.
+// Every wildcard the shared compiler accepts keeps the same meaning here.
 // ---------------------------------------------------------------------------
 describe("unchanged vocabulary", () => {
   it("* alone is one label", () => {
@@ -147,7 +146,7 @@ describe("splitRawRegexHost host-half compilation", () => {
 
 // ---------------------------------------------------------------------------
 // The pieces a `~` rule is built from. Each is used by several modules
-// (url-rules, wildcard-rules, haproxy-rules, source-policy), whose own tests
+// (url-rules, wildcard-rules, haproxy-rules), whose own tests
 // assert the output they produce; these fix what all of that rests on.
 // ---------------------------------------------------------------------------
 describe("checkRawRegexHalf", () => {

@@ -20,8 +20,7 @@ const BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json";
 const IMAGE_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json";
 
 /**
- * Pull the Sigstore Bundle from the OCI registry.
- * Tries the OCI 1.1 Referrers API first; falls back to the sha256-<hex> tag scheme.
+ * Pull the Sigstore Bundle from the OCI registry, Referrers API first.
  *
  * Throws VerifyImageError(NOT_FOUND) when no bundle exists for this digest.
  * Throws VerifyImageError(TRANSIENT) on network or 5xx errors.
@@ -40,7 +39,7 @@ export async function fetchBundle(
   return bundleFromFallbackTag(client, digest);
 }
 
-/** The one answer three different dead ends give, so it is worded once. */
+/** The NOT_FOUND three separate paths raise, worded once. */
 function noBundleFound(digest: string): VerifyImageError {
   return new VerifyImageError(
     `No Sigstore bundle found for digest ${digest}. ` +
@@ -148,7 +147,7 @@ async function bundleFromFallbackTag(client: RegistryClient, digest: string): Pr
 }
 
 /**
- * Read an OCI image manifest by digest and return the bundle from its first
+ * Read a bundle out of the manifest a descriptor named.
  * layer with mediaType === BUNDLE_MEDIA_TYPE.
  *
  * Every refusal is transient, a 404 included: a descriptor just named this
@@ -171,7 +170,7 @@ async function bundleFromManifest(
   return bundleBlob(client, layer.digest);
 }
 
-/** A blob the bundle manifest named: its absence is the bundle's absence. */
+/** A blob the bundle manifest named, so a 404 means the bundle itself is missing. */
 function bundleBlob(client: RegistryClient, blobDigest: string): Promise<unknown> {
   return client.getJson(`/blobs/${blobDigest}`, "bundle blob", {
     onFailure: "NOT_FOUND",

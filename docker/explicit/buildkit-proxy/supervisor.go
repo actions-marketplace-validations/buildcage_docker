@@ -1,9 +1,8 @@
 package main
 
-// This file owns the "supervisor" role: preparing the environment and
-// launching/managing the real buildkitd child process. It is otherwise
-// unrelated to the gRPC policy-injection proxy in codec.go/frame.go/proxy.go/
-// solve.go, which is this binary's primary purpose.
+// This file prepares the environment and launches the real buildkitd child
+// process. It is otherwise unrelated to the gRPC policy-injection proxy in
+// codec.go/frame.go/proxy.go/solve.go.
 //
 // buildkitdEnv (called from startBuildkitd below) is defined in ca_prod.go
 // or ca_testhooks.go depending on the "testhooks" build tag; see that

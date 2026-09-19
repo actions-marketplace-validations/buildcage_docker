@@ -254,7 +254,7 @@ jobs:
   # Separate job from test_action: known_blocked_rules is a setup input, so it
   # has to be named when the builder starts, and test_action's own report step
   # turns fail_on_blocked off. Here fail_on_blocked stays at its default and
-  # the step has to pass anyway, which is the whole point of the input.
+  # the step has to pass anyway, which is what the input is for.
   test_action_known_blocked:
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'

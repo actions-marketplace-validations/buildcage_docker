@@ -100,9 +100,8 @@ export function generateHaproxyConfig(options: HaproxyConfigOptions = {}): Gener
   // wherever the client's own address said.
   const hasResolver = resolvers.length > 0 || useResolvConf;
   // Required together, not just individually optional: without proxyAddress
-  // here, a name do-resolve sends back to the proxy's own gateway would not
-  // be caught by the internal-address guard below, silently rather than
-  // loudly. This must fail closed instead of falling through.
+  // here, a name do-resolve sends back to the proxy's own gateway would pass
+  // the internal-address guard below unnoticed, so this fails closed.
   if (hasResolver && !opts.proxyAddress) {
     throw new Error("proxyAddress is required whenever a resolver is configured");
   }

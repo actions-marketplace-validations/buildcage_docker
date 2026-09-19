@@ -13,7 +13,6 @@ echo "Allowed HTTPS rules: $ALLOWED_HTTPS_RULES"
 echo "Allowed HTTP rules: $ALLOWED_HTTP_RULES"
 echo "Allowed IP rules: $ALLOWED_IP_RULES"
 
-# Generate lst files (convert wildcard rules to regex)
 mkdir -p /etc/haproxy/rules
 echo "Converting rules to regex..."
 if [ "$PROXY_MODE" = "audit" ]; then

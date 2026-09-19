@@ -84,8 +84,7 @@ export default defineConfig({
         ["text", {}],
         ["text-summary", { file: "summary.txt" }],
       ],
-      // 100% is not the goal in itself: it is what makes new untested code
-      // fail the run instead of sinking into a number nobody reads. What is
+      // 100% is what makes new untested code fail the run. What is
       // deliberately untested carries a v8 ignore comment naming the reason.
       thresholds: { 100: true },
     },

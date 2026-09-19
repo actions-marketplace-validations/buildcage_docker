@@ -245,10 +245,9 @@ describe("allowed names", () => {
   const config = gen({ httpsRules: ["a.example.com:443"] });
   const allowBlock = blockOf(config, "view allowlist");
   const denyBlock = config.slice(config.indexOf("# Everything else"));
-  // Both blocks share proxyAnswerLines() in the generator, so this is a
-  // stronger, single check in place of separately re-asserting the same
-  // answer/AAAA shape "denied names" above already covers in full: it proves
-  // the two cannot drift apart, not just that each happens to look right.
+  // Both blocks share proxyAnswerLines() in the generator, so comparing them
+  // proves they cannot drift apart, which re-asserting each block's shape
+  // separately would not.
   const answerLines = (s: string) =>
     s
       .split("\n")
@@ -271,7 +270,7 @@ describe("allowed names", () => {
 
 // ---------------------------------------------------------------------------
 // audit has no allowlist to enforce, but it must not forward either: it
-// records without connecting to anything CoreDNS resolved for real.
+// records every lookup while still answering it locally.
 // ---------------------------------------------------------------------------
 describe("audit mode", () => {
   const config = gen({ ...BASE, httpsRules: ["a.example.com:443"], mode: "audit" });
@@ -446,7 +445,7 @@ describe("service-discovery names", () => {
 // Every other service name. Refused like any other name, but recorded apart:
 // the remedy for one is the host below it, never the name, which no rule can
 // make resolve. Logging it apart is also what keeps the shape of a service
-// name defined in this file alone: the report reads verbs, not names.
+// name defined in coredns-config.ts alone: the report reads verbs, not names.
 // ---------------------------------------------------------------------------
 describe("refused service names", () => {
   it("records them under a verb of their own, carrying the type", () => {

@@ -9,7 +9,7 @@ import { wrapCommunicationDetails } from "./communication-section.ts";
  * Blocked Urls, matching the Allowed Hosts / Blocked Hosts tables above.
  *
  * Blocked entries aren't attributed to a specific RUN step: buildkitd's
- * denial log carries no vertex/span identifier to attribute it with. A
+ * denial log carries no vertex/span identifier to attribute them with. A
  * "Build N" item separates builds only when there's more than one, since
  * step labels like "[2/15] RUN ..." repeat across builds.
  *

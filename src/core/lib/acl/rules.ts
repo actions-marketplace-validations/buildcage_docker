@@ -44,7 +44,7 @@ export interface ACLRules {
 }
 
 /**
- * Build ACL rules from input strings. Rules are passed through as-is
+ * Rules are kept as written (wildcard format) and validated eagerly.
  * (wildcard format), validated eagerly.
  */
 export function buildACLRules({

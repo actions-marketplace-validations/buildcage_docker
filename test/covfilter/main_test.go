@@ -145,10 +145,6 @@ func TestAMarkerThatExcusesNothingFails(t *testing.T) {
 	}
 }
 
-// A marker does have to take the reached code the unreached statement lives
-// in: guarding an error return means enclosing the `if` that guards it, and
-// cmd/cover counts that condition as reached. What it must not take is a
-// statement that began before the marker did.
 // An unmatched marker silently un-excuses whatever came after it, so it is an
 // error rather than something to guess at.
 func TestUnbalancedMarkersFail(t *testing.T) {

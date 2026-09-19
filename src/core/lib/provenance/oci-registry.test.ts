@@ -4,8 +4,6 @@
  * through those three rather than on its own.
  *
  * Tests use an injectable _fetch to avoid real network access.
- *
- * Run with: vp test run core/lib/provenance/oci-registry.test.ts
  */
 import { describe, it, expect } from "vitest";
 
@@ -65,7 +63,7 @@ describe("fetchManifestDigest", () => {
     );
   });
 
-  it("throws TRANSIENT with auth hint on 401", async () => {
+  it("throws TRANSIENT with an auth hint on 401", async () => {
     await expectVerifyError(
       call(async () => manifestHead(401, null)),
       "TRANSIENT",
@@ -73,7 +71,7 @@ describe("fetchManifestDigest", () => {
     );
   });
 
-  it("throws TRANSIENT with auth hint on 403", async () => {
+  it("throws TRANSIENT with an auth hint on 403", async () => {
     await expectVerifyError(
       call(async () => manifestHead(403, null)),
       "TRANSIENT",
@@ -108,7 +106,7 @@ describe("fetchRegistryToken", () => {
 
   // ── basicAuth=null (not logged in) ─────────────────────────────────────
 
-  it("returns anonymous token when no Docker credentials and registry responds 200", async () => {
+  it("returns an anonymous token when there are no Docker credentials and the registry responds 200", async () => {
     let callCount = 0;
     const token = await call(null, async (_url, opts) => {
       callCount++;

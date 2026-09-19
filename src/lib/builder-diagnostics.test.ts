@@ -128,7 +128,7 @@ describe("builderStartError", () => {
 });
 
 describe("builderStartError: an inspect failure that is not an Error", () => {
-  it("blames Docker without trying to quote a stderr it has none of", () => {
+  it("blames Docker without trying to quote a stderr that is not there", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const deps: BuilderDiagnosticsDeps = {
       captureDocker() {

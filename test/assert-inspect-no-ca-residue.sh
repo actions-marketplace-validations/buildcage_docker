@@ -6,8 +6,8 @@ source "$(dirname "$0")/helpers.sh"
 # (docker/inspect/buildcage-runc/inject.go): the environment it sets lives only
 # in the transient OCI process spec, never in what BuildKit commits, and the
 # CA file(s) it writes to the rootfs are undone by its own restore() before
-# the snapshot is taken. This checks both hold against the real image this
-# test build produced, not just in theory.
+# the snapshot is taken. This checks that both hold against the real image
+# this test build produced.
 
 IMAGE="${1:-buildcage-test}"
 

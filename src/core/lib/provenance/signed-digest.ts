@@ -1,7 +1,7 @@
 import { VerifyImageError } from "./errors.ts";
 
 // Encode a string as DER UTF8String for Fulcio OID extension values.
-// sigstore-js compares the raw OCTET STRING bytes, so we must include
+// sigstore-js compares the raw OCTET STRING bytes, so the DER tag (0x0C)
 // the DER tag (0x0C) and length prefix. Assumes len < 128.
 export const derUtf8 = (s: string): string => String.fromCharCode(0x0c, s.length) + s;
 
@@ -27,7 +27,7 @@ export interface DsseBundle {
  * This check closes the gap between Referrers-API attribution (registry
  * metadata, not cryptographic) and the actual signed content: an attacker
  * with package-write access could re-attach a valid bundle to a different
- * image; this assertion prevents accepting such a re-attached bundle.
+ * image.
  *
  * Exported for unit testing; callers should use sigstore.ts's verifyBundle()
  * instead.

@@ -10,7 +10,7 @@ describe("createAnnotation", () => {
       expect(log.mock.calls[0][0]).toBe("::notice::hello");
     });
 
-    it("error() logs a ::error:: line", () => {
+    it("error() logs an ::error:: line", () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       createAnnotation(true).error("boom");
       expect(log.mock.calls.length).toBe(1);

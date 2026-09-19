@@ -32,7 +32,7 @@ describe("formatElapsedFixed", () => {
     expect(formatElapsedFixed(0)).toBe("00:00:00.000");
   });
 
-  it("does not widen further past an hour -- the shape never changes", () => {
+  it("does not widen further past an hour, so the shape never changes", () => {
     expect(formatElapsedFixed(3600)).toBe("01:00:00.000");
     expect(formatElapsedFixed(25 * 3600)).toBe("25:00:00.000");
   });

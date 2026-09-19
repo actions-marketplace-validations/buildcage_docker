@@ -18,7 +18,7 @@
  */
 
 declare module "qjs:std" {
-  // "in" is a reserved word, so it can't be declared directly as an export
+  // "in" is a reserved word and can't be declared directly as an export
   // binding, so export-and-rename around it instead.
   const in_: { readAsString(): string };
   export { in_ as in };

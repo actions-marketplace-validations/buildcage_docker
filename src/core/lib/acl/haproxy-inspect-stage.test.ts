@@ -18,7 +18,7 @@ function plainStage(inputs: RuleInputs): string {
 }
 
 describe("inspect stage", () => {
-  it("writes nothing below that deny, which carries no condition and so is final", () => {
+  it("writes nothing below a deny that carries no condition and so is final", () => {
     // HAProxy skips every http-request rule after an unconditional deny and
     // warns that they are NOOP. The resolver block is what would follow here.
     const plain = plainStage({ httpsRules: ["a.example.com:443"] });

@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe("runReportStep", () => {
-  it("finds the container by the project name the builder name derives to", async () => {
+  it("finds the container by the project name derived from the builder name", async () => {
     await runReportStep({}, deps);
     expect(mocks.findReportSourceContainer).toHaveBeenCalledWith(
       { docker: true },

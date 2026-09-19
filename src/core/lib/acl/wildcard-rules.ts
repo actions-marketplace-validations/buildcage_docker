@@ -45,7 +45,7 @@ export function parseAndValidateRules(rulesInput: string | undefined): string[] 
  * part of what is being permitted. This one is matched against a row of the
  * report, and a row for a name the resolver refused has no port at all,
  * nothing having been connected to. Requiring one there means writing a port
- * that was never involved, which is every DNS row.
+ * that was never involved, and that is true of every DNS row.
  */
 export function completeRulePort(rule: string): string {
   if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
@@ -105,9 +105,7 @@ function domainToRegex(domain: string): string {
       );
     }
     // Escape regex meta characters, `?` excluded: it is a wildcard, handled below
-    return part
-      .replace(/[.+^$()[\]{}|\\]/g, "\\$&") // escape regex special chars except `?`
-      .replace(/\?/g, "[^.]"); // `?` matches a single character excluding dots
+    return part.replace(/[.+^$()[\]{}|\\]/g, "\\$&").replace(/\?/g, "[^.]");
   });
 
   return regexParts.join("\\.");
