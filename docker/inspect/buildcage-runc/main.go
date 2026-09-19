@@ -87,8 +87,8 @@ func parseArgs(args []string) (sub, bundle string) {
 			}
 			continue
 		}
-		if strings.HasPrefix(arg, "--bundle=") {
-			bundle = strings.TrimPrefix(arg, "--bundle=")
+		if value, ok := strings.CutPrefix(arg, "--bundle="); ok {
+			bundle = value
 			continue
 		}
 		if sub == "" && !strings.HasPrefix(arg, "-") && subcommands[arg] {
