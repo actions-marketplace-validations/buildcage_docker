@@ -186,6 +186,16 @@ describe("scanInspectLog", () => {
     expect(unparsed).toBe(1);
   });
 
+  it("counts a line cut where the SNI ends, rather than reading the SNI as the URL", async () => {
+    // The one cut that leaves something shaped like a whole line: every field
+    // up to the SNI is there, and only the URL is gone.
+    const { events, unparsed } = await scanInspectLog([
+      "buildcage 1 https GET 200 708 ts=-- reason=- dst=1.1.1.1:443 sni=example.com",
+    ]);
+    expect(events.length).toBe(0);
+    expect(unparsed).toBe(1);
+  });
+
   it("counts neither haproxy's own output nor the startup marker", async () => {
     const lines = [
       "[NOTICE] (1) : haproxy version is 3.4.3",
@@ -364,12 +374,14 @@ describe("lines and stamps the inspect logs can carry", () => {
 });
 
 describe("a request line whose URL names no authority", () => {
-  // HAProxy logs the target as sent, which for an origin-form request is a
-  // path; there is no host to take out of it.
+  // The log-format writes the scheme itself and puts the captured Host after
+  // it, so nothing between the slashes and the path leaves no host to take
+  // out of the URL.
   it("keeps the field as-is rather than inventing a host", async () => {
-    const line = "buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=1.2.3.4:443 /pkg";
+    const line =
+      "buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=1.2.3.4:443 https:///pkg";
     const { events } = await scanInspectLog([line]);
-    expect(events[0].host).toBe("/pkg");
+    expect(events[0].host).toBe("https:///pkg");
   });
 });
 

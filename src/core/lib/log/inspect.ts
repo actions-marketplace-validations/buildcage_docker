@@ -35,10 +35,11 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 // half-written write would otherwise parse as one event instead of counting
 // as unparsed.
 // sni= is optional because the plain stage terminates no TLS and so logs no
-// such field. It can never swallow a URL: the URL is the line's last word, and
-// this group matches only one with another word behind it.
+// such field. The URL keeps its scheme in the pattern for that reason: without
+// it a line cut just after the SNI would parse, reading `sni=<name>` as the
+// URL, instead of being counted as the unreadable line it is.
 const REQUEST =
-  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?(\S+)$/;
+  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?(https?:\/\/\S+)$/;
 const PASSTHROUGH =
   /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
