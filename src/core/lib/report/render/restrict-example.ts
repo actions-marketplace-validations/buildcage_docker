@@ -24,7 +24,6 @@ export interface RestrictExampleBlockOptions {
   footnote?: string;
 }
 
-/** Wrap a step's YAML as the collapsed markdown section the report shows. */
 export function restrictExampleBlock(
   yaml: string,
   { footnote }: RestrictExampleBlockOptions = {},

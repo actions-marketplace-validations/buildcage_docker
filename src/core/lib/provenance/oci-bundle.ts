@@ -108,12 +108,9 @@ async function bundleFromFallbackTag(client: RegistryClient, digest: string): Pr
 
     const tagManifest = await resp.json!();
 
-    // OCI Referrers Tag Schema: the tag is an Image Index whose manifests[] entries
-    // are descriptors for individual referrer artifacts.
     if (Array.isArray(tagManifest.manifests)) {
       for (const m of tagManifest.manifests as OciDescriptor[]) {
         if (m.mediaType !== IMAGE_MANIFEST_MEDIA_TYPE) continue;
-        // Standard: m.artifactType matches directly.
         if (m.artifactType === BUNDLE_MEDIA_TYPE) {
           return bundleFromManifest(client, m.digest);
         }

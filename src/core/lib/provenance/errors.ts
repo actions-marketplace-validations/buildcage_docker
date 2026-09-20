@@ -1,12 +1,6 @@
 import { ActionError } from "../errors.ts";
 
-/**
- * Codes both error classes below carry:
- *   NOT_FOUND:      resource does not exist (missing tag or bundle)
- *   TRANSIENT:      network or 5xx error; do not treat as "resource absent"
- *   TOKEN_ERROR:    registry token endpoint returned a client error
- *   VERIFY_FAILED:  Sigstore bundle verification failed
- */
+/** TRANSIENT is a network or 5xx error, never "resource absent". */
 export type VerifyImageErrorCode = "NOT_FOUND" | "TRANSIENT" | "TOKEN_ERROR" | "VERIFY_FAILED";
 
 /**

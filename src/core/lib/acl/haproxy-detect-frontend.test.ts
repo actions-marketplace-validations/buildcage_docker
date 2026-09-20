@@ -59,11 +59,6 @@ describe("passthrough", () => {
   });
 
   it("also scopes the early do-resolve trigger by port, not just the backend selection", () => {
-    // txn.tlsrule is gated on the port as well as the SNI. From the SNI alone,
-    // an SNI matching db.example.com on a port the rule does not name would
-    // still trigger do-resolve/set-dst here, overwriting the connection's
-    // destination before the inspected path ever sees it, even though txn.pass
-    // (gated on sni+port together) correctly never fires for it.
     expect(config.includes("set-var(txn.tlsrule) int(1) if tls0_sni tls0_port")).toBe(true);
   });
 
@@ -87,7 +82,6 @@ describe("passthrough", () => {
       ),
     ).toBe(true);
     expect(config.includes("tcp-request content set-dst var(txn.dst)")).toBe(true);
-    // Falling through would connect to the address the client chose.
     expect(
       config.includes(
         "tcp-request content reject if { var(txn.tlsrule) -m found } !{ var(txn.dst) -m found }",
@@ -105,9 +99,6 @@ describe("passthrough", () => {
   });
 
   it("selects that backend below the accept, where the file reads as it runs", () => {
-    // Backend selection happens after every content rule whatever the written
-    // order, so a use_backend above the accept is only misleading, and
-    // HAProxy warns about it.
     const accept = config.indexOf("tcp-request content accept");
     const select = config.indexOf("use_backend passthrough");
     expect(accept !== -1 && accept < select).toBe(true);

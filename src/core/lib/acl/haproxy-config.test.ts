@@ -378,11 +378,10 @@ describe("what a log line records", () => {
   });
 
   it("leaves a non-default port's ':' untouched in the Host capture", () => {
-    // The Host capture must not be reduced to the SNI's hostname-only charset:
-    // that also eats the ':' a Host header carries for a non-default port,
-    // turning "allowed.example.com:9443" into "allowed.example.com_9443" in the
-    // report. This mirrors HAProxy's own regsub("[\s\"[:cntrl:]]",_,g) against
-    // a POSIX/PCRE2-equivalent pattern.
+    // Mirrors HAProxy's own regsub("[\s\"[:cntrl:]]",_,g) with a
+    // POSIX/PCRE2-equivalent pattern: the ':' of a non-default port has to
+    // survive, or "allowed.example.com:9443" reaches the report as
+    // "allowed.example.com_9443".
     const stripped = "allowed.example.com:9443".replace(/[\s"\p{Cc}]/gu, "_");
     expect(stripped).toBe("allowed.example.com:9443");
   });
@@ -405,7 +404,7 @@ describe("what a log line records", () => {
 describe("the path the rules see", () => {
   it("decodes before stripping dot-dots, not after", () => {
     // `.` is unreserved, so `%2e%2e` is not a dot-dot segment until it has been
-    // decoded. Stripping first leaves it intact, the rules see a path that
+    // decoded. Stripping first leaves it intact: the rules see a path that
     // never leaves /public/, and the origin resolves it somewhere else.
     // Verified against a real build: it returned PRIVATE with a 200.
     const decode = FULL_CONFIG.indexOf("normalize-uri percent-decode-unreserved");

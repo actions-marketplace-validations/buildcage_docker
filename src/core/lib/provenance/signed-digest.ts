@@ -46,7 +46,6 @@ export function assertSignedDigest(bundleJson: DsseBundle, expectedDigest: strin
     const sl = JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
 
     if (dsse.payloadType === "application/vnd.in-toto+json") {
-      // in-toto Statement v1: subject[].digest.sha256 holds the manifest digest.
       const subjects: { digest?: { sha256?: string } }[] = sl?.subject ?? [];
       const matched = subjects.some(
         (s) => s?.digest?.sha256 && `sha256:${s.digest.sha256}` === expectedDigest,
@@ -65,7 +64,6 @@ export function assertSignedDigest(bundleJson: DsseBundle, expectedDigest: strin
         );
       }
     } else {
-      // simple-signing format: critical.image.docker-manifest-digest.
       const signedDigest = sl?.critical?.image?.["docker-manifest-digest"];
       if (!signedDigest || signedDigest !== expectedDigest) {
         throw new VerifyImageError(

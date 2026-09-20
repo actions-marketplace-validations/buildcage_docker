@@ -27,11 +27,8 @@ const REGEX_META = /[.+^$()[\]{}|\\]/g;
 
 /** How a wildcard is spelled for one kind of separator. */
 interface Vocabulary {
-  /** `**`: one or more characters, separator included. */
   across: string;
-  /** `*`: one or more characters, separator excluded. */
   within: string;
-  /** `?`: a single character, separator excluded. */
   single: string;
 }
 
@@ -47,7 +44,7 @@ function atomToRegex(atom: string, vocab: Vocabulary): string {
   let out = "";
   for (let i = 0; i < atom.length; i++) {
     if (atom[i] === "*") {
-      // Longest match first: `**` spans the separator, a single `*` does not.
+      // Longest match first: `**` spans the separator; a single `*` does not.
       if (atom[i + 1] === "*") {
         out += vocab.across;
         i++;

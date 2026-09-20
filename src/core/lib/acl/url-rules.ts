@@ -7,20 +7,15 @@
  *   GET|HEAD https://example.com/public/*
  *   * https://internal.example.com
  *
- * Methods may be separated by `|` or `,`, and `*` means any method. The method
- * is required: there is no default, so a rule always states what it permits.
+ * The method is required: there is no default, so a rule always states what it
+ * permits.
  * Because a rule contains a space, the input is split on NEWLINES, unlike the
  * whitespace-separated host rules in wildcard-rules.ts.
  *
- * The URL pattern extends the host rule syntax to a path, reusing the same
- * wildcard vocabulary applied to path segments instead of dot-separated labels:
- *
- *   `**`: matches across separators
- *   `*` : one or more characters, not crossing a separator
- *   `?` : a single character
- *
- * A wildcard may sit among literal text, in a path segment as in a domain
- * label; see partial-wildcard.ts for why that matters.
+ * The URL pattern extends the host rule syntax to a path, applying the same
+ * wildcard vocabulary to path segments instead of dot-separated labels. A
+ * wildcard may sit among literal text, in a path segment as in a domain label;
+ * see partial-wildcard.ts, which holds the vocabulary and why that matters.
  *
  * A `~` prefix on the URL passes the remainder through as a raw regex. Nothing
  * here is matched as one full-URL expression either way: haproxy matches the
@@ -136,19 +131,17 @@ const SCHEME_SEP = /:(?:\\?\/){2}/;
  * expressions, never as one full-URL regex (see haproxy-rule-block.ts's
  * ruleBlock), so the regex has to be cut at the first `/` after `://`.
  *
- * Only the anchors the author cannot write are supplied. The host half gets
- * both, its `^` having gone to the scheme and its `$` to the path. The path
- * half gets `^` alone: a `$` at the end of the URL lands at the end of the
- * path, so whether the path is exact or a prefix stays the author's to say.
+ * Both halves are anchored where the author could not do it themselves (see
+ * anchorRawRegex), except the path half's end: a `$` there lands at the end of
+ * the URL, so whether the path is exact or a prefix stays the author's to say.
  *
  * The host half's port is optional, exactly as in a literal URL: the proxy
- * tries it against the connection's host both bare and with the real port,
- * so a pattern with no port at all matches only the scheme's default port,
- * and one ending in an optional port group (`(:8443)?`) matches either.
- * `authorityRegex` is the same host half with its port pattern dropped, cut
- * at its own `:` or at the `(` opening a group right at the colon. The
- * resolver's allowlist has no notion of a port either way; see
- * splitDomainFromPortPattern.
+ * tries it against the connection's host both bare and with the real port, so
+ * a pattern with no port at all matches only the scheme's default port, and
+ * one ending in an optional port group (`(:8443)?`) matches either.
+ * `authorityRegex` is the same host half with its port pattern dropped (see
+ * splitDomainFromPortPattern); the resolver's allowlist has no notion of a
+ * port either way.
  *
  * @throws {Error} if the text can't be split into a host and a path, either
  *   half carries a top-level `|`, the host half holds a character no hostname

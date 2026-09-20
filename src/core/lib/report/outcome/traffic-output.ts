@@ -28,11 +28,11 @@ export type TrafficRecord = Omit<TrafficEvent, "time"> & {
 /**
  * Build the records for one run, oldest first.
  *
- * Includes every name lookup, the summary's tables only those with no request
- * behind them: the volume is cheap for a machine reader, and which names were
- * asked about is not always derivable from what was then connected to. A field
- * is absent when it does not apply, never zero, so filter on `action`, not
- * `status`.
+ * Includes every name lookup; the summary's tables hold only those with no
+ * request behind them. The volume is cheap for a machine reader, and which
+ * names were asked about is not always derivable from what was then connected
+ * to. A field is absent when it does not apply, never zero, so filter on
+ * `action`, not `status`.
  */
 export function buildTrafficRecords(
   events: TrafficEvent[],
