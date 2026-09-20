@@ -378,10 +378,9 @@ describe("what a log line records", () => {
   });
 
   it("logs the SNI on the stage that terminates TLS, reduced to a hostname charset", () => {
-    // The only name a connection closed before its first request ever gave:
-    // the method and the Host capture are both empty by then. Client-
-    // controlled like the SNI the detect frontend captures, hence the same
-    // charset. The plain stage terminates no TLS, so it has none to log.
+    // The only name a connection that sent no request ever gave. It is under
+    // the client's control, hence the detect frontend's charset, and the plain
+    // stage terminates no TLS so it has none to log.
     const https = FULL_CONFIG.split("\n").find((line) =>
       line.includes('"buildcage %[date(0,ms)] https'),
     );

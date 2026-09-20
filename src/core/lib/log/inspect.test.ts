@@ -374,9 +374,8 @@ describe("lines and stamps the inspect logs can carry", () => {
 });
 
 describe("a request line whose URL names no authority", () => {
-  // The log-format writes the scheme itself and puts the captured Host after
-  // it, so nothing between the slashes and the path leaves no host to take
-  // out of the URL.
+  // The log-format writes the scheme itself and the captured Host after it, so
+  // an empty capture leaves a URL with no host in it.
   it("keeps the field as-is rather than inventing a host", async () => {
     const line =
       "buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=1.2.3.4:443 https:///pkg";

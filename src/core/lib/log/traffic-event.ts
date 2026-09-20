@@ -9,9 +9,8 @@
  * `discovery` and `aborted` are neither: no rule decided them and none could.
  * Folding either into `block` would put a row in the report no rule could take
  * away, and fail a build under fail_on_blocked over something that reached
- * nothing. A lookup for a service name is answered empty whatever the rules
- * say; an aborted connection was dropped before its first request, so no rule
- * had anything to decide on and nothing was ever sent to an origin.
+ * nothing: a service name is answered empty whatever the rules say, and an
+ * aborted connection never sent a request for a rule to judge.
  */
 export type TrafficAction = "allow" | "block" | "audit" | "discovery" | "aborted";
 

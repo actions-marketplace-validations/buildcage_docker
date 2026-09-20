@@ -46,15 +46,11 @@ echo ""
 
 echo "[client left first] the connection is named by its SNI, the only name it gave:"
 # %HM and the Host capture both come from a request that never arrived, so
-# without the SNI the line would name no host at all. Phase R is what says the
-# request was still being waited for; C is the client closing, c its own
-# timeout running out.
-# The `https://--` tail is pinned deliberately. The parser needs the URL field
-# to carry a scheme and something behind it, and what makes that hold on a line
-# like this is haproxy writing `-` for the empty Host capture and the unset
-# path. A version writing them as nothing would leave a bare `https://`, which
-# is a field short of a record and so counts as an unreadable line, failing the
-# step in restrict mode. This is where that would be caught.
+# without the SNI the line would name no host at all.
+# The `https://--` tail is pinned: the parser wants a scheme and something
+# behind it, which holds because haproxy writes `-` for the empty Host capture
+# and the unset path. A version writing them as nothing would leave a bare
+# `https://`, unreadable to the parser and so a failed step. Caught here.
 if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com https://--$" <<< "$LOGS"; then
   pass "recorded with the handshake's SNI"
 else
@@ -347,8 +343,8 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-# Nothing reached an origin and no rule decided anything, so this belongs in
-# neither table. The timeline is the only place it can appear.
+# No rule decided it, so it belongs in neither table and the timeline is the
+# only place it can appear.
 if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
   pass "a connection the client left is in the timeline, with a mark of its own"
 else
@@ -359,9 +355,8 @@ if grep -qF "| aborted.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN"; then
 else
   pass "the aborted connection is in neither host table"
 fi
-# Writing a rule for the host would not take the row above away, so the
-# refused lookup for the same name has to survive: it is the only row a reader
-# can act on.
+# No rule takes the row above away, so the refused lookup for the same name has
+# to survive: it is the only row a reader can act on.
 if grep -qF "| aborted.example.com | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN"; then
   pass "the refused lookup for the same name is still its own Blocked row"
 else

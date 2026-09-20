@@ -21,17 +21,9 @@ export interface InspectStageContext extends InternalDstOptions {
   hasResolver: boolean;
 }
 
-/**
- * The SNI field, for the stage that has one.
- *
- * A connection the client drops before sending a request leaves `%HM` and the
- * captured Host empty, so without this the line names no host at all. The
- * handshake is already done by then and `generate-certificates` signed a
- * certificate for this very name, so the SNI is always there to log.
- *
- * Client-controlled like the Host above, and reduced to the same charset the
- * detect frontend reduces its own capture to.
- */
+/** The SNI field, for the stage that terminates TLS. It names the host of a
+ *  connection that ended before its request, where `%HM` and the Host capture
+ *  are both empty. Client-controlled, hence the detect frontend's charset. */
 function sniField(scheme: "https" | "http"): string {
   return scheme === "https" ? " sni=%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]" : "";
 }

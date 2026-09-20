@@ -55,9 +55,7 @@ export async function buildInspectReportData(
   const blockedRows: LogEntry[] = [];
   const connected = connectedHosts(timeline);
   for (const event of timeline) {
-    // Decided by no rule, so it belongs in neither table: a lookup no rule can
-    // permit, or a connection dropped before a rule had a request to judge.
-    // The timeline keeps both.
+    // Decided by no rule, so it belongs in neither table. The timeline keeps it.
     if (event.action === "discovery" || event.action === "aborted") continue;
     // A lookup the build then connected on only doubles the connection's row.
     // One with no connection behind it is the sole trace of a name reached for

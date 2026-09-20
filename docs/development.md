@@ -304,8 +304,8 @@ The ⚠️ line is the exception: a termination state of `CR` or `cR` is the cli
 phase `R`, before a whole request had arrived. The stage resolves and connects only after one
 parses, so nothing left the proxy: the logged `dst` is still the proxy's own address. That is
 neither an allow nor a block, and like a `discovery` lookup it stays out of both host tables so no
-row appears that no rule could take away. Only `R` counts: a client that abandons a later phase
-abandons a request the rules had already decided on.
+row appears that no rule could take away. Only `R` counts: a later phase means the rules had
+already decided on a request.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
 archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The

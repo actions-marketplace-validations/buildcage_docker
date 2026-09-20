@@ -120,9 +120,8 @@ describe("buildInspectReportData", () => {
   });
 
   it("keeps a connection dropped before its request out of both tables", async () => {
-    // Nothing left the proxy, so there is nothing for a rule to permit and
-    // nothing for one to refuse: naming the host in a rule would not remove
-    // the row, and counting it as blocked would fail the build over it.
+    // Nothing left the proxy, so no rule can permit or refuse it: naming the
+    // host would not remove the row, and blocking it would fail the build.
     const r = await buildInspectReportData([START, ABORTED], [], reportParams());
     expect(r.blocked.length).toBe(0);
     expect(r.blockedCount).toBe(0);

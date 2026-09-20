@@ -16,8 +16,7 @@
  *
  * The passthrough line is the only record of undecrypted traffic; the dns line
  * the only record of a refused name, which never reaches the proxy. Only the
- * TLS stage terminates TLS, so only its line carries an SNI; it is the only
- * name a connection dropped before its first request ever gave.
+ * https line carries an SNI, since only that stage terminates TLS.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
@@ -34,10 +33,10 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 // The trailing field stays \S+ rather than .+: two lines joined by a
 // half-written write would otherwise parse as one event instead of counting
 // as unparsed.
-// sni= is optional because the plain stage terminates no TLS and so logs no
-// such field. The URL keeps its scheme in the pattern for that reason: without
-// it a line cut just after the SNI would parse, reading `sni=<name>` as the
-// URL, instead of being counted as the unreadable line it is.
+// sni= is optional: the plain stage terminates no TLS and logs no such field.
+// The URL keeps its scheme for that reason, or a line cut right after the SNI
+// would parse with `sni=<name>` read as the URL instead of counting as
+// unreadable.
 const REQUEST =
   /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?(https?:\/\/\S+)$/;
 const PASSTHROUGH =
@@ -118,9 +117,9 @@ function reasonFor(logged: string, terminationState: string): string {
  * Phase `R` is the proxy still reading the request line and headers, and the
  * inspected stage resolves the Host and connects only once one has parsed, so
  * nothing left this proxy: the logged destination is still the proxy's own
- * address. `C` is the client closing, `c` its own timeout expiring. A client
- * that abandons a later phase (`CD` and the like) abandons a request the rules
- * had already decided on, which is an ordinary exchange and stays one.
+ * address. `C` is the client closing, `c` its own timeout expiring. A later
+ * phase (`CD` and the like) means the rules had already decided on a request,
+ * so those stay ordinary exchanges.
  */
 function isAborted(terminationState: string): boolean {
   const cause = terminationState[0];
@@ -147,11 +146,9 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   if (request) {
     if (isAborted(request[6])) {
       const sni = request[10];
-      // The SNI is the only name such a connection gave, and the address it
-      // was sent to the only identity when it gave none. Method and URL stay
-      // unset: what the log-format prints for a request that never arrived
-      // (`<BADREQ>`, an authority-less URL) records the absence rather than
-      // anything the build did.
+      // The SNI is the only name given, the address the only identity without
+      // one. Method and URL stay unset: `<BADREQ>` and an authority-less URL
+      // are what the log-format prints for fields that never existed.
       return {
         time: Number(request[1]) / 1000,
         action: "aborted",

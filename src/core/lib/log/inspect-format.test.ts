@@ -123,8 +123,8 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("origin-no-response");
   });
 
-  // What a client that finished the handshake and then left writes: haproxy
-  // has no request to log, so every field a request would have fills in empty.
+  // What a client that finished the handshake and then left produces: with no
+  // request to log, every field one would have comes out empty.
   const ABORTED = {
     "%HM": "<BADREQ>",
     "%ST": "400",
@@ -141,7 +141,6 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.port).toBe(9443);
     expect(e.reason).toBe("client-aborted");
     expect(e.destination).toBe("10.200.0.100:9443");
-    // `<BADREQ>` and an authority-less URL are the absence, not a request.
     expect(e.method === undefined).toBe(true);
     expect(e.url === undefined).toBe(true);
     expect(e.status === undefined).toBe(true);
