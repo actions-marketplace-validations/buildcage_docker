@@ -42,7 +42,7 @@ jobs:
           WORKDIR /app
           # Debian's archive is plain HTTP, so apt's rules are http:// URLs.
           RUN apt-get update && \
-              apt-get install -y --no-install-recommends wget && \
+              apt-get install -y wget && \
               rm -rf /var/lib/apt/lists/*
           RUN npm init -y && npm install --ignore-scripts @hono/node-server
           # Refused: the report names the full URL, not just the host.
