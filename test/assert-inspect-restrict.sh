@@ -49,7 +49,13 @@ echo "[client left first] the connection is named by its SNI, the only name it g
 # without the SNI the line would name no host at all. Phase R is what says the
 # request was still being waited for; C is the client closing, c its own
 # timeout running out.
-if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com " <<< "$LOGS"; then
+# The `https://--` tail is pinned deliberately. The parser needs the URL field
+# to carry a scheme and something behind it, and what makes that hold on a line
+# like this is haproxy writing `-` for the empty Host capture and the unset
+# path. A version writing them as nothing would leave a bare `https://`, which
+# is a field short of a record and so counts as an unreadable line, failing the
+# step in restrict mode. This is where that would be caught.
+if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com https://--$" <<< "$LOGS"; then
   pass "recorded with the handshake's SNI"
 else
   fail "no such line for aborted.example.com"
