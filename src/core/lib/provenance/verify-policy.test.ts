@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { buildVerifyOptions } from "./verify-policy.ts";
 import type { VerifyBundleOptions } from "./sigstore.ts";
 
-// ── Constants mirrored from verify-policy.ts (for assertion readability) ──────
+// ── Constants mirrored from verify-policy.ts ──────────────────────────────────
 
 const EXPECTED_ISSUER = "https://token.actions.githubusercontent.com";
 const RELEASE_WORKFLOW = ".github/workflows/docker-publish.yml";
@@ -50,7 +50,6 @@ describe("buildVerifyOptions: version tag", () => {
     expect(matchesSAN(opts, makeSAN("refs/tags/v2.99.0"))).toBeTruthy();
   });
 
-  // The (\.|$) boundary is what keeps a floating ref off the next number up.
   it("does NOT match a tag the requested version does not cover", () => {
     expect(
       !matchesSAN(getOpts("v2.1"), makeSAN("refs/tags/v2.10.0")),
@@ -75,7 +74,6 @@ describe("buildVerifyOptions: version tag", () => {
     expect(opts.certificateOIDs).toBe(undefined);
   });
 
-  // ── prerelease tags ─────────────────────────────────────────────────────────
   it("matches exact prerelease @v3.1.6-rc1 against cert SAN v3.1.6-rc1", () => {
     const opts = getOpts("v3.1.6-rc1");
     expect(matchesSAN(opts, makeSAN("refs/tags/v3.1.6-rc1"))).toBeTruthy();
@@ -120,7 +118,6 @@ describe("buildVerifyOptions: SHA pin", () => {
   it("certificateIdentityURI accepts any version tag SAN (SHA checked via OID)", () => {
     const opts = buildVerifyOptions({ actionRef: pinSha, actionRepo: REPO })!;
     const regexp = new RegExp(opts.certificateIdentityURI!);
-    // should match some version tags (the SHA in OID is what pins to the commit)
     expect(regexp.test(makeSAN("refs/tags/v2.1.0"))).toBeTruthy();
     expect(regexp.test(makeSAN("refs/tags/v3.0.0"))).toBeTruthy();
   });

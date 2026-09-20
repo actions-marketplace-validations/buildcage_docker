@@ -1,4 +1,4 @@
-# Build buildkit-proxy (statically linked; discarded after this stage)
+# Build buildkit-proxy (statically linked)
 #
 # BUILDKIT_PROXY_BUILD_TAGS is empty for every real build (including
 # published releases): the "testhooks" build tag (see
@@ -36,7 +36,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm run build:scripts
 
 # Final image
-FROM moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+FROM moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
 
 LABEL org.opencontainers.image.title="buildcage (explicit proxy engine)" \
       org.opencontainers.image.description="Secure Docker build environment using BuildKit's native --proxy-network" \
@@ -53,15 +53,12 @@ COPY --from=buildkit-proxy-build /out/buildkit-proxy /opt/buildcage/bin/buildkit
 RUN mkdir -p /etc/buildkit /var/log/buildkitd
 COPY docker/explicit/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). gen-source-policy.js
-# is explicit-only, so it lives next to this Dockerfile instead of src/core/ (see
-# docker/explicit/scripts/). Each is a self-contained bundle, so no separate
-# /opt/buildcage/shared/ copy is needed.
+# gen-source-policy.js is explicit-only, so it lives next to this Dockerfile
+# rather than under src/core/.
 COPY --from=scripts-build /build/dist/qjs/docker/explicit/scripts/gen-source-policy.js /opt/buildcage/scripts/gen-source-policy.js
 
-# report-action.js is the runner-side report generator `docker cp`'d out by
-# the report action itself (never staged elsewhere); see its own header
-# comment for details.
+# Never run inside the image: the report action `docker cp`s it out and runs
+# it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/explicit/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
 COPY docker/explicit/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES

@@ -27,8 +27,9 @@ export interface ReportDataCommon {
    *  knownBlockedRules. Can be non-empty even in audit mode. */
   blocked: AnnotatedBlockedRow[];
 
-  /** Raw blocked-event count, which can differ from blocked.length for the
-   *  universal engine (pre-aggregation log line count). */
+  /** Raw blocked-event count. Larger than blocked.length wherever the engine
+   *  counts log lines rather than aggregated rows (universal and inspect);
+   *  equal to it for explicit, whose denial log has no finer granularity. */
   blockedCount: number;
 
   /** False iff the log is not a complete record of the run: its beginning is

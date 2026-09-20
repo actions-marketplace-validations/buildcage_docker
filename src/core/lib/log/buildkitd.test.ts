@@ -139,9 +139,6 @@ describe("scanBuildkitdLog: hasNonDenialContent", () => {
   });
 });
 
-// createIncrementalAggregator() itself is tested in core/lib/log/aggregate.test.ts.
-// parseIdentifier() itself is tested in core/lib/log/parse-identifier.test.ts.
-
 describe("lines missing one of the two fields", () => {
   // time= is read from the start of the line, so a denial logged without one
   // has no timestamp to put on the timeline.

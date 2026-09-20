@@ -1,17 +1,8 @@
-/**
- * Property-based tests for core/lib/log/haproxy.ts.
- *
- * Run with: vp test run core/lib/log/haproxy.property.test.ts
- */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 
 import { scanHaproxyLog } from "./haproxy.ts";
 import { aggregate } from "./aggregate.ts";
-
-// ---------------------------------------------------------------------------
-// scanHaproxyLog
-// ---------------------------------------------------------------------------
 
 describe("scanHaproxyLog: properties", () => {
   // A well-formed log line always round-trips into the right bucket:
@@ -82,10 +73,6 @@ describe("scanHaproxyLog: properties", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// aggregate
-// ---------------------------------------------------------------------------
 
 describe("aggregate: properties", () => {
   // aggregate sorts by Number(port) as a tiebreaker. When port is non-numeric,

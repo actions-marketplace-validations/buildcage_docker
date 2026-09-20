@@ -1,13 +1,5 @@
 package main
 
-// This file prepares the environment and launches the real buildkitd child
-// process. It is otherwise unrelated to the gRPC policy-injection proxy in
-// codec.go/frame.go/proxy.go/solve.go.
-//
-// buildkitdEnv (called from startBuildkitd below) is defined in ca_prod.go
-// or ca_testhooks.go depending on the "testhooks" build tag; see that
-// file's doc comment for why a second, test-only variant exists at all.
-
 import (
 	"fmt"
 	"io"

@@ -63,10 +63,10 @@ else
 fi
 
 # Only the integration tests name an upstream; when it is unset, HAProxy reads
-# the container's own /etc/resolv.conf, so a name resolves against the
-# runner's own DNS rather than a hardcoded public one. Each entry is substituted into the
-# generated resolvers section verbatim, so a value that is not an address is
-# refused here rather than left to open a directive of its own in that file.
+# the container's own /etc/resolv.conf, so a name resolves against the runner's
+# own DNS rather than a hardcoded public one. Each entry is substituted into
+# the generated resolvers section verbatim, so a value that is not an address
+# is refused here rather than left to open a directive of its own in that file.
 UPSTREAM_RESOLVERS=$(echo "$EXTERNAL_RESOLVER" | tr ',' ' ')
 for ip in $UPSTREAM_RESOLVERS; do
     if ! echo "$ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then

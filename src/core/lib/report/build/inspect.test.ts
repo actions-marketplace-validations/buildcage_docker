@@ -78,7 +78,6 @@ describe("buildInspectReportData", () => {
   });
 
   it("reports a name the resolver refused, which never reached the proxy", async () => {
-    // Otherwise exfiltration through the query alone would leave no trace.
     const dns = [
       "2026-08-23 16:45:00.000000000  [INFO] buildcage dns denied name=SECRET.att.example.",
     ];

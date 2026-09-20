@@ -1,6 +1,4 @@
 /**
- * Unit tests for core/lib/provenance/sigstore.ts
- *
  * The @sigstore/* packages are mocked: what is under test here is not their
  * cryptography but the policy this module hands them, how it reports their
  * refusal, and that it still checks the signed digest afterwards.
@@ -79,10 +77,8 @@ describe("verifyBundle", () => {
     expect(sigstore.verify.mock.calls.length).toBe(1);
   });
 
-  // The Referrers API links a bundle to a digest as registry metadata, not as
-  // a cryptographic binding, so a valid bundle can be re-attached to another
-  // image. Dropping the assertSignedDigest call at the end of verifyBundle
-  // would reopen exactly that, and has to fail here.
+  // Dropping the assertSignedDigest call at the end of verifyBundle would let a
+  // bundle re-attached to another image pass, and has to fail here.
   it("still rejects a re-attached bundle after the signature itself verifies", async () => {
     const otherDigest = "sha256:" + "b".repeat(64);
     expect(await codeOfRejection(() => verifyBundle(bundleFor(otherDigest), {}, DIGEST))).toBe(

@@ -1,20 +1,12 @@
 /**
  * Property-based tests for core/lib/acl/wildcard-rules.ts.
- *
- * Run with: vp test run core/lib/acl/wildcard-rules.property.test.ts
  */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 
 import { convertRule, buildRules, parseAndValidateRules } from "./wildcard-rules.ts";
 
-// ---------------------------------------------------------------------------
-// convertRule / wildcardToRegex
-// ---------------------------------------------------------------------------
-
 describe("convertRule: properties", () => {
-  // For a plain domain (no wildcards, no regex metacharacters), the generated
-  // regex must match the original pattern and must not match a subdomain prefix.
   it("exact pattern round-trips: regex matches original and rejects subdomain prefix", () => {
     const simplePattern = fc
       .tuple(
@@ -36,8 +28,7 @@ describe("convertRule: properties", () => {
     );
   });
 
-  // Domain labels may contain regex metacharacters in practice (e.g. from unusual
-  // hostnames). domainToRegex must escape them so the result always compiles.
+  // Domain labels do carry regex metacharacters in practice, from unusual hostnames.
   it("patterns with regex metacharacters in the domain always produce a compilable regex", () => {
     const metaChar = fc.constantFrom(".", "+", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\");
     const patternWithMeta = fc
@@ -56,7 +47,6 @@ describe("convertRule: properties", () => {
     );
   });
 
-  // A domain label that contains '*' but is not exactly '*' or '**' is always invalid.
   // Labels starting with '~' are excluded: they make the full pattern a raw-regex rule,
   // which bypasses wildcard validation.
   it("label with * mixed with other characters always throws", () => {
@@ -74,12 +64,7 @@ describe("convertRule: properties", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildRules
-// ---------------------------------------------------------------------------
-
 describe("buildRules: properties", () => {
-  // N valid rules joined with any whitespace separator always produce length N.
   it("N valid rules joined by any whitespace always return an array of length N", () => {
     const validRule = fc
       .tuple(
@@ -98,10 +83,6 @@ describe("buildRules: properties", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// parseAndValidateRules
-// ---------------------------------------------------------------------------
 
 describe("parseAndValidateRules: properties", () => {
   it("returns the same tokens buildRules derives its length from, unconverted", () => {

@@ -27,8 +27,8 @@ func (s *solveServer) Solve(ctx context.Context, req *controlapi.SolveRequest) (
 	}
 	// req.SourcePolicySession (dynamic/session-based policy, e.g. docker/buildx's own
 	// Rego policy feature) is deliberately left untouched. BuildKit evaluates it as an
-	// additional AND condition alongside our static policy, so it composes safely and
-	// is not treated as a conflict.
+	// additional AND condition alongside buildcage's own static policy, so it composes
+	// safely and is not treated as a conflict.
 	return s.backend.Solve(ctx, req)
 }
 
@@ -75,10 +75,8 @@ func solveHandler(srv any, ctx context.Context, dec func(any) error, _ grpc.Unar
 }
 
 // controlServiceDesc registers only the Solve method of moby.buildkit.v1.Control.
-// Every other method on this service (and every other service, e.g. Session,
-// Status, DiskUsage, Prune, ListWorkers, Info, ListenBuildHistory,
-// UpdateBuildHistory, the grpc health-check service) is unregistered and
-// therefore dispatched to grpc.UnknownServiceHandler.
+// Everything else is unregistered and therefore dispatched to
+// grpc.UnknownServiceHandler.
 var controlServiceDesc = grpc.ServiceDesc{
 	ServiceName: "moby.buildkit.v1.Control",
 	HandlerType: (*any)(nil),

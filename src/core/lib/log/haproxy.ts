@@ -1,7 +1,4 @@
-/**
- * Log parsing library for HAProxy buildcage logs. aggregate() lives
- * separately in core/lib/log/aggregate.ts and is not re-exported here.
- */
+/** Log parsing library for HAProxy's buildcage decision log. */
 import { createIncrementalAggregator, type AggregatedEntry } from "./aggregate.ts";
 import { splitHostPort } from "./authority.ts";
 import { PROXY_START_MARKER } from "./start-marker.ts";

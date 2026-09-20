@@ -25,8 +25,7 @@ echo ""
 # suspicious and fails the step despite blockedCount being 0 (see
 # docker/universal/files/s6-rc.d/haproxy/run). fail_on_blocked is forced
 # to true (matching action.yml's default) since that's the setting under
-# which the false positive actually fails the job. GITHUB_STEP_SUMMARY is
-# unset so it prints to stdout instead of a job-summary file.
+# which the false positive actually fails the job.
 REPORT_EXIT_CODE=0
 REPORT_OUTPUT=$(GITHUB_STEP_SUMMARY= INPUT_FAIL_ON_BLOCKED=true node report/src/main.ts 2>&1) || REPORT_EXIT_CODE=$?
 

@@ -10,9 +10,6 @@ const ruleTypeToParam: Record<string, string> = {
 export type AuditedRow = Pick<AggregatedEntry, "host" | "port" | "ruleType">;
 
 /**
- * Build a restrict-mode YAML configuration example from audited rows.
- * Returns a markdown string wrapped in <details> tags, or "" if no rows.
- *
  * actionRef is the ref (tag or commit SHA) this action was invoked with.
  * setup's action.yml lives at the repo root (not a subdirectory), so the
  * example's `uses:` never has an action-name path segment. actionVersion,

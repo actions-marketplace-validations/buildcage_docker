@@ -34,9 +34,7 @@ function restrict(inputs: Partial<Omit<SourcePolicyInput, "proxyMode">> = {}) {
 
 describe("buildSourcePolicy: rule order (last-match-wins engine semantics)", () => {
   it("an allowed domain evaluates to ALLOW end-to-end", () => {
-    // The catch-all is intentionally universal (^https?://.*), so it matches
-    // every ALLOW-listed domain too. Under "last match wins" it has to come
-    // first: listed after the ALLOW rules it would always win and deny
+    // Listed after the ALLOW rules the catch-all would always win and deny
     // everything, which is what this case catches.
     const policy = restrict({ httpsRulesInput: "example.com:443" });
     expect(evaluate(policy, "https://example.com/")).toBe("ALLOW");

@@ -209,9 +209,7 @@ describe("endsAnchored", () => {
 });
 
 describe("anchorRawRegex", () => {
-  // Both engines match a `~` rule as a search (HAProxy's `-m reg`, CEL's
-  // `matches`), so an unanchored `example\.com:443` would also admit
-  // `evil-example.com:4430`.
+  // Unanchored, `example\.com:443` would also admit `evil-example.com:4430`.
   it("closes an expression the author left open at both ends", () => {
     expect(anchorRawRegex("example\\.com:443")).toBe("^example\\.com:443$");
   });

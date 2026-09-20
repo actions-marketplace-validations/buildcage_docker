@@ -41,11 +41,15 @@ jobs:
 
       - name: Build test image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: /tmp/build-context
           push: false
           no-cache: true
 
+      # fail_on_blocked is false only because this example blocks on purpose;
+      # leave it at its default so a real workflow fails on a disallowed destination.
       - name: Show proxy report
         if: always()
         uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1

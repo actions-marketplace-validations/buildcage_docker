@@ -3,12 +3,7 @@ import fc from "fast-check";
 
 import { buildVerifyOptions } from "./verify-policy.ts";
 
-// ---------------------------------------------------------------------------
-// buildVerifyOptions
-// ---------------------------------------------------------------------------
-
 describe("buildVerifyOptions: properties", () => {
-  // SHA pin always produces certificateOIDs; the SAN URI ends with 'v' (accepts any v-tag).
   it("40-char hex SHA always returns certificateOIDs and a compilable SAN regex", () => {
     fc.assert(
       fc.property(
@@ -50,7 +45,6 @@ describe("buildVerifyOptions: properties", () => {
     );
   });
 
-  // Non-SHA, non-v refs (branch names, etc.) are always unverifiable: must return null.
   // Leading 'g' is not a hex char and not 'v', so this always hits the passthrough branch.
   it("non-SHA non-v-prefixed ref always returns null", () => {
     fc.assert(

@@ -3,9 +3,8 @@
  * artifact, so whoever wants it later can act on what a build reached
  * instead of reading it out of a summary.
  *
- * Only the inspect engine can produce this: it decrypts, so it has the method
- * and full URL of every request, refused ones included. The other engines see
- * host and port only.
+ * Only the inspect engine can produce this; the other engines see host and
+ * port only.
  */
 
 import { writeFileSync } from "node:fs";
@@ -20,21 +19,20 @@ import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 export type TrafficRecord = Omit<TrafficEvent, "time"> & {
   /** ISO 8601 UTC, from the proxy's own clock. */
   time: string;
-  /** Time since the proxy itself started, always HH:MM:SS.mmm, so the shape
-   *  never changes between a short and a long run. Absent when the proxy's
-   *  start time could not be determined; never fabricated from something
-   *  else. */
+  /** Time since the proxy itself started, as formatElapsedFixed writes it.
+   *  Absent when the proxy's start time could not be determined; never
+   *  fabricated from something else. */
   elapsed?: string;
 };
 
 /**
  * Build the records for one run, oldest first.
  *
- * Includes every name lookup, the summary's tables only those with no request
- * behind them: the volume is cheap for a machine reader, and which names were
- * asked about is not always derivable from what was then connected to. A field
- * is absent when it does not apply, never zero, so filter on `action`, not
- * `status`.
+ * Includes every name lookup; the summary's tables hold only those with no
+ * request behind them. The volume is cheap for a machine reader, and which
+ * names were asked about is not always derivable from what was then connected
+ * to. A field is absent when it does not apply, never zero, so filter on
+ * `action`, not `status`.
  */
 export function buildTrafficRecords(
   events: TrafficEvent[],

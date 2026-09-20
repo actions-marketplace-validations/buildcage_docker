@@ -21,9 +21,8 @@ const ownCAPath = "/etc/buildcage-ca.pem"
 // carries those roots, so they fall back to the same proxy-CA-only file
 // NODE_EXTRA_CA_CERTS/DENO_CERT use. That covers ordinary HTTP(S) traffic
 // (inspect re-signs all of it with this same CA) but not a passthrough
-// connection's real certificate; see "No system CA store" in
-// docs/inspect-engine.md for exactly which requests that leaves unable to
-// verify.
+// connection's real certificate; see README.md#limitations for exactly which
+// requests that leaves unable to verify.
 type unsetBehaviour int
 
 const (

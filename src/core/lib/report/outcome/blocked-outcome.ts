@@ -1,17 +1,5 @@
 import type { ExpectedFlag } from "../build/aggregate.ts";
 
-/**
- * Decide whether blocked connections should fail the step.
- *
- * `blockedRows` must already be annotated via annotateKnownBlocked. Uses
- * per-row matching rather than count arithmetic because `blockedCount`'s
- * meaning differs by proxy engine, so subtracting summed row counts from it
- * isn't reliable. An empty `blockedRows` with a nonzero `blockedCount` is
- * treated as unexpected too (fail closed).
- *
- * An implausible log decides on its own: what survived says nothing about
- * what was dropped, so known_blocked_rules cannot clear the step.
- */
 export interface BlockedOutcome {
   level: "none" | "notice" | "error";
   shouldFail: boolean;
@@ -26,6 +14,18 @@ export interface DetermineBlockedOutcomeOptions {
   logLooksPlausible: boolean;
 }
 
+/**
+ * Decide whether blocked connections should fail the step.
+ *
+ * `blockedRows` must already be annotated via annotateKnownBlocked. Uses
+ * per-row matching rather than count arithmetic because `blockedCount`'s
+ * meaning differs by proxy engine, so subtracting summed row counts from it
+ * isn't reliable. An empty `blockedRows` with a nonzero `blockedCount` is
+ * treated as unexpected too (fail closed).
+ *
+ * An implausible log decides on its own: what survived says nothing about
+ * what was dropped, so known_blocked_rules cannot clear the step.
+ */
 export function determineBlockedOutcome({
   isAudit,
   failOnBlocked,
@@ -46,17 +46,6 @@ export function determineBlockedOutcome({
   return { level: "notice", shouldFail: false };
 }
 
-/**
- * Build the annotation message text for a blocked-connections check.
- *
- * In audit mode the text always stays the fixed-format base string,
- * regardless of known_blocked_rules matching: audit mode's pass/fail
- * outcome is unaffected by matching (see determineBlockedOutcome), so
- * varying the notice text there would be misleading and would silently
- * break any tooling that matches the old fixed-format notice. An incomplete
- * log is appended to that string by describeBlockedOutcome, never
- * substituted for it, for the same reason.
- */
 export interface BuildBlockedMessageOptions {
   blockedCount: number;
   blockedRows: ExpectedFlag[];
@@ -64,6 +53,15 @@ export interface BuildBlockedMessageOptions {
   isAudit: boolean;
 }
 
+/**
+ * Build the annotation message text for a blocked-connections check.
+ *
+ * In audit mode the text always stays the fixed-format base string,
+ * regardless of known_blocked_rules matching: audit mode's pass/fail
+ * outcome is unaffected by matching (see determineBlockedOutcome), so
+ * varying the notice text there would be misleading and would silently
+ * break any tooling that matches the old fixed-format notice.
+ */
 export function buildBlockedMessage({
   blockedCount,
   blockedRows,

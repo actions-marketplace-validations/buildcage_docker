@@ -11,13 +11,6 @@ import { wrapCommunicationDetails } from "./communication-section.ts";
  *
  * A URL keeps its query, except for the parameters named in
  * CREDENTIAL_PARAMS, whose values are replaced.
- *
- * `startedAt` is when the proxy itself started (seconds since the epoch),
- * so every event reads as time elapsed since then rather than an absolute
- * clock reading nobody has a reference point for. Undefined only when the
- * log never showed a startup marker at all; that rare case falls back to
- * absolute-time rendering rather than inventing a start time it does not
- * have.
  */
 export function renderInspectDetails(
   timeline: TrafficEvent[],

@@ -14,8 +14,7 @@
  * rule could ever take away. It stays in the resolver log alone.
  *
  * The passthrough line is the only record of undecrypted traffic; the dns line
- * the only record of a refused name, which never reaches the proxy. Any other
- * line is HAProxy's or CoreDNS's own output and is skipped.
+ * the only record of a refused name, which never reaches the proxy.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";

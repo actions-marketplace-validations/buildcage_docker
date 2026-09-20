@@ -10,7 +10,6 @@ export const COMMUNICATION_DETAILS_OPEN =
   "<details>\n<summary>\u{1F4AC} Communication details</summary>\n\n";
 export const COMMUNICATION_DETAILS_CLOSE = "</details>\n";
 
-/** Wrap a rendered body in the section, blank line before it included. */
 export function wrapCommunicationDetails(body: string): string {
   return `\n${COMMUNICATION_DETAILS_OPEN}${body}${COMMUNICATION_DETAILS_CLOSE}`;
 }

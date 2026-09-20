@@ -1,8 +1,3 @@
-/**
- * Property-based tests for proxy_engine resolution.
- *
- * Run with: vp test run src/lib/engine.property.test.ts
- */
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 

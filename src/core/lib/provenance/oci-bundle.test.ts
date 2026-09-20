@@ -1,9 +1,3 @@
-/**
- * Unit tests for the bundle lookup in oci-bundle.ts: the Referrers API, the
- * sha256-<hex> fallback tag, and every way each of them can decline.
- *
- * Tests use an injectable _fetch to avoid real network access.
- */
 import { describe, it, expect } from "vitest";
 
 import { fetchBundle } from "./oci-bundle.ts";
@@ -101,9 +95,9 @@ describe("fetchBundle: fallback tag path", () => {
   });
 
   it("falls back to sha256-<hex> tag as OCI image index (GHCR: config.mediaType used as artifactType)", async () => {
-    // GHCR stores config.mediaType ("application/vnd.oci.empty.v1+json") as artifactType
-    // in the Referrers Tag Schema index instead of the manifest's own artifactType field,
-    // so the same index satisfies neither the referrers lookup nor a direct type match.
+    // The same index is served on both paths, and its descriptor carries the
+    // empty-config type, so neither the referrers lookup nor a direct type
+    // match hits.
     const index = okJson({
       manifests: [
         { mediaType: IMAGE_MANIFEST, artifactType: EMPTY_CONFIG, digest: MANIFEST_DIGEST },
@@ -149,7 +143,7 @@ describe("fetchBundle: fallback tag path", () => {
 
 // ── fail-closed paths ─────────────────────────────────────────────────────
 //
-// Every branch below refuses rather than returns. They are what stands between
+// Every branch below refuses rather than returns. Each is what stands between
 // a registry that answers oddly and an unverified image being pulled anyway, so
 // each case pins the code that comes back, not just that something threw.
 

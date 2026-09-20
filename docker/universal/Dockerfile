@@ -23,11 +23,8 @@ RUN apk add --no-cache curl gettext && \
     tar -C /opt/cni/bin -xz -f /tmp/cni.tgz ./bridge ./host-local ./loopback
 
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
-# the QuickJS scripts and report-action.node.ts. Architecture-independent
-# output, so pinned to --platform=$BUILDPLATFORM like the `deps` stage
-# above (no QEMU). Needs both engines' scripts/ dirs:
-# gen-source-policy.qjs.ts only exists under explicit/, report-action.node.ts
-# under this engine's own dir.
+# convert-rule.qjs.ts and report-action.node.ts. Architecture-independent
+# output, so pinned to --platform=$BUILDPLATFORM (no QEMU).
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:11@sha256:e26f380828856f205feaaf42abd157df9ce41bc8e17b662eeaa3379a9638dee0 AS scripts-build
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -35,13 +32,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
 COPY rolldown.scripts.config.js ./
 COPY src/core/ ./src/core/
-COPY docker/explicit/scripts/ ./docker/explicit/scripts/
 COPY docker/universal/scripts/ ./docker/universal/scripts/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm run build:scripts
 
 # Final image
-FROM moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+FROM moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
 
 LABEL org.opencontainers.image.title="buildcage" \
       org.opencontainers.image.description="Secure Docker build environment with network access control" \
@@ -93,13 +89,10 @@ COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a
-# self-contained bundle.
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
-# report-action.js is the runner-side report generator `docker cp`'d out by
-# the report action itself (never staged elsewhere); see its own header
-# comment for details.
+# Never run inside the image: the report action `docker cp`s it out and runs
+# it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/universal/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
 COPY docker/universal/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES

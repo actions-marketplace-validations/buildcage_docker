@@ -48,8 +48,8 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
 
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
 # the QuickJS config generator and report-action.node.ts. Architecture-
-# independent output, so pinned to --platform=$BUILDPLATFORM like the stages
-# above (no QEMU).
+# independent output, so pinned to --platform=$BUILDPLATFORM like
+# runc-wrapper-build above (no QEMU).
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:11@sha256:e26f380828856f205feaaf42abd157df9ce41bc8e17b662eeaa3379a9638dee0 AS scripts-build
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -62,7 +62,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm run build:scripts
 
 # Final image
-FROM moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+FROM moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
 
 LABEL org.opencontainers.image.title="buildcage (inspect proxy engine)" \
       org.opencontainers.image.description="Secure Docker build environment enforcing on method, URL and path" \
@@ -122,12 +122,11 @@ RUN mkdir -p /etc/buildkit /etc/coredns /etc/haproxy /var/log/haproxy \
 COPY docker/inspect/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 COPY docker/inspect/files/cni.conflist   /etc/buildkit/cni.conflist
 
-# Generated at startup from the rule inputs, both by the same run.
+# Writes haproxy.cfg and the Corefile at startup, both from one rule set in a single run.
 COPY --from=scripts-build /build/dist/qjs/docker/inspect/scripts/gen-configs.js /opt/buildcage/scripts/gen-configs.js
 
-# report-action.js is the runner-side report generator `docker cp`'d out by
-# the report action itself (never staged elsewhere); see its own header
-# comment for details.
+# Never run inside the image: the report action `docker cp`s it out and runs
+# it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/inspect/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
 COPY docker/inspect/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES

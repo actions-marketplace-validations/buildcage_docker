@@ -4,8 +4,6 @@ import { buildUrlRules } from "./url-rules.ts";
 
 describe("host and url rule compilation", () => {
   it("matches the name alone and the port separately", () => {
-    // The port belongs to the connection, so a header omitting a default port
-    // cannot make host:9443 also permit host on 443.
     const [rule] = compileRuleSet({ httpsRules: ["a.com:9443"] }).https;
     expect(rule.hostMatch).toBe("wildcard");
     expect(rule.hostRegex).toBe("^a\\.com$");

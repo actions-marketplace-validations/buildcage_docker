@@ -1,9 +1,6 @@
 /**
- * Unit tests for oci-registry.ts: the pull token, the manifest digest and an
- * image's config labels. The registry client underneath them is exercised
- * through those three rather than on its own.
- *
- * Tests use an injectable _fetch to avoid real network access.
+ * The registry client itself has no test file: it is exercised through the
+ * pull token, the manifest digest and the config-label reads that use it.
  */
 import { describe, it, expect } from "vitest";
 
@@ -32,8 +29,6 @@ function manifestHead(status: number, digestValue: string | null): FetchLikeResp
     headers: { get: (name: string) => (name === "Docker-Content-Digest" ? digestValue : null) },
   };
 }
-
-// ── fetchManifestDigest ───────────────────────────────────────────────────
 
 describe("fetchManifestDigest", () => {
   const call = (_fetch: FetchLike) =>
@@ -97,8 +92,6 @@ describe("fetchManifestDigest", () => {
     );
   });
 });
-
-// ── fetchRegistryToken ────────────────────────────────────────────────────
 
 describe("fetchRegistryToken", () => {
   const call = (basicAuth: string | null, _fetch: FetchLike) =>
@@ -180,8 +173,6 @@ describe("fetchRegistryToken", () => {
     await expectVerifyError(call("dXNlcjpwYXNz", networkFailure), "TRANSIENT");
   });
 });
-
-// ── fetchImageConfigLabels ────────────────────────────────────────────────
 
 describe("fetchImageConfigLabels", () => {
   const amd64Dig = "sha256:" + "b".repeat(64);

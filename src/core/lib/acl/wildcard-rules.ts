@@ -10,16 +10,10 @@ import {
   splitRawRegexHost,
 } from "./partial-wildcard.ts";
 
-/**
- * Split a whitespace-separated rules string into individual rule tokens.
- */
 export function splitRuleTokens(rulesInput: string | undefined): string[] {
   return rulesInput?.trim().split(/\s+/).filter(Boolean) ?? [];
 }
 
-/**
- * Build regex rules from a space-separated input string.
- */
 export function buildRules(rulesInput: string): string[] {
   return splitRuleTokens(rulesInput).map(convertRule);
 }
@@ -87,11 +81,6 @@ export function convertRule(rule: string): string {
 
 /**
  * Convert a domain wildcard to a regex string (without anchors or port).
- *
- * Supported wildcards:
- *   `**`: one or more characters, dots included
- *   `*` : one or more characters, dots excluded
- *   `?` : a single character, dots excluded
  *
  * A dot-separated part containing `*` must be exactly `*` or `**`.
  */

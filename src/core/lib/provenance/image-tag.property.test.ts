@@ -3,8 +3,7 @@ import fc from "fast-check";
 
 import { imageTagFromRef } from "./image-tag.ts";
 
-// `universal` (the default) publishes the plain tag; every other engine
-// appends `-<engine>`. These properties exercise `explicit`.
+// These properties exercise `explicit`; every non-default engine appends `-<engine>`.
 const suffixFor = (engine: string) => (engine === "explicit" ? "-explicit" : "");
 
 describe("imageTagFromRef: properties", () => {

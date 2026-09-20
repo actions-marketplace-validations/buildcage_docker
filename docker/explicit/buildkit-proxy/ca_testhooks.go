@@ -18,11 +18,9 @@ import (
 	"os"
 )
 
-// buildkitdEnv (testhooks build only) returns buildkitd's child-process
-// environment with an additional trusted CA merged in when
-// BUILDKIT_PROXY_EXTRA_CA_FILE is set (compose.test-explicit.yaml only, never set in
-// production). The real system CAs are always included alongside it, so
-// this never weakens trust for anything else.
+// buildkitdEnv merges the CA named by BUILDKIT_PROXY_EXTRA_CA_FILE into
+// buildkitd's child-process environment. The system CAs are always included
+// alongside it, so nothing else loses trust.
 func buildkitdEnv() ([]string, error) {
 	extraCAFile := os.Getenv("BUILDKIT_PROXY_EXTRA_CA_FILE")
 	if extraCAFile == "" {

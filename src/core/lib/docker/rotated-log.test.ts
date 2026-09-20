@@ -34,12 +34,9 @@ describe("parseLogSegments", () => {
     expect(parseLogSegments("lock\nstate\n")).toStrictEqual([]);
   });
 
-  // Archive names are a fixed-width 24-hex-digit TAI64N timestamp, not a
-  // decimal counter, so there's no "10" sorting before "9" the way there
-  // would be for variable-width numbers: string order already is
-  // chronological order, however many archives exist. n100 (see the
-  // haproxy-log/coredns-log run scripts) means a build can genuinely produce
-  // more than 10, so this is exercised past double digits, not just at 2.
+  // n100 (see the haproxy-log/coredns-log run scripts) means a build can
+  // genuinely produce more than 10 archives, so the fixed-width TAI64N sort is
+  // exercised past double digits rather than just at 2.
   it("keeps chronological order past double-digit archive counts", () => {
     const inOrder = Array.from({ length: 15 }, (_, i) => `@${i.toString(16).padStart(24, "0")}.s`);
     const shuffled = [...inOrder].reverse();

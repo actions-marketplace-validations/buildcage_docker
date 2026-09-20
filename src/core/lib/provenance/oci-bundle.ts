@@ -108,12 +108,9 @@ async function bundleFromFallbackTag(client: RegistryClient, digest: string): Pr
 
     const tagManifest = await resp.json!();
 
-    // OCI Referrers Tag Schema: the tag is an Image Index whose manifests[] entries
-    // are descriptors for individual referrer artifacts.
     if (Array.isArray(tagManifest.manifests)) {
       for (const m of tagManifest.manifests as OciDescriptor[]) {
         if (m.mediaType !== IMAGE_MANIFEST_MEDIA_TYPE) continue;
-        // Standard: m.artifactType matches directly.
         if (m.artifactType === BUNDLE_MEDIA_TYPE) {
           return bundleFromManifest(client, m.digest);
         }
@@ -147,8 +144,8 @@ async function bundleFromFallbackTag(client: RegistryClient, digest: string): Pr
 }
 
 /**
- * Read a bundle out of the manifest a descriptor named.
- * layer with mediaType === BUNDLE_MEDIA_TYPE.
+ * Read a bundle out of the manifest a descriptor named: its first layer with
+ * mediaType === BUNDLE_MEDIA_TYPE.
  *
  * Every refusal is transient, a 404 included: a descriptor just named this
  * manifest, so the registry not serving it contradicts what it said.

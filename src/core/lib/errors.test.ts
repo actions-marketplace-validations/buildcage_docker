@@ -26,7 +26,6 @@ describe("errorMessage", () => {
     expect(errorMessage(new Error("boom"))).toBe("boom");
   });
 
-  // catch does not guarantee an Error, and a thrown string is the common case.
   it("stringifies anything else", () => {
     expect(errorMessage("boom")).toBe("boom");
     expect(errorMessage(undefined)).toBe("undefined");

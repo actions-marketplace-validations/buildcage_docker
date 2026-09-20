@@ -5,9 +5,8 @@ source "$(dirname "$0")/helpers.sh"
 LOGS=$(builder_log buildkitd)
 
 # BuildKit's exec-proxy identifier omits an explicit ":443"/":80" when the
-# original request didn't specify a port (see docs/security.md), so callers
-# must pass the exact target URL they expect in the log, port included only
-# when it's non-default.
+# original request didn't specify a port, so callers must pass the exact
+# target URL they expect in the log, port included only when it's non-default.
 assert_denied() {
   local target="$1"
   if grep -qF "ref=\"${target}\"" <<< "$LOGS"; then
@@ -58,9 +57,6 @@ else
 fi
 echo ""
 
-# report-action.js renders the full stepSummary itself; report/src/main.ts
-# just relays it. GITHUB_STEP_SUMMARY is unset so it prints to stdout
-# instead of a job-summary file.
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
 echo "[report action] Allowed Hosts table (rendered markdown, from buildctl aggregation):"

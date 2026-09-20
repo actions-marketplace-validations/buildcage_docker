@@ -5,14 +5,16 @@ services:
       context: .
       dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile
     # Not privileged, unlike docker/setup-buildx-action's own builder: these
-    # three are all BuildKit needs, and device access and a writable host /proc
-    # and /sys stay out.
+    # three are all BuildKit needs, and a writable host /proc and /sys stay out.
+    # Devices are refused by the device cgroup, which only a step that has
+    # escaped runc could lift; privileged allows them outright.
     #
-    # BuildKit's OCI worker requires SYS_ADMIN for mounts, namespaces, and cgroups.
-    # NET_ADMIN is required for network namespace setup: iptables and CNI
-    # networking in universal mode; the proxy-network isolation veth/netns
-    # (unrelated to CNI) in explicit mode.
-    # runc needs SYS_PTRACE to access /proc/PID/ns/mnt for mount namespace setup.
+    # BuildKit's OCI worker needs SYS_ADMIN for mounts, namespaces and cgroups.
+    # NET_ADMIN is needed for network namespace setup: iptables and CNI
+    # networking in the universal and inspect engines; the proxy-network
+    # isolation veth/netns (unrelated to CNI) in the explicit engine.
+    # runc needs SYS_PTRACE to reach /proc/PID/ns/mnt when it sets up a step's
+    # mount namespace.
     cap_add:
       - SYS_ADMIN
       - NET_ADMIN

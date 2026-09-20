@@ -15,7 +15,7 @@ export interface InspectStageSpec {
   backend: string;
 }
 
-/** What both frontends share, all of it decided by the options. */
+/** What both frontends share. */
 export interface InspectStageContext extends InternalDstOptions {
   mode: "restrict" | "audit";
   hasResolver: boolean;

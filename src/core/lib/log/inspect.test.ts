@@ -100,10 +100,6 @@ describe("scanInspectLog", () => {
   });
 
   it("leaves a timeout that cut an answered transfer short with the origin's own result", async () => {
-    // `timeout server` also arms once a response is under way: `sD` is it
-    // firing mid-body, after the origin's status has already reached the build,
-    // and on a passthrough it is a plain inactivity timeout on a connection a
-    // rule allowed. `cD` is the build hanging up on the same transfer.
     const lines = [
       "buildcage 1 https GET 200 61 ts=sD reason=- dst=1.1.1.1:443 https://a.com/",
       "buildcage 2 https GET 200 56 ts=cD reason=- dst=1.1.1.1:443 https://b.com/",
@@ -132,7 +128,6 @@ describe("scanInspectLog", () => {
     expect(e.host).toBe("db.example.com");
     expect(e.port).toBe(5432);
     expect(e.bytes).toBe(3421);
-    // Never decrypted, so there is nothing to report a status for.
     expect(e.status === undefined).toBe(true);
     expect(e.url === undefined).toBe(true);
   });
@@ -157,7 +152,6 @@ describe("scanInspectLog", () => {
   });
 
   it("falls back to the address for a passthrough with no name", async () => {
-    // An ip rule names an address and carries no SNI at all.
     const [e] = await parse([TCP_PASS]);
     expect(e.protocol).toBe("tcp");
     expect(e.host).toBe("10.0.0.5");
@@ -165,7 +159,6 @@ describe("scanInspectLog", () => {
   });
 
   it("marks everything as audited when nothing was being enforced", async () => {
-    // audit makes no allow decision, so calling it "allow" would claim one.
     expect((await parse([ALLOWED], true))[0].action).toBe("audit");
   });
 
@@ -179,7 +172,6 @@ describe("scanInspectLog", () => {
   });
 
   it("reads a request line whose URL runs to thousands of bytes", async () => {
-    // The log line is sized to hold the longest request haproxy accepts.
     const url = `https://example.com/x?token=${"a".repeat(15000)}`;
     const [e] = await parse([`buildcage 1 https GET 403 0 ts=PR reason=- dst=1.1.1.1:443 ${url}`]);
     expect(e.url).toBe(url);

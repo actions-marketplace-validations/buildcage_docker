@@ -18,11 +18,6 @@ describe("buildDockerCpArgs", () => {
   });
 });
 
-// Regression guard for the concurrent-step container/network collision:
-// both must always include "-p" + the project name, or Compose falls back
-// to an implicit, directory-derived project name shared by every
-// concurrent step in the job.
-
 describe("buildComposeUpArgs", () => {
   it("always includes -p <projectName> alongside -f <composeFile>", () => {
     const args = buildComposeUpArgs({
