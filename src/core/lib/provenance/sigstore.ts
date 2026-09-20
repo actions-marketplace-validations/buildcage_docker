@@ -26,15 +26,9 @@ export interface VerifyBundleOptions {
  * The bundle's DSSE envelope contains its own signed payload; no external
  * payload is needed for this format.
  *
- * Policy fields in options:
- *   certificateIssuer:      expected Fulcio OIDC issuer URL
- *   certificateIdentityURI: SAN URI regexp pattern string
- *   certificateOIDs:        { [oid]: derUtf8EncodedValue } map
- *   tlogThreshold:          minimum transparency log entries (default 1)
- *   ctLogThreshold:         minimum CT log entries (default 1)
- *
- * expectedDigest is the "sha256:<hex>" fetched from the registry, and must
- * match the digest inside the signed payload.
+ * The thresholds default to 1 each. expectedDigest is the "sha256:<hex>"
+ * fetched from the registry, and must match the digest inside the signed
+ * payload.
  */
 export async function verifyBundle(
   bundleJson: DsseBundle,
@@ -73,10 +67,6 @@ export async function verifyBundle(
     );
   }
 
-  // Assert that the bundle's signed payload targets the digest that was
-  // fetched. The Referrers API linking a bundle to a digest is registry
-  // metadata, not a cryptographic binding: an attacker with package-write
-  // access could re-attach a valid bundle to a different image.
   // The DSSE payload parsed by assertSignedDigest is the exact byte sequence covered by the
   // signature that verifier.verify() above just cryptographically verified (same in-memory
   // bundle). @sigstore/verify exposes no accessor for the verified payload, so parsing it
