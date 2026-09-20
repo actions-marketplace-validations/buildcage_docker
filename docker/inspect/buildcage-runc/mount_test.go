@@ -190,7 +190,7 @@ func newCAStoreBind(t *testing.T) (*dirBind, string) {
 		scratchDir:   scratch,
 		bundleFiles:  []string{filepath.Base(store.hostPath)},
 	}
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+	if err := b.prepare(testCA); err != nil {
 		t.Fatal(err)
 	}
 	return b, rootfs
@@ -296,7 +296,7 @@ func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
 				bundleFiles:  []string{"roots.pem"},
 				custom:       true,
 			}
-			if err := b.prepare([]byte("BUILDCAGE-CA")); err == nil {
+			if err := b.prepare(testCA); err == nil {
 				t.Fatal("expected prepare to refuse the directory")
 			}
 			if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
@@ -326,7 +326,7 @@ func TestPrepareDoesNotBoundTheSystemStoreDir(t *testing.T) {
 		scratchDir:   scratch,
 		bundleFiles:  []string{"ca-certificates.crt"},
 	}
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+	if err := b.prepare(testCA); err != nil {
 		t.Fatalf("the store directory must not be bounded: %v", err)
 	}
 }
@@ -435,7 +435,7 @@ func TestPrepareReportsADirectoryItCannotMeasure(t *testing.T) {
 		custom:       true,
 	}
 
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err == nil {
+	if err := b.prepare(testCA); err == nil {
 		t.Fatal("expected prepare to refuse the directory")
 	}
 }
@@ -446,7 +446,7 @@ func TestPrepareReportsAMirrorThatFailed(t *testing.T) {
 	// prepare already ran once in the fixture; run it again with rsync failing.
 	failRsyncOn(t, 1)
 
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err == nil {
+	if err := b.prepare(testCA); err == nil {
 		t.Fatal("expected the mirror's failure to propagate")
 	}
 }
@@ -474,7 +474,7 @@ func TestPrepareLeavesABundleFileItCannotOpen(t *testing.T) {
 		bundleFiles:  []string{"ca-certificates.crt"},
 	}
 
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+	if err := b.prepare(testCA); err != nil {
 		t.Fatalf("an unwritable bundle file must not fail the step: %v", err)
 	}
 	if target, err := os.Readlink(filepath.Join(scratch, "ca-certificates.crt")); err != nil || target != "/somewhere/else" {
@@ -664,7 +664,7 @@ func TestPrepareRefusesADirectoryItCannotRecord(t *testing.T) {
 			}
 			failWalkOn(t, scratch, nth)
 
-			if err := b.prepare([]byte("BUILDCAGE-CA")); !errors.Is(err, errBrokenWalk) {
+			if err := b.prepare(testCA); !errors.Is(err, errBrokenWalk) {
 				t.Fatalf("got %v, want the failed manifest to refuse the bind", err)
 			}
 		})
@@ -692,7 +692,7 @@ func TestPrepareRefusesABundleFileItCannotStat(t *testing.T) {
 	}
 	useBrokenBundleFile(t, &brokenFile{failStat: true})
 
-	if err := b.prepare([]byte("BUILDCAGE-CA")); !errors.Is(err, errBrokenFile) {
+	if err := b.prepare(testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the stat failure to refuse the bind", err)
 	}
 }
@@ -738,7 +738,7 @@ func TestFinishWritesNothingBackWhenItCannotResetAnMtime(t *testing.T) {
 	// so a stubbed walk can report one that has since been removed. It goes in
 	// the store itself, since prepare replaces the mirror wholesale.
 	mustMkdirAll(t, filepath.Join(b.hostDir, "sub"))
-	if err := b.prepare([]byte("BUILDCAGE-CA")); err != nil {
+	if err := b.prepare(testCA); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(b.scratchDir, "sub")); err != nil {
