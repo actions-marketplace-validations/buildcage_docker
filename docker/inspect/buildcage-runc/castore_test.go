@@ -172,9 +172,9 @@ func TestRemoveCAMatchesAReEncodedCertificate(t *testing.T) {
 	}
 }
 
-// An opening line the step truncated away the end of pairs with the next
-// certificate's closing line. Resuming after that closing line would carry
-// the certificate between them past the scan, leaving it in the image.
+// A step can leave an opening line whose end it truncated away. That line
+// pairs with the next certificate's closing one, and resuming past it would
+// leave that certificate in the image.
 func TestRemoveCAStripsACertificateBehindAnUnterminatedBlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.pem")
 	truncated := string(beginCertificate) + "\nVFJVTkNBVEVE\n"
@@ -624,9 +624,8 @@ func TestAppendAndRemoveCARefuseSomethingThatIsNotARegularFile(t *testing.T) {
 	})
 }
 
-// An empty bundle, or one the scan has already walked to the end of, has no
-// bytes to look at. The scan ends on its own rather than reading past the end
-// of the file.
+// A scan with nothing left to read ends on its own rather than reading past
+// the end of the file.
 func TestFindInFileIsANoOpOnAnEmptyRange(t *testing.T) {
 	f, err := os.Open(withCA(t))
 	if err != nil {

@@ -12,10 +12,9 @@ import (
 	"syscall"
 )
 
-// What the removal looks for: the certificate's own PEM block. The certificate
-// is generated per build, so every copy of it in the bundle is one this wrapper
-// put there, however the step rewrote the bundle in between and whatever text
-// it left around it.
+// What the removal looks for: the certificate's own PEM block. It is generated
+// per build, so any copy of it in a bundle is one this wrapper put there,
+// whatever rewrote the bundle in between.
 var (
 	beginCertificate = []byte("-----BEGIN CERTIFICATE-----")
 	endCertificate   = []byte("-----END CERTIFICATE-----")
@@ -26,9 +25,9 @@ var (
 // size the step left it at, not what the image shipped.
 const scanChunk = 64 << 10
 
-// Longest PEM block removeCA compares in one piece. A certificate is a few KB,
-// so anything past this is something else the step left between the two lines
-// and is skipped rather than read into memory.
+// Longest PEM block removeCA reads in to compare. A certificate is a few KB,
+// so anything past this is something else and is skipped rather than held in
+// memory.
 const maxCertificateBytes = 64 << 10
 
 // Same candidate order as buildkit's executor.InjectProxyCA.
@@ -52,8 +51,8 @@ var (
 var errNotRegular = errors.New("not a regular file")
 
 // errNotACertificate means what appendCA was handed holds no PEM certificate.
-// Nothing is appended that removeCA could not take back out, since what it
-// matches on is the certificate itself.
+// Removal matches on the certificate itself, so anything else would go in with
+// no way back out.
 var errNotACertificate = errors.New("not a certificate")
 
 // resolveInRoot resolves path as the container would see it, so a symlink
@@ -194,9 +193,7 @@ func appendCA(path string, ca []byte) error {
 	// A bundle that does not end in one needs a line break first, or the
 	// opening line lands on the end of the last one and no reader sees a
 	// certificate there. Removal takes back the line break that closes the
-	// block rather than this one, so a bundle that shipped without a final
-	// newline gains one; it can only reach a layer a step was already writing
-	// to, since an untouched mirror is discarded rather than written back.
+	// block, not this one, so an unterminated bundle keeps the one it gained.
 	if info.Size() > 0 {
 		nl, err := isNewlineAt(f, info.Size()-1)
 		if err != nil {
@@ -307,11 +304,9 @@ func findCertificates(f bundleFile, bodies map[string]bool, size int64) ([]span,
 			return cuts, nil
 		}
 		end += int64(len(endCertificate))
-		// A candidate that is not the certificate resumes after its opening
-		// line rather than after the closing one it was paired with: an
-		// opening line the step left without an end of its own would
-		// otherwise pair with the next certificate's, and carry that
-		// certificate past the scan with it.
+		// A candidate that is not it resumes after its own opening line: one
+		// the step left without an end pairs with the next certificate's
+		// closing line, and resuming past that would skip that certificate.
 		off = begin + int64(len(beginCertificate))
 
 		if end-begin > maxCertificateBytes {
@@ -326,7 +321,6 @@ func findCertificates(f bundleFile, bodies map[string]bool, size int64) ([]span,
 			continue
 		}
 		off = end
-		// The line break that closed it came with it.
 		if end < size {
 			nl, err := isNewlineAt(f, end)
 			if err != nil {
@@ -402,8 +396,8 @@ func shiftDown(f bundleFile, buf []byte, from, to, dst int64) (int64, error) {
 		if left := to - from; left < int64(len(window)) {
 			window = window[:left]
 		}
-		// The window is cut to what is left, so a short read is a file that
-		// changed under the wrapper rather than the end of a run.
+		// The window is cut to what is left, so a short read means the file
+		// changed under the wrapper rather than a run ending.
 		n, err := f.ReadAt(window, from)
 		if n > 0 {
 			if _, werr := f.WriteAt(window[:n], dst); werr != nil {

@@ -25,10 +25,8 @@ else
 fi
 
 # The certificate appended to whichever system CA bundle the rootfs had,
-# removed by the same undo. Looked for by its own first base64 line rather
-# than by any text around it, which is also what castore.go matches on: the
-# CA is generated per build, so a copy of it anywhere in a bundle is one the
-# undo failed to take back out.
+# removed by the same undo. The CA is generated per build, so a copy of it
+# anywhere in a bundle is one the undo failed to take back out.
 BUILDER="${BUILDER_NAME:-buildcage}"
 CA_LINE=$(docker exec "$BUILDER" cat /opt/buildcage/ca.pem 2>/dev/null \
   | awk '/-----BEGIN CERTIFICATE-----/{getline; print; exit}' || true)
