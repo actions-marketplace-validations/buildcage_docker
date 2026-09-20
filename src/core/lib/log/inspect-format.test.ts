@@ -32,9 +32,12 @@ const SAMPLES: Record<string, string> = {
   "%[var(txn.pathq)]": PATH,
   "%[var(txn.proto)]": "tls",
   "%[var(txn.sni)]": "db.example.com",
+  "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "registry.npmjs.org",
 };
 
-const TOKEN = /%(?:\[[^\]]*\]|[A-Za-z]+)/g;
+// The inner alternative is the character class a regsub argument carries, so
+// the `]` closing it does not end the token.
+const TOKEN = /%(?:\[(?:[^[\]]|\[[^[\]]*\])*\]|[A-Za-z]+)/g;
 
 /** The log-format strings the generator emits, unquoted, in config order. */
 function logFormats(config: string): string[] {
@@ -118,6 +121,64 @@ describe("the generated log-format and this parser describe the same line", () =
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("block");
     expect(e.reason).toBe("origin-no-response");
+  });
+
+  // What a client that finished the handshake and then left writes: haproxy
+  // has no request to log, so every field a request would have fills in empty.
+  const ABORTED = {
+    "%HM": "<BADREQ>",
+    "%ST": "400",
+    "%B": "0",
+    "%[capture.req.hdr(0)]": "-",
+    "%[var(txn.pathq)]": "-",
+  };
+
+  it("takes the host of a connection closed before its request from the SNI", async () => {
+    const line = render(HTTPS, { ...ABORTED, "%ts": "CR" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("aborted");
+    expect(e.host).toBe("registry.npmjs.org");
+    expect(e.port).toBe(9443);
+    expect(e.reason).toBe("client-aborted");
+    expect(e.destination).toBe("10.200.0.100:9443");
+    // `<BADREQ>` and an authority-less URL are the absence, not a request.
+    expect(e.method === undefined).toBe(true);
+    expect(e.url === undefined).toBe(true);
+    expect(e.status === undefined).toBe(true);
+  });
+
+  it("tells a client that closed from one that waited out its own timeout", async () => {
+    const line = render(HTTPS, { ...ABORTED, "%ts": "cR", "%ST": "408" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("aborted");
+    expect(e.reason).toBe("client-timeout");
+  });
+
+  it("falls back to the address when the handshake carried no SNI", async () => {
+    const line = render(HTTPS, {
+      ...ABORTED,
+      "%ts": "CR",
+      "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "-",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.host).toBe("10.200.0.100");
+  });
+
+  it("falls back the same way on the plain stage, which logs no SNI at all", async () => {
+    const line = render(HTTP, { ...ABORTED, "%ts": "CR" });
+    const { events, unparsed } = await scanInspectLog([line]);
+    expect(unparsed).toBe(0);
+    const [e] = events;
+    expect(e.action).toBe("aborted");
+    expect(e.protocol).toBe("http");
+    expect(e.host).toBe("10.200.0.100");
+  });
+
+  it("leaves a client that abandoned an allowed request an ordinary exchange", async () => {
+    const line = render(HTTPS, { "%ts": "CD--" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("allow");
+    expect(e.url).toBe(`https://registry.npmjs.org${PATH}`);
   });
 
   it("names a passthrough refusal the same way, though it has no status at all", async () => {

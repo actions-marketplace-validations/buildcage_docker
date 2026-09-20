@@ -6,11 +6,14 @@
 /**
  * What a rule decided, or would have decided had one been enforced.
  *
- * `discovery` is none of those: no rule decided it and none could. Folding it
- * into `block` would put a row in the report no rule could take away, and fail
- * a build under fail_on_blocked over a lookup that harmed nothing.
+ * `discovery` and `aborted` are neither: no rule decided them and none could.
+ * Folding either into `block` would put a row in the report no rule could take
+ * away, and fail a build under fail_on_blocked over something that reached
+ * nothing. A lookup for a service name is answered empty whatever the rules
+ * say; an aborted connection was dropped before its first request, so no rule
+ * had anything to decide on and nothing was ever sent to an origin.
  */
-export type TrafficAction = "allow" | "block" | "audit" | "discovery";
+export type TrafficAction = "allow" | "block" | "audit" | "discovery" | "aborted";
 
 export type TrafficProtocol = "https" | "http" | "tls" | "tcp" | "dns";
 
@@ -35,7 +38,8 @@ export interface TrafficEvent {
   status?: number;
   /** Bytes returned to the build. Absent for dns and for a refusal. */
   bytes?: number;
-  /** Why it was refused. Set only when action is "block". */
+  /** Why it was refused, or what cut it short before a rule saw it. Set when
+   *  action is "block" or "aborted". */
   reason?: string;
   /** Address it was actually sent to. Absent for dns. */
   destination?: string;

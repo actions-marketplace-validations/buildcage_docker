@@ -268,9 +268,13 @@ HAProxy's log carries one line per request, oldest first, with its method, statu
 full URL last:
 
 ```
-buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=104.16.1.34:443 https://registry.npmjs.org/express
+buildcage 1787471975123 https GET 200 708 ts=-- reason=- dst=104.16.1.34:443 sni=registry.npmjs.org https://registry.npmjs.org/express
 buildcage 1787471976000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=db.example.com
 ```
+
+Only the stage that terminates TLS has an SNI, so the plain-HTTP stage logs no such field. It is
+what names the host of a connection that closed before sending a request, where the method and the
+captured `Host` are both empty.
 
 The URL and the SNI come last because a build decides how long they are: every field the report
 needs to place an event then sits ahead of anything that could cut the line short. The line is
@@ -287,6 +291,7 @@ the way `explicit`'s per-step breakdown can:
 🚫 00:01.048: DNS secret-data.attacker.example -> dns-not-allowed
 🚫 00:01.390: POST https://registry.npmjs.org/express/-rev/1-abc -> not-allowed
 ✅ 00:02.115: TLS db.example.com:5432 -> (12.3KB)
+⚠️ 00:03.407: HTTPS untrusted-ca.example.com:443 -> client-aborted
 ```
 
 Times are relative to when the proxy started. A refusal names its reason rather than a status. The
@@ -294,6 +299,13 @@ Times are relative to when the proxy started. A refusal names its reason rather 
 (`dns-failed`, `internal-address`); a `-` there leaves the termination state's phase to name it: `R`
 a request buildcage refused (`not-allowed`), `C` an origin that could not be reached or verified,
 `H` one that never sent usable response headers, `D`/`L` one that cut the transfer short.
+
+The ⚠️ line is the exception: a termination state of `CR` or `cR` is the client itself giving up in
+phase `R`, before a whole request had arrived. The stage resolves and connects only after one
+parses, so nothing left the proxy: the logged `dst` is still the proxy's own address. That is
+neither an allow nor a block, and like a `discovery` lookup it stays out of both host tables so no
+row appears that no rule could take away. Only `R` counts: a client that abandons a later phase
+abandons a request the rules had already decided on.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
 archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The

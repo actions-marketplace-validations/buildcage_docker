@@ -377,6 +377,30 @@ describe("what a log line records", () => {
     ).toBe(true);
   });
 
+  it("logs the SNI on the stage that terminates TLS, reduced to a hostname charset", () => {
+    // The only name a connection closed before its first request ever gave:
+    // the method and the Host capture are both empty by then. Client-
+    // controlled like the SNI the detect frontend captures, hence the same
+    // charset. The plain stage terminates no TLS, so it has none to log.
+    const https = FULL_CONFIG.split("\n").find((line) =>
+      line.includes('"buildcage %[date(0,ms)] https'),
+    );
+    const http = FULL_CONFIG.split("\n").find((line) =>
+      line.includes('"buildcage %[date(0,ms)] http '),
+    );
+    expect(https?.includes("sni=%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]")).toBe(true);
+    expect(http?.includes("sni=")).toBe(false);
+  });
+
+  it("puts the SNI ahead of the URL, not after it", () => {
+    // The URL is the field the build sizes, so it stays last: a cut line then
+    // costs the URL, and the name that says which host it was survives.
+    const https = FULL_CONFIG.split("\n").find((line) =>
+      line.includes('"buildcage %[date(0,ms)] https'),
+    );
+    expect((https?.indexOf("sni=") ?? -1) < (https?.indexOf("https://%[capture") ?? -1)).toBe(true);
+  });
+
   it("leaves a non-default port's ':' untouched in the Host capture", () => {
     // Mirrors HAProxy's own regsub("[\s\"[:cntrl:]]",_,g) with a
     // POSIX/PCRE2-equivalent pattern: the ':' of a non-default port has to
