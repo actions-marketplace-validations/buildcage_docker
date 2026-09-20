@@ -34,8 +34,6 @@ echo "[ALLOWED] must not exist:"
 assert_log_not_contains ALLOWED
 echo ""
 
-# report-action.js renders the full stepSummary itself; report/src/main.ts just
-# relays it. GITHUB_STEP_SUMMARY is unset so it prints to stdout instead.
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
 echo "[report] audit heading and the hosts that were reached:"

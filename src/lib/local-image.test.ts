@@ -1,8 +1,3 @@
-/**
- * Unit tests for local-image.ts
- *
- * Run with: vp test run src/lib/local-image.test.ts
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { readLocalImageOverride } from "./local-image.ts";

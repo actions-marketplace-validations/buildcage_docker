@@ -1,8 +1,3 @@
-/**
- * Unit tests for setup-step.ts
- *
- * Run with: vp test run src/lib/setup-step.test.ts
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { runSetupStep, COMPOSE_FILE, type SetupStepDeps } from "./setup-step.ts";

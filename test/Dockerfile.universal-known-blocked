@@ -4,10 +4,8 @@ FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432
 # both (the report step passes) or only one (it still fails). Both names
 # resolve through test-dns, so each is refused by the rules rather than by DNS.
 
-# [HTTPS - blocked]
 RUN echo "=== [HTTPS - blocked] ===" && \
     (wget --no-check-certificate -q -O /dev/null --timeout=5 https://blocked.example.com/ && echo "✗ blocked.example.com: ALLOWED (unexpected)" && exit 1) || echo "✓ blocked.example.com: BLOCKED (expected)"
 
-# [HTTPS - blocked - nested subdomain]
 RUN echo "=== [HTTPS - blocked - nested subdomain] ===" && \
     (wget --no-check-certificate -q -O /dev/null --timeout=5 https://deep.sub.wildcard.example.com/ && echo "✗ deep.sub.wildcard.example.com: ALLOWED (unexpected)" && exit 1) || echo "✓ deep.sub.wildcard.example.com: BLOCKED (expected)"
