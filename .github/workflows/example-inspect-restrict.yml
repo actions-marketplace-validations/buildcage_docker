@@ -42,11 +42,11 @@ jobs:
           WORKDIR /app
           # Debian's archive is plain HTTP, so apt's rules are http:// URLs.
           RUN apt-get update && \
-              apt-get install -y --no-install-recommends curl && \
+              apt-get install -y --no-install-recommends wget && \
               rm -rf /var/lib/apt/lists/*
           RUN npm init -y && npm install --ignore-scripts @hono/node-server
           # Refused: the report names the full URL, not just the host.
-          RUN curl -sS --max-time 5 -o /dev/null https://example.com/ || true
+          RUN wget -q -O /dev/null --timeout=5 https://example.com/ || true
           EOF
 
       - name: Build test image
