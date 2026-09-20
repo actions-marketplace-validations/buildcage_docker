@@ -62,12 +62,14 @@ func mustMakeReadOnly(t *testing.T, dir string) {
 // half-finished file rather than with a stub.
 type brokenFile struct {
 	bundleFile
-	failReadAt  int  // fail the nth ReadAt, counting from 1
-	failWriteAt int  // likewise for WriteAt
-	failStat    bool // fail Stat outright
-	notRegular  bool // succeed, but report something other than a regular file
-	reads       int
-	writes      int
+	failReadAt   int  // fail the nth ReadAt, counting from 1
+	failWriteAt  int  // likewise for WriteAt
+	failWrite    int  // likewise for WriteString
+	failStat     bool // fail Stat outright
+	notRegular   bool // succeed, but report something other than a regular file
+	reads        int
+	writes       int
+	writeStrings int
 }
 
 var errBrokenFile = errors.New("simulated I/O failure")
@@ -86,6 +88,14 @@ func (b *brokenFile) WriteAt(p []byte, off int64) (int, error) {
 		return 0, errBrokenFile
 	}
 	return b.bundleFile.WriteAt(p, off)
+}
+
+func (b *brokenFile) WriteString(str string) (int, error) {
+	b.writeStrings++
+	if b.writeStrings == b.failWrite {
+		return 0, errBrokenFile
+	}
+	return b.bundleFile.WriteString(str)
 }
 
 func (b *brokenFile) Stat() (fs.FileInfo, error) {

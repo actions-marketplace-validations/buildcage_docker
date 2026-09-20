@@ -48,6 +48,7 @@ type dirBind struct {
 	scratchDir   string
 	bundleFiles  []string
 	custom       bool
+	ca           []byte // kept so finish can find it again by content
 
 	original []fileEntry // hostDir's state before mirroring
 	baseline []fileEntry // scratchDir's state right after the CA was appended
@@ -170,9 +171,9 @@ func hashFile(path string) ([32]byte, error) {
 }
 
 // sameExceptMtime is what "unchanged" means to both callers below: everything
-// a step could have altered, apart from the mtime. The marker append/strip
-// round trip, and mirroring itself, move mtime on their own, so comparing it
-// would report a change where none was made.
+// a step could have altered, apart from the mtime. The append/strip round
+// trip, and mirroring itself, move mtime on their own, so comparing it would
+// report a change where none was made.
 func (e fileEntry) sameExceptMtime(other fileEntry) bool {
 	return e.path == other.path && e.mode == other.mode &&
 		e.uid == other.uid && e.gid == other.gid &&
@@ -227,6 +228,7 @@ func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) er
 }
 
 func (b *dirBind) prepare(ca []byte) error {
+	b.ca = ca
 	if b.custom {
 		size, count, err := sizeAndCount(b.hostDir)
 		if err != nil {
@@ -281,7 +283,7 @@ func (b *dirBind) finish() error {
 	}
 
 	for _, name := range b.bundleFiles {
-		if err := removeCA(filepath.Join(b.scratchDir, name)); err != nil {
+		if err := removeCA(filepath.Join(b.scratchDir, name), b.ca); err != nil {
 			if errors.Is(err, errNotRegular) {
 				// Not the wrapper's to open; write-back below mirrors it as-is.
 				logf("cannot restore %s: %v; leaving it as the step left it", name, err)

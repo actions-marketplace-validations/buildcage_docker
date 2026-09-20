@@ -37,10 +37,25 @@ echo ""
 echo "[traversal] the path is normalized before the rules see it:"
 # Whether the proxy logs the raw or the normalized path, what must never appear
 # is a 200: that would mean the origin served /private/ for a /public/ rule.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ sni=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
   pass "GET /public/../private/secret was refused"
 else
   fail "GET /public/../private/secret -- no 403 recorded"
+fi
+echo ""
+
+echo "[client left first] the connection is named by its SNI, the only name it gave:"
+# %HM and the Host capture both come from a request that never arrived, so
+# without the SNI the line would name no host at all.
+# The `https://--` tail is pinned: the parser wants a scheme and something
+# behind it, which holds because haproxy writes `-` for the empty Host capture
+# and the unset path. A version writing them as nothing would leave a bare
+# `https://`, unreadable to the parser and so a failed step. Caught here.
+if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com https://--$" <<< "$LOGS"; then
+  pass "recorded with the handshake's SNI"
+else
+  fail "no such line for aborted.example.com"
+  grep -E "aborted\.example\.com" <<< "$LOGS" || echo "    (no matching log line at all)"
 fi
 echo ""
 
@@ -54,7 +69,7 @@ echo ""
 
 echo "[long URL] a URL the size a signed one really is, recorded whole:"
 # The marker is the last thing on the line, so finding it proves nothing was cut.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ dst=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ dst=\S+ sni=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$LOGS"; then
   pass "the whole ~1.3KB line was recorded, tail included"
 else
   fail "the long URL was cut or dropped"
@@ -71,7 +86,7 @@ fi
 echo ""
 
 echo "[non-standard port] the original port survives to the origin connection:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9443 https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9443 sni=\S+ https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "reached 10.200.0.100:9443, not the listener's own port"
 else
   fail "9443 did not survive to the origin connection"
@@ -80,7 +95,7 @@ fi
 echo ""
 
 echo "[forged Host] the destination came from our resolution, not the client's:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:443 https://allowed\.example\.com/public/pkg\.tgz$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:443 sni=\S+ https://allowed\.example\.com/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "connected to 10.200.0.100, the address we resolved"
 else
   fail "no request recorded as reaching the resolved address"
@@ -95,7 +110,7 @@ fi
 echo ""
 
 echo "[SSRF] an allowlisted name resolving inward is refused before connecting:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=169\.254\.169\.254:443 https://metadata\.example\.com/latest/meta-data$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=169\.254\.169\.254:443 sni=\S+ https://metadata\.example\.com/latest/meta-data$" <<< "$LOGS"; then
   pass "the name passed the rules but the resolved metadata address was refused"
 else
   fail "the internal-destination guard did not fire"
@@ -104,7 +119,7 @@ fi
 echo ""
 
 echo "[SSRF] an allowlisted name resolving back to the runner is refused too:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=10\.200\.0\.199:443 https://runner\.example\.com/$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=10\.200\.0\.199:443 sni=\S+ https://runner\.example\.com/$" <<< "$LOGS"; then
   pass "the resolved runner address was refused despite being RFC1918"
 else
   fail "the runner's own addresses did not reach the internal-destination guard"
@@ -144,7 +159,7 @@ else
   fail "no passthrough was recorded on the ~regex rule's port 8443"
 fi
 # A request line for it would mean the TLS was terminated after all.
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ [0-9-]+ [0-9]+ ts=\S+ reason=\S+ dst=\S+ \S*tlspass\.example\.com" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ [0-9-]+ [0-9]+ ts=\S+ reason=\S+ .*tlspass\.example\.com" <<< "$LOGS"; then
   fail "a passthrough connection was decrypted and logged as a request"
 else
   pass "no request-level record, so nothing was decrypted"
@@ -326,6 +341,26 @@ if grep -qF "DNS secret-in-a-name.attacker.example -> dns-not-allowed" <<< "$REP
   pass "a refused name is in the timeline, having no other trace"
 else
   fail "the refused name is missing from the timeline"
+fi
+
+# No rule decided it, so it belongs in neither table and the timeline is the
+# only place it can appear.
+if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
+  pass "a connection the client left is in the timeline, with a mark of its own"
+else
+  fail "the aborted connection is missing from the timeline"
+fi
+if grep -qF "| aborted.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN"; then
+  fail "the aborted connection was put in one of the host tables"
+else
+  pass "the aborted connection is in neither host table"
+fi
+# No rule takes the row above away, so the refused lookup for the same name has
+# to survive: it is the only row a reader can act on.
+if grep -qF "| aborted.example.com | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN"; then
+  pass "the refused lookup for the same name is still its own Blocked row"
+else
+  fail "the refused lookup for the aborted host was folded away"
 fi
 
 if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then

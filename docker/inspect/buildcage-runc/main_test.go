@@ -174,7 +174,7 @@ func TestRunReportsARuncItCannotStart(t *testing.T) {
 func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
 	useTempLog(t)
 	useFakeRsync(t)
-	useTempCAFile(t, "BUILDCAGE-CA")
+	useTempCAFile(t, string(testCA))
 	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
 
 	// The step regenerates the store, which is what makes finish write back.
@@ -226,7 +226,7 @@ func TestRunWithoutACAToInject(t *testing.T) {
 func TestRunWhenInjectionFailsOutright(t *testing.T) {
 	useTempLog(t)
 	useFakeRsync(t)
-	useTempCAFile(t, "BUILDCAGE-CA")
+	useTempCAFile(t, string(testCA))
 	useFakeRunc(t, "exit 0")
 
 	// A bundle with no config.json, which inject refuses.
@@ -245,7 +245,7 @@ func TestRunWhenInjectionFailsOutright(t *testing.T) {
 func TestRunUndoesInjectionWhenRuncWillNotStart(t *testing.T) {
 	useTempLog(t)
 	useFakeRsync(t)
-	useTempCAFile(t, "BUILDCAGE-CA")
+	useTempCAFile(t, string(testCA))
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 	realRuncWas := realRunc
 	realRunc = filepath.Join(t.TempDir(), "not-there")

@@ -104,6 +104,16 @@ const timeline: TrafficEvent[] = [
     queryType: "A",
     reason: "dns-not-allowed",
   },
+  // Neither table can hold this one, so the detail section is where it shows.
+  {
+    time: 1787471979.123,
+    action: "aborted",
+    protocol: "https",
+    host: "untrusted-ca.example.com",
+    port: 443,
+    reason: "client-aborted",
+    destination: "172.20.0.1:443",
+  },
 ];
 
 const inspect: InspectReportData = {
