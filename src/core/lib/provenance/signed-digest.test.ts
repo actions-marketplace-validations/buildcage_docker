@@ -1,7 +1,5 @@
 /**
- * Unit tests for core/lib/provenance/signed-digest.ts
- *
- * assertSignedDigest() is pure synchronous logic and is fully unit-tested here.
+ * assertSignedDigest() is pure synchronous logic, fully unit-tested here.
  * sigstore.ts's verifyBundle(), which calls it, is covered in sigstore.test.ts
  * against a mocked trust root and verifier.
  */
@@ -12,11 +10,6 @@ import { VerifyImageError } from "./errors.ts";
 
 const DIGEST = "sha256:abc123";
 
-/**
- * Build a minimal DSSE bundle JSON.
- * - payloadType omitted / "simple-signing": legacy critical.image format
- * - payloadType "application/vnd.in-toto+json": in-toto Statement v1 format
- */
 interface SubjectDigest {
   sha256?: string;
   md5?: string;

@@ -25,8 +25,6 @@ function runHandler(context: string, err: unknown): { lines: string[]; exitCode:
 }
 
 describe("exitOnFatalError", () => {
-  // An ActionError was raised deliberately and already reads as advice, so it
-  // is printed as it stands rather than labelled a bug.
   it("prints an ActionError's own message, unlabelled", () => {
     const { lines } = runHandler("setup", new TestError("builder_name is taken", "SOME_CODE"));
     expect(lines).toStrictEqual(["::error::builder_name is taken"]);

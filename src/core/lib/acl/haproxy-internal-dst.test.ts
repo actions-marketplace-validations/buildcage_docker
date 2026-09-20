@@ -20,8 +20,6 @@ describe("the internal-destination acl", () => {
   });
 
   it("adds the host-address file as a second acl of the same name", () => {
-    // Repeating the name ORs the two declarations, which is what keeps the
-    // inline list above from having to hold the file's addresses as well.
     expect(
       internalDstAcl("dst_internal", { internalAddrs: ADDRS, hostAddressFile: "/run/hosts.lst" }),
     ).toStrictEqual([

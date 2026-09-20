@@ -258,11 +258,8 @@ function compileUrl(
   const combined = wildcardToRegexPartial(`${host}:${port === "" ? DEFAULT_PORT[scheme] : port}`);
   const hostRegex = combined.slice(0, combined.lastIndexOf(":"));
 
-  // No path in the pattern means "any path on this host".
   const pathRegex = path === "" ? "^/" : `^${pathToRegexPartial(path)}$`;
 
-  // The authority always carries an explicit port, even where the URL may omit
-  // it.
   const authorityPort = port === "*" ? "[0-9]+" : port === "" ? DEFAULT_PORT[scheme] : port;
   const authorityRegex = `^${hostRegex}:${authorityPort}$`;
 

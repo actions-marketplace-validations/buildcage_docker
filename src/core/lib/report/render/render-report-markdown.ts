@@ -59,8 +59,8 @@ export function renderReportMarkdown(
   }
   if (report.blocked.length > 0) {
     if (report.passed.length > 0) markdown += "\n";
-    // A folded row names its rule rather than its hosts, so it needs the
-    // Communication details universal has no section for.
+    // universal has no Communication details section to name a folded row's
+    // hosts in.
     const blocked =
       report.engine === "universal" ? report.blocked : foldExpectedBlockedRows(report.blocked);
     markdown +=

@@ -20,15 +20,11 @@ function dockerReturning(labels: Record<string, string> | Error): Docker {
 const VERSION_LABEL = "org.opencontainers.image.version";
 
 describe("readActionVersion", () => {
-  // The label is the bare Docker tag; the report cites the git tag it was
-  // published from, which is that with a `v` in front.
   it("turns the version label back into its git tag", () => {
     const docker = dockerReturning({ [VERSION_LABEL]: "3.1.4" });
     expect(readActionVersion(docker, "abc", "universal")).toBe("v3.1.4");
   });
 
-  // A non-universal engine publishes under a suffixed tag (see image-tag.ts),
-  // which is not part of the git tag.
   it("strips this engine's own tag suffix", () => {
     const docker = dockerReturning({ [VERSION_LABEL]: "3.1.4-inspect" });
     expect(readActionVersion(docker, "abc", "inspect")).toBe("v3.1.4");
@@ -43,8 +39,6 @@ describe("readActionVersion", () => {
     expect(readActionVersion(dockerReturning({}), "abc", "universal")).toBeUndefined();
   });
 
-  // Best effort: the version only annotates a comment in the example snippet,
-  // so a docker failure here must not fail the whole report.
   it("returns undefined when docker inspect fails", () => {
     const docker = dockerReturning(new Error("no such object"));
     expect(readActionVersion(docker, "abc", "universal")).toBeUndefined();

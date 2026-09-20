@@ -230,8 +230,6 @@ describe("renderReportMarkdown: inspect", () => {
     expect(md).toMatch(/GET/);
   });
 
-  // inspect saw the method and the path, so its audit example can be narrower
-  // than one built from hosts alone.
   it("builds the audit example from the requests rather than from the hosts", () => {
     const md = renderReportMarkdown(
       { ...base, parameters: reportParams({ mode: "audit" }) },

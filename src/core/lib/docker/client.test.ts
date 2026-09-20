@@ -162,7 +162,6 @@ describe("createDocker readFileLines", () => {
   it("throws {status, stderr} on a non-zero exit", async () => {
     const { spawnDocker, children } = fakeSpawn();
     const drained = drain(createDocker(undefined, spawnDocker).readFileLines("abc123", "/missing"));
-    // Ensure the child has been created before driving it.
     await Promise.resolve();
     children[0].stderr.write("cat: /missing: No such file or directory\n");
     children[0].finish(1);

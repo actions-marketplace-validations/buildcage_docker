@@ -67,7 +67,7 @@ export interface CompiledRule {
   id: string;
   hostMatch: HostMatch;
   hostRegex: string;
-  /** The port the rule names, or null for any port. Only meaningful when `hostMatch` is "wildcard". */
+  /** The port the rule names, or null for any port. */
   port: string | null;
   pathRegex: string;
   methods: string[] | null;
@@ -317,7 +317,7 @@ export function compileRuleSet(inputs: RuleInputs): CompiledRuleSet {
   };
 }
 
-/** Every name the rules allow, in input order and without repeats; see CompiledRuleSet.resolverHosts. */
+/** In input order and without repeats; see CompiledRuleSet.resolverHosts. */
 function resolverHosts(inputs: RuleInputs): string[] {
   const hosts: string[] = [];
   const add = (regex: string) => {

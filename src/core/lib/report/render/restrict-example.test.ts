@@ -1,9 +1,7 @@
 /**
- * Unit tests for core/lib/report/render/restrict-example.ts
- *
- * The `uses:` line and the <details> block every engine's "Switch to restrict
- * mode" snippet is built around. Each renderer's own tests assert the YAML it
- * puts inside; these assert the frame, so no renderer's tests have to.
+ * The frame every engine's "Switch to restrict mode" snippet is built around.
+ * Each renderer's own tests assert the YAML it puts inside; these assert the
+ * frame, so no renderer's tests have to.
  */
 import { describe, it, expect } from "vitest";
 import { restrictExampleBlock, usesLine } from "./restrict-example.ts";

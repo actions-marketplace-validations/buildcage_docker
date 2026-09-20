@@ -15,8 +15,7 @@ export type VerifyImageErrorCode = "NOT_FOUND" | "TRANSIENT" | "TOKEN_ERROR" | "
  */
 export class VerifyImageError extends ActionError<VerifyImageErrorCode> {}
 
-/** The codes above, plus the one only the caller-facing error can carry:
- *   UNVERIFIABLE_REF: action ref cannot be verified (branch / local path) */
+/** UNVERIFIABLE_REF: the action ref is a branch or local path, so nothing can verify it. */
 export type ProvenanceErrorCode = VerifyImageErrorCode | "UNVERIFIABLE_REF";
 
 /**

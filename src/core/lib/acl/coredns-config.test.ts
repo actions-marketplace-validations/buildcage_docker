@@ -73,9 +73,6 @@ function reverseBlock(config: string): string {
 // outside them would be misreported as allowed.
 // ---------------------------------------------------------------------------
 describe("readiness", () => {
-  // s6-notifyoncheck polls this. Loopback-only, so a firewall that denies by
-  // default cannot block it, and only the catch-all block declares it, since
-  // a second block binding the same address fails to start.
   for (const mode of ["audit", "restrict"] as const) {
     it(`exposes a loopback health endpoint exactly once in ${mode} mode`, () => {
       // restrict has to emit the allowlist block as well, since that is the
@@ -181,9 +178,6 @@ describe("CEL escaping", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Denied names
-// ---------------------------------------------------------------------------
 describe("denied names", () => {
   const config = gen({ httpsRules: ["a.example.com:443"] });
 
@@ -198,10 +192,9 @@ describe("denied names", () => {
   });
 
   it("answers AAAA with NODATA rather than an unusable address or NXDOMAIN", () => {
-    // NXDOMAIN would tell musl's getaddrinfo the name doesn't exist at all,
-    // discarding the valid A answer above along with it. Scoped to the deny
-    // block specifically: the allow block above it has its own AAAA template,
-    // identical in shape, and a plain indexOf would find that one first.
+    // Scoped to the deny block specifically: the allow block above it has its
+    // own AAAA template, identical in shape, and a plain indexOf would find that
+    // one first.
     const denyBlock = config.slice(config.indexOf("# Everything else"));
     const aaaaBlock = denyBlock.slice(denyBlock.indexOf("template IN AAAA"));
     expect(aaaaBlock.includes("answer")).toBe(false);
@@ -407,11 +400,9 @@ describe("service-discovery names", () => {
   });
 
   it("exempts only the types defined at a service name, denying the rest", () => {
-    // An underscore name is a convention for the owner name, not a promise
-    // about the question. An A query really is answered here, with the proxy's
-    // address,
-    // and a type nobody has taught this block about is not one to exempt on a
-    // guess, so both are judged by the blocks below instead.
+    // An A query really is answered here, with the proxy's address, and a type
+    // this block has never heard of is not one to exempt on a guess, so both
+    // are judged by the blocks below instead.
     const block = discoveryBlock(gen(RULES));
     expect(block.includes("expr type() in ['SRV', 'TXT', 'TLSA', 'URI']")).toBe(true);
   });
@@ -481,9 +472,6 @@ describe("refused service names", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Degenerate inputs
-// ---------------------------------------------------------------------------
 describe("degenerate inputs", () => {
   it("emits only the deny block when there are no rules", () => {
     const config = gen({});

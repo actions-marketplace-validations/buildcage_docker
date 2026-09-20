@@ -17,9 +17,6 @@ function matches(urlPattern: string, url: string): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// convertUrlRule: scheme, host, port
-// ---------------------------------------------------------------------------
 describe("convertUrlRule host and port", () => {
   it("no path matches any path on the host", () => {
     expect(matches("https://example.com", "https://example.com/")).toBe(true);
@@ -62,9 +59,6 @@ describe("convertUrlRule host and port", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// convertUrlRule: paths
-// ---------------------------------------------------------------------------
 describe("convertUrlRule paths", () => {
   it("* does not cross a path separator", () => {
     expect(matches("https://example.com/pkg/*", "https://example.com/pkg/a")).toBe(true);
@@ -94,9 +88,6 @@ describe("convertUrlRule paths", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// ~regex escape hatch
-// ---------------------------------------------------------------------------
 describe("convertUrlRule regex escape hatch", () => {
   it("passes the remainder through untouched", () => {
     // A wildcard rule would escape the "." and expand the "*".
@@ -175,9 +166,6 @@ describe("convertUrlRule regex escape hatch", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildUrlRules
-// ---------------------------------------------------------------------------
 describe("buildUrlRules", () => {
   it("splits on newlines and keeps the raw text", () => {
     const rules = buildUrlRules("GET https://a.com/x\n  POST https://b.com/y  \n\n");
@@ -204,15 +192,10 @@ describe("buildUrlRules", () => {
   });
 
   it("refuses a fragment in a literal URL, which no request ever carries", () => {
-    // Easy to paste in from a documentation link, and it could only ever match
-    // nothing: the fragment stays in the browser.
     expect(() => convertUrlRule("GET https://a.com/pkg#frag")).toThrow(/fragment/);
   });
 });
 
-// ---------------------------------------------------------------------------
-// methods
-// ---------------------------------------------------------------------------
 describe("methods", () => {
   it("single method is uppercased", () => {
     expect(convertUrlRule("get https://a.com/x").methods?.join(",")).toBe("GET");

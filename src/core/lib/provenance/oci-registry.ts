@@ -2,7 +2,6 @@
  * OCI registry transport, auth and manifest reads.
  *
  * All errors are thrown as VerifyImageError (see errors.ts).
- * Callers do not need to catch and re-wrap; just let them propagate.
  */
 
 import { VerifyImageError } from "./errors.ts";
@@ -46,7 +45,6 @@ export async function withRegistryErrors<T>(what: string, fn: () => Promise<T>):
   }
 }
 
-/** How a non-ok response with no more specific reading is classified. */
 export type RegistryFailure = "TRANSIENT" | "NOT_FOUND";
 
 /**
@@ -166,7 +164,6 @@ export function registryClient(
 
 /**
  * Fetch the manifest digest for a container image tag via the OCI registry API.
- * Uses HEAD /v2/{repo}/manifests/{tag} and reads the Docker-Content-Digest header.
  *
  * Throws VerifyImageError(NOT_FOUND) when the tag does not exist.
  * Throws VerifyImageError(TRANSIENT) on network or 5xx errors.

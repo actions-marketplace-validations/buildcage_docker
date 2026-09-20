@@ -49,8 +49,6 @@ describe("renderInspectDetails", () => {
   const lines = body.trim().split("\n");
 
   it("keeps everything in one timeline rather than splitting by outcome", () => {
-    // Nothing here can be attributed to a RUN step, so time is the only
-    // structure available, and a refusal reads in the context around it.
     expect(lines[0].startsWith("✅")).toBe(true);
     expect(lines[1].startsWith("🚫")).toBe(true);
     expect(lines[2].startsWith("🚫")).toBe(true);

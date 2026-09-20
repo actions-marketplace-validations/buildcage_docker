@@ -3,8 +3,6 @@ import { escapeForHaproxy, hostMatcher, pathMatcher } from "./haproxy-matchers.t
 
 describe("host matching", () => {
   it("matches a literal name as a string, lowercased", () => {
-    // txn.host is lowercased once per request, so -m str has to agree with
-    // what -m reg -i would have accepted.
     expect(hostMatcher("^Example\\.com$")).toStrictEqual({ op: "-m str", pattern: "example.com" });
   });
 
@@ -34,7 +32,6 @@ describe("path matching", () => {
   });
 
   it("matches an unanchored prefix by its beginning", () => {
-    // What a rule permitting any path compiles to.
     expect(pathMatcher("^/")).toStrictEqual({ op: "-m beg", pattern: "/" });
   });
 
@@ -43,22 +40,16 @@ describe("path matching", () => {
   });
 
   it("keeps a metacharacter on the regex engine", () => {
-    // `+` means one or more to the regex engine and itself to -m str, so a ~
-    // rule using it must not be narrowed.
     expect(pathMatcher("^/a+$")).toStrictEqual({ op: "-m reg", pattern: "^/a+$" });
   });
 
   it("keeps a pattern not starting at a slash on the regex engine", () => {
-    // Narrowing would leave an empty pattern, which the config parser cannot
-    // read.
     expect(pathMatcher("^$")).toStrictEqual({ op: "-m reg", pattern: "^$" });
   });
 });
 
 describe("config escaping", () => {
   it("escapes only what the word parser folds", () => {
-    // A `#` would otherwise comment out the rest of the acl line, silently
-    // shortening the pattern rather than failing.
     expect(escapeForHaproxy("^/pkg#frag$")).toBe("^/pkg\\#frag$");
     expect(escapeForHaproxy(`a b'c"d`)).toBe(`a\\ b\\'c\\"d`);
   });
