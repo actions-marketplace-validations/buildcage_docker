@@ -7,11 +7,7 @@ import { selectAllRefs } from "./build-histories.ts";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, "__fixtures__");
 
-// Captured from a live moby/buildkit v0.31.1 explicit-mode container building
-// a 3-stage Dockerfile (stage1: a no-op RUN then an allowed RUN; stage2: one
-// allowed RUN; a final stage COPYing from stage2). stage1/stage2's RUN
-// vertices have overlapping `started` timestamps, since independent stages
-// can run concurrently.
+// Captured from a live moby/buildkit v0.31.1 explicit-mode container.
 const MULTISTAGE_HISTORIES = readFileSync(join(fixturesDir, "histories.json"), "utf8");
 
 describe("selectAllRefs", () => {

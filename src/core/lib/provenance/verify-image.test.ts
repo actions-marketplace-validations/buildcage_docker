@@ -11,8 +11,6 @@ import { describe, it, expect } from "vitest";
 import { toProvenanceError, requireDigest } from "./verify-image.ts";
 import { ProvenanceError, VerifyImageError } from "./errors.ts";
 
-// The network/sigstore-calling success path is covered by end-to-end /
-// integration tests instead (see the file header).
 describe("toProvenanceError", () => {
   it("carries the original VerifyImageError's code and message through", () => {
     const err = toProvenanceError(

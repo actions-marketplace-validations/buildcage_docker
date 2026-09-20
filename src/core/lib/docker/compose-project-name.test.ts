@@ -11,9 +11,6 @@ describe("deriveProjectName", () => {
   it("matches docker compose's project-name character constraints, even for input Compose would reject", () => {
     expect(deriveProjectName("buildcage-proxy-abcd1234")).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
     expect(deriveProjectName("buildcage")).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
-    // Uppercase and other characters are valid in a Docker container name,
-    // which is all setup's builder_name input has to be, but not in a Compose
-    // project name.
     expect(deriveProjectName("MyBuilder")).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
     expect(deriveProjectName("My.Builder_2")).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
   });

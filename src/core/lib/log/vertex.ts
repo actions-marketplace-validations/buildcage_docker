@@ -1,14 +1,11 @@
 import { type AllowedRequest, parseAllowedRequestsFromText } from "./proxy-request-text.ts";
 
-// Matches vertex names for Dockerfile RUN instructions. The bracketed prefix
-// is either just the step counter ("[2/2] RUN ...", single-stage) or a
-// build-stage identifier followed by it, named ("[stage1 2/2] RUN ...") or
-// auto-numbered ("[stage-0 2/2] RUN ...") alike. The step
-// counter itself is padded with a leading space when it has fewer digits than
-// the build's total ("[ 2/15]" vs "[10/15]"). None of this needs
-// picking apart here: the N/M counter itself is never used (see stageKeyOf()
-// below, which extracts only the stage identifier used for ordering), so any
-// bracketed content followed by "RUN " is a match.
+// Matches vertex names for Dockerfile RUN instructions. BuildKit's bracketed
+// prefix is the step counter alone ("[2/2] RUN ..."), or a stage identifier
+// before it, named ("[stage1 2/2]") or auto-numbered ("[stage-0 2/2]"); the
+// counter is left-padded to the build's total width ("[ 2/15]" vs "[10/15]").
+// Nothing here picks that apart: only the stage identifier is used (see
+// stageKeyOf below), so any bracketed content before "RUN " matches.
 const runVertexPattern = /^\[([^\]]+)\]\s+RUN\s/;
 
 // Within the bracketed prefix (see runVertexPattern above) the step counter is
@@ -21,17 +18,6 @@ function stageKeyOf(bracketContent: string): string {
   const parts = bracketContent.trim().split(/\s+/);
   return parts.length > 1 ? parts[0] : "";
 }
-
-/**
- * Parse the output of `buildctl debug logs --progress=rawjson <ref>` into a
- * per-RUN-vertex breakdown, ordered for human debugging: grouped by
- * build stage (each stage's vertices kept together, in `started` order),
- * with stages themselves ordered by their earliest vertex's `started` time.
- * Independent stages can run concurrently, with overlapping `started`
- * timestamps, so vertex.digest (not physical log position) is the only
- * reliable way to attribute a "proxy network requests:" block to the RUN
- * step that produced it.
- */
 
 interface Vertex {
   name: string;
@@ -54,16 +40,23 @@ export interface VertexAllowedEntry {
   entries: AllowedRequest[];
 }
 
+/**
+ * Parse the output of `buildctl debug logs --progress=rawjson <ref>` into a
+ * per-RUN-vertex breakdown, ordered for human debugging: grouped by
+ * build stage (each stage's vertices kept together, in `started` order),
+ * with stages themselves ordered by their earliest vertex's `started` time.
+ * Independent stages can run concurrently, with overlapping `started`
+ * timestamps, so vertex.digest (not physical log position) is the only
+ * reliable way to attribute a "proxy network requests:" block to the RUN
+ * step that produced it.
+ */
 export function parseVertexAllowedLog(rawJsonText: string): VertexAllowedEntry[] {
   // Usually a single JSON object, but buildctl can flush a large build's
-  // rawjson history as several newline-separated JSON documents instead.
-  // Concatenate them the way selectAllRefs in build-histories.ts does, into
-  // one vertexes/logs view rather than
-  // assume a single blob (a lone JSON.parse on the whole text would throw
-  // on the second document). Not deduplicated by digest: the existing
-  // `!v.started || !v.completed` skip below already drops each vertex's
-  // earlier partial occurrence(s) within a single document, preserving the
-  // array-order semantics the ordering below (and its tests) depend on.
+  // rawjson history as several newline-separated JSON documents, which a lone
+  // JSON.parse on the whole text would throw on. Not deduplicated by digest:
+  // the `!v.started || !v.completed` skip below already drops each vertex's
+  // earlier partial occurrences within a document, preserving the array-order
+  // semantics the ordering below depends on.
   const vertexes: Vertex[] = [];
   const logs: LogLine[] = [];
   for (const line of rawJsonText.split("\n")) {

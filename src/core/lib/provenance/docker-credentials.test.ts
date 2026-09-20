@@ -1,8 +1,3 @@
-/**
- * Unit tests for the credential read in docker-credentials.ts.
- *
- * Tests use an injectable readFileSync to avoid real filesystem access.
- */
 import { describe, it, expect } from "vitest";
 
 import { readGhcrBasicAuth } from "./docker-credentials.ts";

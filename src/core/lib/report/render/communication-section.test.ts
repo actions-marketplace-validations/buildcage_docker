@@ -17,9 +17,7 @@ describe("wrapCommunicationDetails", () => {
   });
 
   it("is found again by searching for the opening text, which is how it is cut", () => {
-    // truncate-communication-details.ts locates the section in a finished
-    // report with indexOf(COMMUNICATION_DETAILS_OPEN); nothing carries the
-    // offset across, so the two have to agree byte for byte.
+    // Writer and truncator have to agree byte for byte.
     const report = `## A report\n${wrapCommunicationDetails("a line\n")}\n*footer*\n`;
     const openAt = report.indexOf(COMMUNICATION_DETAILS_OPEN);
     expect(openAt).not.toBe(-1);

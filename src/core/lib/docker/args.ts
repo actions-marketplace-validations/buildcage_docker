@@ -12,15 +12,6 @@ export function buildDockerCpArgs({
   return ["cp", `${containerName}:${containerPath}`, hostPath];
 }
 
-/**
- * Build the `docker compose ... up`/`down` argv, shared by an action's main
- * and post steps.
- *
- * `-p projectName` is required on both so that fully concurrent steps in
- * the same job (see GitHub Actions' `background`/`wait`/`parallel` step
- * keywords) never share Compose's implicit, directory-derived project name;
- * see compose-project-name.ts's deriveProjectName for why that matters.
- */
 export interface ComposeArgsOptions {
   composeFile: string;
   projectName: string;
@@ -35,6 +26,15 @@ export interface BuildComposeUpArgsOptions extends ComposeArgsOptions {
  *  "starting" forever. */
 const WAIT_TIMEOUT_SECONDS = 180;
 
+/**
+ * Build the `docker compose ... up`/`down` argv, shared by an action's main
+ * and post steps.
+ *
+ * `-p projectName` is required on both so that fully concurrent steps in
+ * the same job (see GitHub Actions' `background`/`wait`/`parallel` step
+ * keywords) never share Compose's implicit, directory-derived project name;
+ * see compose-project-name.ts's deriveProjectName for why that matters.
+ */
 export function buildComposeUpArgs({
   composeFile,
   projectName,

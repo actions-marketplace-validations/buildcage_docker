@@ -15,8 +15,6 @@ describe("writeStepSummary", () => {
     expect(log.mock.calls.length).toBe(0);
   });
 
-  // core.summary.write() throws when the variable is unset, so the fallback is
-  // what makes a local or manual run print anything at all.
   it("falls back to stdout when there is none", async () => {
     const write = vi.spyOn(core.summary, "write").mockResolvedValue(core.summary);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});

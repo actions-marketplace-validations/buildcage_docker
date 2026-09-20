@@ -8,9 +8,6 @@ import {
   parseAndValidateKnownBlockedRules,
 } from "./wildcard-rules.ts";
 
-// ---------------------------------------------------------------------------
-// wildcardToRegex
-// ---------------------------------------------------------------------------
 describe("wildcardToRegex", () => {
   it("exact domain: dots escaped", () => {
     expect(wildcardToRegex("example.com:443")).toBe("example\\.com:443");
@@ -51,9 +48,6 @@ describe("wildcardToRegex", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// convertRule
-// ---------------------------------------------------------------------------
 describe("convertRule", () => {
   it("wraps the wildcard conversion in anchors", () => {
     expect(convertRule("*.example.com:8443")).toBe("^[^.]+\\.example\\.com:8443$");
@@ -102,9 +96,6 @@ describe("convertRule", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// convertRule: regex behavior (match / non-match)
-// ---------------------------------------------------------------------------
 describe("convertRule: regex behavior", () => {
   it("* matches single-level subdomain only", () => {
     const re = new RegExp(convertRule("*.example.com:443"));
@@ -146,9 +137,6 @@ describe("convertRule: regex behavior", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildRules
-// ---------------------------------------------------------------------------
 describe("buildRules", () => {
   it("converts multiple rules", () => {
     expect(buildRules("example.com:443 *.foo.com:8443")).toStrictEqual([
@@ -169,9 +157,6 @@ describe("buildRules", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseAndValidateRules
-// ---------------------------------------------------------------------------
 describe("parseAndValidateRules", () => {
   it("returns raw (unconverted) rule tokens", () => {
     expect(parseAndValidateRules("example.com:443 *.foo.com:8443")).toStrictEqual([
@@ -196,8 +181,6 @@ describe("parseAndValidateRules", () => {
 
 describe("known_blocked_rules port completion", () => {
   it("completes a rule that names no port, so a refused name can be declared", () => {
-    // A refused name has no port at all: nothing was connected to. Requiring
-    // one would mean writing a port that was never involved.
     expect(completeRulePort("_mongodb._tcp.c0.example.net")).toBe("_mongodb._tcp.c0.example.net:*");
     expect(completeRulePort("telemetry.example.com")).toBe("telemetry.example.com:*");
     expect(completeRulePort("*.example.com")).toBe("*.example.com:*");
@@ -210,7 +193,6 @@ describe("known_blocked_rules port completion", () => {
   });
 
   it("takes a regex rule's closing anchor off, convertRule putting it back", () => {
-    // Appended after the `$` the port would match nothing.
     expect(completeRulePort("~^_mongodb[.]_tcp[.]c0$")).toBe("~^_mongodb[.]_tcp[.]c0:\\d+");
     expect(convertRule(completeRulePort("~^_mongodb[.]_tcp[.]c0$"))).toBe(
       "^_mongodb[.]_tcp[.]c0:\\d+$",

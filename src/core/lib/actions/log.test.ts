@@ -52,8 +52,6 @@ describe("withLogGroup", () => {
     expect(withLogGroup("Title", () => 42)).toBe(42);
   });
 
-  // An unclosed group swallows the rest of the step's output into it, so the
-  // marker has to be printed even on the way out of a failure.
   it("closes the group before letting fn's error through", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(() =>
@@ -64,8 +62,6 @@ describe("withLogGroup", () => {
     expect(log.mock.calls.map((c) => c[0])).toStrictEqual(["::group::Title", "::endgroup::"]);
   });
 
-  // The reason this is not the async function: awaiting a synchronous fn would
-  // defer the closing marker past anything printed later in the same tick.
   it("closes the group before the caller's next line, without awaiting", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     withLogGroup("Title", () => {

@@ -102,16 +102,13 @@ describe("pathPatternsFor", () => {
   });
 
   it("also spells out a prefix that is itself an observed path", () => {
-    // `/express/**` does not match `/express`, so a build that fetched both a
-    // package's metadata and its tarball needs both.
     expect(pathPatternsFor(["/express", "/express/-/express-4.18.2.tgz"]).join()).toBe(
       "/express,/express/**",
     );
   });
 
   it("collapses to /** when nothing was shared, rather than clustering", () => {
-    // Clustering would invent permissions nobody observed; listing every URL
-    // would be unmaintainable. The rule still constrains the method.
+    // The alternative to /** is listing every URL, which is unmaintainable.
     expect(pathPatternsFor(["/a/x", "/b/y"]).join()).toBe("/**");
   });
 
@@ -215,8 +212,6 @@ describe("buildUrlRuleLines", () => {
   });
 
   it("builds nothing from a refusal, a passthrough or a name lookup", () => {
-    // A refused request is not a rule to reproduce, and the other two have no
-    // URL to write one from.
     const events: TrafficEvent[] = [
       { ...req("GET", "https://a.example.com/x"), action: "block", reason: "not-allowed" },
       { time: 1, action: "allow", protocol: "tls", host: "db.example.com", port: 5432, bytes: 1 },
@@ -233,7 +228,6 @@ describe("buildInspectRestrictExample", () => {
   const requests = [req("GET", "https://a.example.com/pkg/x")];
 
   it("uses a literal block, since rules are separated by newlines", () => {
-    // A folded block would join two rules into one unparseable line.
     const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2");
     expect(md.includes("allowed_url_rules: |\n")).toBe(true);
     expect(md.includes("proxy_engine: inspect")).toBe(true);
@@ -245,8 +239,6 @@ describe("buildInspectRestrictExample", () => {
   });
 
   it("echoes allowed_tls_rules and allowed_ip_rules as configured, not derived from traffic", () => {
-    // Neither is ever decrypted, so there is nothing in `requests` to build
-    // them from; they are the same values the audit run was given.
     const md = buildInspectRestrictExample(requests, "buildcage/docker", "v2", {
       allowedIpRules: ["10.0.0.5:5432"],
     });

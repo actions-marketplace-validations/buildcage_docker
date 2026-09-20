@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scanHaproxyLog } from "./haproxy.ts";
 
-// ---------------------------------------------------------------------------
-// scanHaproxyLog
-// ---------------------------------------------------------------------------
 describe("scanHaproxyLog", () => {
   it("aggregates an ALLOWED log line as passed when isAudit is false", async () => {
     const log = '[2024-01-01T00:00:00] buildcage [ALLOWED] (HTTPS) "example.com:443" rule1';
@@ -99,9 +96,6 @@ describe("scanHaproxyLog", () => {
     expect(result.passed[0].host).toBe("async.com");
   });
 
-  // ---------------------------------------------------------------------
-  // headIntact
-  // ---------------------------------------------------------------------
   it("headIntact is false for empty log text", async () => {
     const result = await scanHaproxyLog("".split("\n"), false);
     expect(result.headIntact).toBe(false);

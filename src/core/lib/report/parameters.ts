@@ -1,11 +1,8 @@
 import { splitRuleTokens } from "../acl/wildcard-rules.ts";
 import type { GenReportParameters } from "./types.ts";
 
-/**
- * Builds GenReportParameters from a container's own env (as read via
- * docker inspect) or, for run, from an equivalent env-shaped record it
- * already holds in memory. Same env var names for both engines.
- */
+/** Builds GenReportParameters from a container's own env, as read via
+ *  docker inspect. */
 export function buildReportParameters(
   env: Record<string, string | undefined>,
 ): GenReportParameters {

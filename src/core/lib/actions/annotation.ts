@@ -10,10 +10,6 @@ export interface Annotation {
  * Build a GitHub Actions annotation emitter. When `enabled` is false, every
  * method is a no-op, to suppress annotations when this script isn't
  * running as the real action.
- *
- * This is what a step hands down for everything that belongs to the run it is
- * setting up; a message that has to be printed even when this isn't the real
- * action takes one of `annotate`'s methods instead.
  */
 export function createAnnotation(enabled: boolean): Annotation {
   if (!enabled) {

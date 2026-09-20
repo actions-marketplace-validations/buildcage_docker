@@ -3,8 +3,6 @@ import { describe, it, expect } from "vitest";
 import { parseObservedUrl, splitHostPort } from "./authority.ts";
 
 describe("splitHostPort", () => {
-  // undefined, not "": the callers that substitute a scheme's default port
-  // only want to do so when none was written at all.
   it("reports no port as undefined", () => {
     expect(splitHostPort("example.com")).toStrictEqual({ host: "example.com", port: undefined });
     expect(splitHostPort("")).toStrictEqual({ host: "", port: undefined });
@@ -27,9 +25,6 @@ describe("splitHostPort", () => {
       });
     });
 
-    // The address's own colons come before the closing bracket, so the last
-    // one is not a separator. Reading it as one would give host "[:" and port
-    // "1]".
     it("leaves a bracketed address with no port intact", () => {
       expect(splitHostPort("[::1]")).toStrictEqual({ host: "[::1]", port: undefined });
       expect(splitHostPort("[2001:db8::1]")).toStrictEqual({

@@ -131,8 +131,6 @@ describe("foldExpectedBlockedRows: grouping key and tie-break", () => {
 });
 
 describe("foldExpectedBlockedRows: two groups one rule produced", () => {
-  // One rule can cover a refused name and a refused connection at once, which
-  // is why ruleType is part of the grouping key: same rule, same count, two rows.
   it("keeps both groups when only ruleType differs", () => {
     const folded = foldExpectedBlockedRows([
       {

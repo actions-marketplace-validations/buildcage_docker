@@ -30,9 +30,7 @@ function toHostRow(event: TrafficEvent): LogEntry {
  * fetches both logs and the parameters.
  *
  * The resolver log matters because a refused name never reached the proxy, so
- * a DNS-only exfiltration attempt would otherwise leave no trace. Everything
- * lands in one time-ordered timeline: no event can be attributed to a RUN step,
- * unlike the explicit engine.
+ * a DNS-only exfiltration attempt would otherwise leave no trace.
  */
 export async function buildInspectReportData(
   proxyLines: AsyncIterable<string> | Iterable<string>,
@@ -76,9 +74,8 @@ export async function buildInspectReportData(
     // Every blocked event is counted, not just the distinct hosts the table
     // collapses them into.
     blockedCount: blockedRows.length,
-    // A refused name is only ever in the resolver log, so either log losing
-    // its beginning loses evidence the other cannot vouch for. A line this
-    // cannot read is the same gap mid-log: it may well have been a refusal.
+    // Either log losing its beginning loses evidence the other cannot vouch
+    // for, and an unreadable line is the same gap mid-log.
     logLooksPlausible: proxyHeadIntact && dnsHeadIntact && unparsed === 0,
     startedAt,
     timeline,

@@ -21,9 +21,6 @@ export interface VerifyImageIdentity {
  * The SAN URI pattern uses `(\.|$)` boundary anchors for version tags so that
  * e.g. @v2.1 matches v2.1.0 and v2.1.3 but not v2.10.0.
  *
- * For SHA pins, OID 1.13 (Source Repository Digest) pins the exact commit
- * while the SAN accepts any release tag.
- *
  * Returns null for unverifiable refs (branch names, local paths).
  */
 export function buildVerifyOptions({
@@ -50,7 +47,6 @@ export function buildVerifyOptions({
     };
   }
 
-  // Version tag: SAN ref must match this version (boundary-safe via (\.|$)).
   if (actionRef.startsWith("v")) {
     return {
       ...base,

@@ -126,7 +126,7 @@ function reverseZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
 /**
  * The `_service._proto.` half of a service name, bounded to what RFC 6335 and
  * RFC 2782 allow so the caller chooses as little of the name as possible; see
- * discoveryZoneLines. Character classes rather than `\\.`, which CEL rejects.
+ * discoveryZoneLines.
  *
  * The only place a service name is recognized: the report reads the verbs
  * these blocks log under, never the shape.
