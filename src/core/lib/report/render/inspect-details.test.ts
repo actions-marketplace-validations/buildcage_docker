@@ -210,6 +210,33 @@ describe("renderInspectDetails", () => {
     );
     expect(rendered).toMatch(/blocked/);
   });
+
+  it("marks a connection the client dropped, naming it by SNI and port", () => {
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "aborted",
+          protocol: "https",
+          host: "a.example.com",
+          port: 8443,
+          reason: "client-aborted",
+        },
+      ],
+      t,
+    );
+    expect(rendered.includes("⚠️ 00:00.000: HTTPS a.example.com:8443 -> client-aborted")).toBe(
+      true,
+    );
+  });
+
+  it('falls back to a bare "aborted" when such a connection names no reason', () => {
+    const rendered = renderInspectDetails(
+      [{ time: t, action: "aborted", protocol: "https", host: "a.example.com", port: 443 }],
+      t,
+    );
+    expect(rendered).toMatch(/-> aborted/);
+  });
 });
 
 describe("renderInspectDetails credential parameters", () => {

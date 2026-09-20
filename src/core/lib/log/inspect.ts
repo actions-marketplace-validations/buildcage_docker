@@ -1,8 +1,9 @@
 /**
  * Parsers for the `inspect` engine's two logs, whose formats are emitted by
- * haproxy-config.ts and coredns-config.ts. Six kinds of line:
+ * haproxy-config.ts and coredns-config.ts. Seven kinds of line:
  *
- *   buildcage <ms> <https|http> <method> <status> <bytes> ts=<st> reason=<r> dst=<addr>:<port> <url>
+ *   buildcage <ms> https <method> <status> <bytes> ts=<st> reason=<r> dst=<addr>:<port> sni=<name|-> <url>
+ *   buildcage <ms> http <method> <status> <bytes> ts=<st> reason=<r> dst=<addr>:<port> <url>
  *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> reason=<r> dst=<addr>:<port> sni=<name|->
  *   <timestamp>  [INFO] buildcage dns <allowed|denied> name=<name>.
  *   <timestamp>  [INFO] buildcage dns discovery name=<name>. type=<qtype>
@@ -14,7 +15,8 @@
  * rule could ever take away. It stays in the resolver log alone.
  *
  * The passthrough line is the only record of undecrypted traffic; the dns line
- * the only record of a refused name, which never reaches the proxy.
+ * the only record of a refused name, which never reaches the proxy. Only the
+ * https line carries an SNI, since only that stage terminates TLS.
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
@@ -31,8 +33,12 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 // The trailing field stays \S+ rather than .+: two lines joined by a
 // half-written write would otherwise parse as one event instead of counting
 // as unparsed.
+// sni= is optional: the plain stage terminates no TLS and logs no such field.
+// The URL keeps its scheme for that reason, or a line cut right after the SNI
+// would parse with `sni=<name>` read as the URL instead of counting as
+// unreadable.
 const REQUEST =
-  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (\S+)$/;
+  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?(https?:\/\/\S+)$/;
 const PASSTHROUGH =
   /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
@@ -105,6 +111,21 @@ function reasonFor(logged: string, terminationState: string): string {
   }
 }
 
+/**
+ * Whether the client gave up before it had sent a whole request.
+ *
+ * Phase `R` is the proxy still reading the request line and headers, and the
+ * inspected stage resolves the Host and connects only once one has parsed, so
+ * nothing left this proxy: the logged destination is still the proxy's own
+ * address. `C` is the client closing, `c` its own timeout expiring. A later
+ * phase (`CD` and the like) means the rules had already decided on a request,
+ * so those stay ordinary exchanges.
+ */
+function isAborted(terminationState: string): boolean {
+  const cause = terminationState[0];
+  return terminationState[1] === "R" && (cause === "C" || cause === "c");
+}
+
 function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
   if (refused) return "block";
   // audit enforces nothing, so nothing here was allowed by a rule. Calling it
@@ -123,16 +144,31 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
 
   const request = REQUEST.exec(trimmed);
   if (request) {
+    if (isAborted(request[6])) {
+      const sni = request[10];
+      // The SNI is the only name given, the address the only identity without
+      // one. Method and URL stay unset: `<BADREQ>` and an authority-less URL
+      // are what the log-format prints for fields that never existed.
+      return {
+        time: Number(request[1]) / 1000,
+        action: "aborted",
+        protocol: request[2] as "http" | "https",
+        host: sni === undefined || sni === "-" ? request[8] : sni,
+        port: Number(request[9]),
+        reason: request[6][0] === "c" ? "client-timeout" : "client-aborted",
+        destination: `${request[8]}:${request[9]}`,
+      };
+    }
     const refused = isRefusal(request[6]);
     const event: TrafficEvent = {
       // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
       action: actionFor(refused, isAudit),
       protocol: request[2] as "http" | "https",
-      host: hostOf(request[10]),
+      host: hostOf(request[11]),
       port: Number(request[9]),
       method: request[3],
-      url: request[10],
+      url: request[11],
       destination: `${request[8]}:${request[9]}`,
     };
     if (refused) event.reason = reasonFor(request[7], request[6]);

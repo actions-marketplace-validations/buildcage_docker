@@ -9,6 +9,10 @@ const REFUSED =
   "buildcage 1787471976 https POST 403 0 ts=PR reason=- dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
 const TLS_PASS =
   "buildcage 1787471977 pass tls 3421 ts=-- reason=- dst=10.0.0.9:5432 sni=db.example.com";
+/** A handshake the client completed and then walked away from, leaving the
+ *  proxy's own address as the destination and the SNI as the only name. */
+const ABORTED =
+  "buildcage 1787471978 https <BADREQ> 400 0 ts=CR reason=- dst=172.20.0.1:443 sni=untrusted-ca.example.com https://--";
 /** What the resolver service echoes before CoreDNS starts. */
 const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
@@ -113,6 +117,27 @@ describe("buildInspectReportData", () => {
     expect(r.timeline.length).toBe(1);
     expect(r.timeline[0].action).toBe("discovery");
     expect(r.timeline[0].queryType).toBe("SRV");
+  });
+
+  it("keeps a connection dropped before its request out of both tables", async () => {
+    // Nothing left the proxy, so no rule can permit or refuse it: naming the
+    // host would not remove the row, and blocking it would fail the build.
+    const r = await buildInspectReportData([START, ABORTED], [], reportParams());
+    expect(r.blocked.length).toBe(0);
+    expect(r.blockedCount).toBe(0);
+    expect(r.passed.length).toBe(0);
+    expect(r.timeline.length).toBe(1);
+    expect(r.timeline[0].action).toBe("aborted");
+    expect(r.timeline[0].host).toBe("untrusted-ca.example.com");
+  });
+
+  it("leaves the DNS refusal for such a host standing, as the one actionable row", async () => {
+    const dns = [
+      "2026-08-23 16:45:00.000000000  [INFO] buildcage dns denied name=untrusted-ca.example.com.",
+    ];
+    const r = await buildInspectReportData([START, ABORTED], dns, reportParams());
+    expect(r.blocked[0].host).toBe("untrusted-ca.example.com");
+    expect(r.blocked[0].reason).toBe("dns-not-allowed");
   });
 
   it("keeps a name that resolved and was never connected to", async () => {

@@ -21,6 +21,13 @@ export interface InspectStageContext extends InternalDstOptions {
   hasResolver: boolean;
 }
 
+/** The SNI field, for the stage that terminates TLS. It names the host of a
+ *  connection that ended before its request, where `%HM` and the Host capture
+ *  are both empty. Client-controlled, hence the detect frontend's charset. */
+function sniField(scheme: "https" | "http"): string {
+  return scheme === "https" ? " sni=%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]" : "";
+}
+
 /**
  * A frontend that terminates the connection, normalizes the request, lets the
  * rules decide, and only then resolves the Host and connects there.
@@ -62,7 +69,7 @@ export function inspectStage(
     "    http-request deny deny_status 403 if { path -m sub \\\\ }",
     // %ts tells a refusal from an origin's own 403 or 503, reason says which
     // refusal. Both sit ahead of the URL, the one field that could cut the line.
-    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] dst=%[dst]:%[dst_port] ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
+    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] dst=%[dst]:%[dst_port]${sniField(scheme)} ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
     "",
   );
   // The rules decide first, on the request alone (host, path, method): none

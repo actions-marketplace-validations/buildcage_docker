@@ -125,7 +125,8 @@ assert_no_forged_log_lines() {
 # matches on it exactly rather than on a substring that could drift.
 assert_logged() {
   local method="$1" url="$2" status="$3"
-  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ dst=\S+ $(esc "$url")$" <<< "$LOGS"; then
+  # sni= is optional: only the stage that terminates TLS has one to log.
+  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ dst=\S+( sni=\S+)? $(esc "$url")$" <<< "$LOGS"; then
     pass "[$status] $method $url"
   else
     fail "[$status] $method $url -- no such line in the proxy log"

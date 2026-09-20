@@ -11,6 +11,7 @@ and links here for the details.
 - [Rule syntax](#rule-syntax)
 - [Report action inputs](#report-action-inputs)
 - [Blocked service names](#blocked-service-names)
+- [Connections that sent no request](#connections-that-sent-no-request)
 - [Traffic artifact](#traffic-artifact)
 - [CA trust variables](#ca-trust-variables)
 
@@ -334,6 +335,26 @@ Naming the service name in an `allowed_*` rule also clears the row, but it is th
 it reads as permission to reach something that nothing can connect to, and the record still does not
 resolve.
 
+## Connections that sent no request
+
+Under `inspect`, a client can finish the TLS handshake and then close without sending a request. The
+commonest cause is a container with no `ca-certificates` installed: the client cannot verify the
+certificate Buildcage signs and gives up at that point. **Communication details** shows it as
+
+```
+⚠️ 00:09.123: HTTPS untrusted-ca.example.com:443 -> client-aborted
+```
+
+with `client-timeout` in place of `client-aborted` when the client held the connection open instead
+of closing it. The host is the name from the handshake's SNI, and there is no method or URL because
+none was ever sent.
+
+Such a row is in neither host table and never fails the step: no rule refused it, and no rule can
+clear it either. Nothing left the proxy, so allowing the host changes nothing about the row: fix the
+client instead, by installing `ca-certificates` or whatever else kept it from trusting the CA. If
+the host is one the build does need, its name usually also appears as a blocked `DNS` row, which is
+the row to act on.
+
 ## Traffic artifact
 
 `upload_traffic_artifact: true` uploads the report's timeline as a `traffic.json` inside an artifact
@@ -342,21 +363,21 @@ one). It carries every name lookup, including the ones the summary folds into th
 followed them, and service-discovery lookups with the record type that was asked for. `universal`
 never sees a method or a URL, so this input only does anything under `inspect`.
 
-| Field         | Always | Notes                                                            |
-| ------------- | ------ | ---------------------------------------------------------------- |
-| `time`        | yes    | ISO 8601 UTC                                                     |
-| `elapsed`     |        | since the proxy started, fixed `HH:MM:SS.mmm`                    |
-| `action`      | yes    | `allow`, `block`, `audit` when nothing was enforced, `discovery` |
-| `protocol`    | yes    | `https`, `http`, `tls`, `tcp`, `dns`                             |
-| `host`        | yes    | the name asked for, or the address when there was none           |
-| `port`        |        | absent for `dns`, which connects to nothing                      |
-| `queryType`   |        | the record asked for; `discovery` rows and refused service names |
-| `method`      |        | `http` and `https` only                                          |
-| `url`         |        | `http` and `https` only; verbatim, unlike the summary's          |
-| `status`      |        | only when something answered                                     |
-| `bytes`       |        | absent for a refusal and for `dns`                               |
-| `reason`      |        | only when `action` is `block`                                    |
-| `destination` |        | the address it actually resolved to; absent for `dns`            |
+| Field         | Always | Notes                                                                       |
+| ------------- | ------ | --------------------------------------------------------------------------- |
+| `time`        | yes    | ISO 8601 UTC                                                                |
+| `elapsed`     |        | since the proxy started, fixed `HH:MM:SS.mmm`                               |
+| `action`      | yes    | `allow`, `block`, `audit` when nothing was enforced, `discovery`, `aborted` |
+| `protocol`    | yes    | `https`, `http`, `tls`, `tcp`, `dns`                                        |
+| `host`        | yes    | the name asked for, or the address when there was none                      |
+| `port`        |        | absent for `dns`, which connects to nothing                                 |
+| `queryType`   |        | the record asked for; `discovery` rows and refused service names            |
+| `method`      |        | `http` and `https` only                                                     |
+| `url`         |        | `http` and `https` only; verbatim, unlike the summary's                     |
+| `status`      |        | only when something answered                                                |
+| `bytes`       |        | absent for a refusal and for `dns`                                          |
+| `reason`      |        | only when `action` is `block` or `aborted`                                  |
+| `destination` |        | the address it actually resolved to; absent for `dns`                       |
 
 A field is absent because it does not apply, never because it was zero: a refusal has no status
 because nothing answered, and a passthrough none because nothing was decrypted. Filter on `action`.
