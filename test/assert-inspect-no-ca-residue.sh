@@ -24,18 +24,26 @@ else
   pass "no standalone buildcage CA file in the built image"
 fi
 
-# The marked block appended to whichever system CA bundle the rootfs had
-# (see castore.go's beginMarker/endMarker), removed by the same undo.
-if docker run --rm "$IMAGE" sh -c '
+# The certificate appended to whichever system CA bundle the rootfs had,
+# removed by the same undo. Looked for by its own first base64 line rather
+# than by any text around it, which is also what castore.go matches on: the
+# CA is generated per build, so a copy of it anywhere in a bundle is one the
+# undo failed to take back out.
+BUILDER="${BUILDER_NAME:-buildcage}"
+CA_LINE=$(docker exec "$BUILDER" cat /opt/buildcage/ca.pem 2>/dev/null \
+  | awk '/-----BEGIN CERTIFICATE-----/{getline; print; exit}' || true)
+if [ -z "$CA_LINE" ]; then
+  fail "could not read the injected CA out of $BUILDER, so this cannot be checked"
+elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '
   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt \
            /etc/ssl/ca-bundle.pem /etc/pki/tls/cacert.pem /etc/ssl/cert.pem; do
-    [ -f "$f" ] && grep -qF "# BEGIN buildcage CA" "$f" && exit 0
+    [ -f "$f" ] && grep -qF "$CA_LINE" "$f" && exit 0
   done
   exit 1
 '; then
-  fail "the buildcage CA marker block is still appended to a system CA bundle"
+  fail "the buildcage CA is still present in a system CA bundle"
 else
-  pass "no buildcage CA marker block in any system CA bundle"
+  pass "no buildcage CA in any system CA bundle"
 fi
 
 # The CA-trust variables inject.go sets only ever reach the transient RUN-step

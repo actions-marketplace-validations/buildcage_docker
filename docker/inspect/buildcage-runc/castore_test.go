@@ -172,6 +172,26 @@ func TestRemoveCAMatchesAReEncodedCertificate(t *testing.T) {
 	}
 }
 
+// An opening line the step truncated away the end of pairs with the next
+// certificate's closing line. Resuming after that closing line would carry
+// the certificate between them past the scan, leaving it in the image.
+func TestRemoveCAStripsACertificateBehindAnUnterminatedBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	truncated := string(beginCertificate) + "\nVFJVTkNBVEVE\n"
+	mustWriteFile(t, path, truncated+string(testCA))
+
+	if err := removeCA(path, testCA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != truncated {
+		t.Fatalf("got %q, want the truncated block alone", got)
+	}
+}
+
 // A block too long to be a certificate is walked past rather than read into
 // memory to compare.
 func TestRemoveCALeavesAnOversizedBlockAlone(t *testing.T) {
@@ -337,7 +357,7 @@ func TestAppendCARefusesASymlink(t *testing.T) {
 	path := filepath.Join(dir, "bundle.pem")
 	mustSymlink(t, outside, path)
 
-	if err := appendCA(path, []byte("CA")); !errors.Is(err, errNotRegular) {
+	if err := appendCA(path, testCA); !errors.Is(err, errNotRegular) {
 		t.Fatalf("got %v, want errNotRegular", err)
 	}
 	got, err := os.ReadFile(outside)
@@ -377,7 +397,7 @@ func TestAppendCARefusesAFIFOWithoutBlocking(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- appendCA(path, []byte("CA")) }()
+	go func() { done <- appendCA(path, testCA) }()
 
 	select {
 	case err := <-done:
@@ -445,8 +465,26 @@ func TestAppendCARefusesAPathItCannotCreateADirectoryFor(t *testing.T) {
 	dir := t.TempDir()
 	mustWriteFile(t, filepath.Join(dir, "blocked"), "")
 	// A regular file stands where the directory would have to go.
-	if err := appendCA(filepath.Join(dir, "blocked", "bundle.pem"), []byte("CA")); err == nil {
+	if err := appendCA(filepath.Join(dir, "blocked", "bundle.pem"), testCA); err == nil {
 		t.Fatal("expected appendCA to refuse the path")
+	}
+}
+
+// Appending something removeCA could not match on would leave it in the image
+// with nothing able to take it back out.
+func TestAppendCARefusesSomethingThatIsNotACertificate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	mustWriteFile(t, path, "ORIGINAL\n")
+
+	if err := appendCA(path, []byte("not a certificate")); !errors.Is(err, errNotACertificate) {
+		t.Fatalf("got %v, want errNotACertificate", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ORIGINAL\n" {
+		t.Fatalf("got %q, want the bundle untouched", got)
 	}
 }
 

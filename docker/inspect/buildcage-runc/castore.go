@@ -51,6 +51,11 @@ var (
 // attacker-controlled input outside the directory it's meant to stay in.
 var errNotRegular = errors.New("not a regular file")
 
+// errNotACertificate means what appendCA was handed holds no PEM certificate.
+// Nothing is appended that removeCA could not take back out, since what it
+// matches on is the certificate itself.
+var errNotACertificate = errors.New("not a certificate")
+
 // resolveInRoot resolves path as the container would see it, so a symlink
 // cannot be used to reach outside.
 //
@@ -168,6 +173,9 @@ var openBundle = func(path string, flag int, perm os.FileMode) (bundleFile, erro
 // O_NOFOLLOW/O_NONBLOCK keep the open from following a symlink or blocking on
 // a FIFO the step may have left at path since injection.
 func appendCA(path string, ca []byte) error {
+	if len(certificateBodies(ca)) == 0 {
+		return fmt.Errorf("%s: %w", path, errNotACertificate)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -299,7 +307,12 @@ func findCertificates(f bundleFile, bodies map[string]bool, size int64) ([]span,
 			return cuts, nil
 		}
 		end += int64(len(endCertificate))
-		off = end
+		// A candidate that is not the certificate resumes after its opening
+		// line rather than after the closing one it was paired with: an
+		// opening line the step left without an end of its own would
+		// otherwise pair with the next certificate's, and carry that
+		// certificate past the scan with it.
+		off = begin + int64(len(beginCertificate))
 
 		if end-begin > maxCertificateBytes {
 			continue
@@ -312,6 +325,7 @@ func findCertificates(f bundleFile, bodies map[string]bool, size int64) ([]span,
 		if !bodies[strippedBody(body)] {
 			continue
 		}
+		off = end
 		// The line break that closed it came with it.
 		if end < size {
 			nl, err := isNewlineAt(f, end)
