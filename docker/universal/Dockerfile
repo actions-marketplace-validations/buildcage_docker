@@ -23,11 +23,8 @@ RUN apk add --no-cache curl gettext && \
     tar -C /opt/cni/bin -xz -f /tmp/cni.tgz ./bridge ./host-local ./loopback
 
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
-# the QuickJS scripts and report-action.node.ts. Architecture-independent
-# output, so pinned to --platform=$BUILDPLATFORM like the `deps` stage
-# above (no QEMU). Needs both engines' scripts/ dirs:
-# gen-source-policy.qjs.ts only exists under explicit/, report-action.node.ts
-# under this engine's own dir.
+# convert-rule.qjs.ts and report-action.node.ts. Architecture-independent
+# output, so pinned to --platform=$BUILDPLATFORM (no QEMU).
 FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:11@sha256:e26f380828856f205feaaf42abd157df9ce41bc8e17b662eeaa3379a9638dee0 AS scripts-build
 WORKDIR /build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -93,13 +90,10 @@ COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). Each is a
-# self-contained bundle.
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
-# report-action.js is the runner-side report generator `docker cp`'d out by
-# the report action itself (never staged elsewhere); see its own header
-# comment for details.
+# Never run inside the image: the report action `docker cp`s it out and runs
+# it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/universal/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
 COPY docker/universal/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES

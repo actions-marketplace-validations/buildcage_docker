@@ -19,9 +19,6 @@ else
 fi
 echo ""
 
-# report-action.js renders the full stepSummary itself; report/src/main.ts
-# just relays it. GITHUB_STEP_SUMMARY is unset so it prints to stdout
-# instead of a job-summary file.
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
 echo "[report action] Audited Hosts table (rendered markdown, from buildctl aggregation):"

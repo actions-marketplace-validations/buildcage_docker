@@ -146,7 +146,6 @@ backend http_filter_backend
     http-request set-var(txn.reason) str(missing-host-header) if !has_host or !host_not_empty
     http-request deny deny_status 400 content-type "text/plain" string "Bad Request: Missing Host Header" if !has_host or !host_not_empty
 
-    # Build host:port key
     # A trailing dot denotes the same DNS name (see the SNI comment above).
     http-request set-var(txn.host_only) hdr(host),regsub(:.*$,),regsub(\.$,)
     http-request set-var-fmt(txn.host_port) %[var(txn.host_only)]:%[dst_port]

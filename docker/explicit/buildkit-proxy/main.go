@@ -9,7 +9,7 @@
 //   - supervisor.go: prepares the environment and launches/manages the real
 //     buildkitd child process. This is orthogonal to gRPC proxying below.
 //   - ca_prod.go / ca_testhooks.go: buildkitdEnv(), gated by the "testhooks"
-//     build tag; see supervisor.go's doc comment for why this exists.
+//     build tag; ca_testhooks.go's own doc comment says why it exists.
 //   - codec.go, frame.go, proxy.go, solve.go: the gRPC proxy itself (Solve
 //     interception + generic passthrough for every other RPC).
 //   - policy.go: loads the compiled source policy JSON.

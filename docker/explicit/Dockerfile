@@ -1,4 +1,4 @@
-# Build buildkit-proxy (statically linked; discarded after this stage)
+# Build buildkit-proxy (statically linked)
 #
 # BUILDKIT_PROXY_BUILD_TAGS is empty for every real build (including
 # published releases): the "testhooks" build tag (see
@@ -53,15 +53,12 @@ COPY --from=buildkit-proxy-build /out/buildkit-proxy /opt/buildcage/bin/buildkit
 RUN mkdir -p /etc/buildkit /var/log/buildkitd
 COPY docker/explicit/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 
-# Tools (QuickJS scripts, rolldown-bundled by scripts-build above). gen-source-policy.js
-# is explicit-only, so it lives next to this Dockerfile instead of src/core/ (see
-# docker/explicit/scripts/). Each is a self-contained bundle, so no separate
-# /opt/buildcage/shared/ copy is needed.
+# gen-source-policy.js is explicit-only, so it lives next to this Dockerfile
+# rather than under src/core/.
 COPY --from=scripts-build /build/dist/qjs/docker/explicit/scripts/gen-source-policy.js /opt/buildcage/scripts/gen-source-policy.js
 
-# report-action.js is the runner-side report generator `docker cp`'d out by
-# the report action itself (never staged elsewhere); see its own header
-# comment for details.
+# Never run inside the image: the report action `docker cp`s it out and runs
+# it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/explicit/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
 COPY docker/explicit/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES

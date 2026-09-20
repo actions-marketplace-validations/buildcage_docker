@@ -15,7 +15,7 @@
 # other flag. This lets the real client tool exercise the merge path
 # directly, instead of reaching into the container via buildctl.
 #
-# Relies on the same running explicit-mode test environment as
+# Relies on the same running explicit-engine test environment as
 # assert-explicit-restrict.sh (allowed.example.com/blocked.example.com resolving
 # via test-dns-explicit, per compose.test-explicit.yaml's ALLOWED_HTTPS_RULES).
 set -euo pipefail

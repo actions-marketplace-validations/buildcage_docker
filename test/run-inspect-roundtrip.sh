@@ -2,17 +2,14 @@
 #
 # The audit-then-restrict round trip, which is what the inspect engine is for.
 #
-# Phase 1 runs a build under `audit`, asserts what audit is supposed to have
-# recorded, and takes the `allowed_url_rules` the report generated from what it
-# saw. Phase 2 restarts under `restrict` with exactly those rules, changing
-# nothing, and runs a build that repeats every request plus a few the first
-# build never made.
+# Phase 1 runs a build under `audit` and takes the `allowed_url_rules` the
+# report generated from what it saw. Phase 2 restarts under `restrict` with
+# exactly those rules and repeats every request plus a few the first build
+# never made: rules that break the build they were learned from make the
+# workflow useless, rules that permit everything make it pointless.
 #
-# Both halves matter. Rules that break the build they were learned from make
-# the workflow useless; rules that permit everything make it pointless.
-#
-# Driven as one script rather than from the Makefile because the second phase's
-# configuration is produced by the first, and the two must not be run apart.
+# Driven as one script rather than from the Makefile because the second
+# phase's configuration is produced by the first.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

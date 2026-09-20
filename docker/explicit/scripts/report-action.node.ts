@@ -3,9 +3,8 @@
  * Baked into the image, copied out of it (not out of the running container)
  * by the `report` action on every run, and run with `node report-action.js
  * <container-id>`. Runs on the runner, not inside the container, reaching in
- * via core/lib/docker/client.ts, including `buildctl` itself, run inside the
- * container via `docker exec` rather than needing buildctl reachable from the
- * runner.
+ * via core/lib/docker/client.ts. That includes `buildctl`, which runs inside
+ * the container through `docker exec` rather than having to be on the runner.
  *
  * Everything but the buildctl fetch and the extra log group is
  * core/lib/report/action-main.ts.

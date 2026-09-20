@@ -5,6 +5,10 @@
 # The log assertions read $LOGS, which the sourcing script fills once up front
 # with builder_log. A snapshot rather than a fresh read per assertion, so a
 # line arriving mid-run can't make two assertions disagree about the same log.
+#
+# Where a script runs `node report/src/main.ts`: report-action.js renders the
+# full stepSummary itself and report/src/main.ts just relays it, so the scripts
+# leave GITHUB_STEP_SUMMARY unset and read what it prints to stdout instead.
 
 # The base image the assertion scripts build or run throwaway containers
 # from. Pinned by digest like every fixture Dockerfile under test/, so a
@@ -117,7 +121,7 @@ assert_no_forged_log_lines() {
 # inspect engine: request-level decisions, one line per method+URL
 # ---------------------------------------------------------------------------
 
-# The log line is buildcage's own format (see haproxy-config.ts), so this
+# The log line is buildcage's own format (see haproxy-inspect-stage.ts), so this
 # matches on it exactly rather than on a substring that could drift.
 assert_logged() {
   local method="$1" url="$2" status="$3"

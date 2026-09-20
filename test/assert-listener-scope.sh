@@ -7,16 +7,11 @@
 # another container on the builder's own compose network and from the runner
 # host itself.
 #
-# Build-side access is covered by the fixture-based assertions in the other
-# test_integration_buildkit_* targets, which would themselves fail outright if
-# this had blocked too much. The same standalone builder also has to reach its
-# own readiness checks over loopback and exit on SIGTERM, which is what tells
-# an over-broad rule from a correct one that merely looks unreachable from
-# outside.
-#
-# The host-side probes only mean something where the bridge is routable from
-# the host, i.e. Linux. On a macOS dev machine they cannot fail; CI is the
-# final word on them.
+# The same standalone builder also has to reach its own readiness checks over
+# loopback and exit on SIGTERM, which is what tells an over-broad rule from a
+# correct one that merely looks unreachable from outside. The host-side probes
+# only mean something where the bridge is routable from the host, i.e. Linux;
+# CI is the final word on them.
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 

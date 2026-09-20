@@ -36,7 +36,7 @@ MULTIARCH_CROSS_PLATFORM ?= $(if $(filter arm64 aarch64,$(shell uname -m)),linux
 # instead of deriveProjectName("buildcage")
 # (src/core/lib/docker/compose-project-name.ts).
 # Scoped to the targets that touch this Compose project; test_unit_* is
-# excluded on purpose (see its own section below).
+# excluded because none of those targets touches it.
 setup_buildkit_% test_integration_buildkit_% example_% clean_buildkit report_buildkit: export COMPOSE_PROJECT_NAME := buildcage-project$(BUILDCAGE_WORKTREE_SUFFIX)
 setup_buildkit_% test_integration_buildkit_% example_% clean_buildkit report_buildkit: export BUILDCAGE_BUILD_TEST_HOOKS := 1
 # Read by compose.yaml's container_name, report/src/main.ts, src/post.ts and

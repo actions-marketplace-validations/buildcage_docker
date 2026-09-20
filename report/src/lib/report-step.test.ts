@@ -1,8 +1,3 @@
-/**
- * Unit tests for report-step.ts
- *
- * Run with: vp test run report/src/lib/report-step.test.ts
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { runReportStep, type ReportStepDeps } from "./report-step.ts";

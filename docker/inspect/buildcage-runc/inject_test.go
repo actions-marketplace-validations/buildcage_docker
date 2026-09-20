@@ -314,9 +314,9 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 // every variable just because the system store is missing: all six fall back
 // to the same proxy-CA-only file. This is the corepack/node:22-slim and
 // apt-install-then-curl/debian:bookworm-slim failure modes under the inspect
-// engine; see docs/inspect-engine.md's "No system CA store" for what this
-// fallback does and does not cover (ordinary MITM'd traffic works; a
-// passthrough connection's real certificate still does not verify).
+// engine; see README.md#limitations for what this fallback does and does not
+// cover (ordinary MITM'd traffic works; a passthrough connection's real
+// certificate still does not verify).
 func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) {
 	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
 
