@@ -94,7 +94,7 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(own) != "BUILDCAGE-CA" {
+	if string(own) != string(testCA) {
 		t.Fatalf("own CA file = %q", own)
 	}
 
@@ -134,7 +134,7 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mirrored), "BUILDCAGE-CA") || !strings.HasPrefix(string(mirrored), "ORIGINAL-ROOTS") {
+	if !strings.Contains(string(mirrored), string(testCA)) || !strings.HasPrefix(string(mirrored), "ORIGINAL-ROOTS") {
 		t.Fatalf("scratch mirror not patched correctly: %q", mirrored)
 	}
 
@@ -156,7 +156,7 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(rootfs, "custom"))
 	mustWriteFile(t, filepath.Join(rootfs, "custom", "roots.pem"), "CUSTOM\n")
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(custom), "BUILDCAGE-CA") {
+	if !strings.Contains(string(custom), string(testCA)) {
 		t.Fatal("the CA was not appended to the custom file")
 	}
 
@@ -193,7 +193,7 @@ func TestInjectFinishLeavesAnUntouchedStoreAlone(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestInjectWritesBackWhenTheStepChangesTheStore(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestInjectWriteBackFailurePropagates(t *testing.T) {
 	useFakeRsync(t)
 	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "host-secret")
 	mustWriteFile(t, outside, "SECRET")
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) {
 	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(own) != "BUILDCAGE-CA" {
+	if string(own) != string(testCA) {
 		t.Fatalf("own CA file = %q", own)
 	}
 
@@ -373,7 +373,7 @@ func TestInjectSkipsADirectoryAMountAlreadyCovers(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundleWithMounts(t, []string{"PATH=/usr/bin"}, "/etc/ssl")
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestInjectRefusesToBindTheContainerRoot(t *testing.T) {
 	useFakeRsync(t)
 	bundle, _ := newBundleNoStore(t, []string{"CURL_CA_BUNDLE=/roots.pem"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
 	mustMkdirAll(t, big)
 	mustSparseFile(t, filepath.Join(big, "roots.pem"), maxCustomDirBytes+1)
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestInjectLeavesAnExistingOwnCAPathAlone(t *testing.T) {
 	existing := filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))
 	mustWriteFile(t, existing, "THE IMAGE PUT THIS HERE")
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestInjectLeavesAnUnresolvableVariableAlone(t *testing.T) {
 	useFakeRsync(t)
 	bundle, _ := newBundle(t, []string{"DENO_CERT=../../../../etc/passwd"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestInjectCarriesOnWhenItCannotPlaceItsOwnCAFile(t *testing.T) {
 	// /etc points outside the rootfs, so resolveInRoot refuses it.
 	mustSymlink(t, "../../../../outside", filepath.Join(rootfs, "etc"))
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestInjectCarriesOnWhenItCannotWriteItsOwnCAFile(t *testing.T) {
 	// there yet, but nothing can be created in it.
 	mustMakeReadOnly(t, filepath.Join(rootfs, "etc"))
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestInjectFinishReportsAnOwnCAFileItCannotRemove(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestInjectFinishReportsAnOwnCAFileItCannotRemove(t *testing.T) {
 // A bundle without a spec is not something to guess at: there is nothing to
 // read the rootfs or the environment out of.
 func TestInjectRefusesABundleWithoutASpec(t *testing.T) {
-	if _, err := inject(t.TempDir(), []byte("BUILDCAGE-CA")); err == nil {
+	if _, err := inject(t.TempDir(), testCA); err == nil {
 		t.Fatal("expected inject to refuse the bundle")
 	}
 }
@@ -592,7 +592,7 @@ func TestInjectSkipsADirectoryItCannotGetAScratchDirFor(t *testing.T) {
 	mustWriteFile(t, filepath.Join(blocked, "blocked"), "")
 	scratchRoot = filepath.Join(blocked, "blocked", "ca")
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestInjectReportsASpecItCannotSave(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restore, err := inject(bundle, []byte("BUILDCAGE-CA"))
+	restore, err := inject(bundle, testCA)
 	if err != nil {
 		t.Fatal(err)
 	}
