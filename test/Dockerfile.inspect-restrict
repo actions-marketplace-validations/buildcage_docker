@@ -223,6 +223,19 @@ RUN echo "=== [Name outside the allowlist] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
+# A client that completes the handshake and then leaves without sending a
+# request. Pinning a key the generated certificate cannot have makes curl stop
+# at exactly that point (exit 90); what does this in the wild is an image with
+# no CA store, which cannot verify the injected CA and gives up there too.
+# assert-inspect-restrict.sh checks that this is reported as neither allowed
+# nor blocked: no request arrived, so no rule decided anything.
+RUN echo "=== [Client leaves before sending a request] ===" && \
+    curl -sS -o /dev/null --max-time 10 \
+      --pinnedpubkey "sha256//47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=" \
+      https://aborted.example.com/; \
+    RC=$?; echo "curl exit=$RC"; \
+    [ "$RC" = "90" ] || (echo "FAILED: expected a pinned-key mismatch (90)" && exit 1)
+
 # Aimed at the impostor by address while claiming an allowed name. The proxy
 # resolves the name itself, so the allowed origin answers and the impostor is
 # never reached.

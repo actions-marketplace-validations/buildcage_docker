@@ -44,6 +44,19 @@ else
 fi
 echo ""
 
+echo "[client left first] the connection is named by its SNI, the only name it gave:"
+# %HM and the Host capture both come from a request that never arrived, so
+# without the SNI the line would name no host at all. Phase R is what says the
+# request was still being waited for; C is the client closing, c its own
+# timeout running out.
+if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com " <<< "$LOGS"; then
+  pass "recorded with the handshake's SNI"
+else
+  fail "no such line for aborted.example.com"
+  grep -E "aborted\.example\.com" <<< "$LOGS" || echo "    (no matching log line at all)"
+fi
+echo ""
+
 echo "[exfiltration] the query string is kept, which is where the payload goes:"
 if grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE" <<< "$LOGS"; then
   pass "the refused URL was recorded with its query string intact"
@@ -326,6 +339,27 @@ if grep -qF "DNS secret-in-a-name.attacker.example -> dns-not-allowed" <<< "$REP
   pass "a refused name is in the timeline, having no other trace"
 else
   fail "the refused name is missing from the timeline"
+fi
+
+# Nothing reached an origin and no rule decided anything, so this belongs in
+# neither table. The timeline is the only place it can appear.
+if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
+  pass "a connection the client left is in the timeline, with a mark of its own"
+else
+  fail "the aborted connection is missing from the timeline"
+fi
+if grep -qF "| aborted.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN"; then
+  fail "the aborted connection was put in one of the host tables"
+else
+  pass "the aborted connection is in neither host table"
+fi
+# Writing a rule for the host would not take the row above away, so the
+# refused lookup for the same name has to survive: it is the only row a reader
+# can act on.
+if grep -qF "| aborted.example.com | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN"; then
+  pass "the refused lookup for the same name is still its own Blocked row"
+else
+  fail "the refused lookup for the aborted host was folded away"
 fi
 
 if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
