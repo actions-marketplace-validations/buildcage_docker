@@ -1,4 +1,5 @@
 import type { ExpectedFlag } from "../build/aggregate.ts";
+import type { ReportData } from "../types.ts";
 
 export interface BlockedOutcome {
   level: "none" | "notice" | "error";
@@ -50,25 +51,39 @@ export interface BuildBlockedMessageOptions {
   blockedCount: number;
   blockedRows: ExpectedFlag[];
   engineLabel: "sandbox" | "proxy";
+  /** The proxy engine, as against engineLabel, which names the action. */
+  engine: ReportData["engine"];
   isAudit: boolean;
+}
+
+/** See buildBlockedMessage for why only `inspect` widens this. */
+function countNoun(engine: ReportData["engine"]): string {
+  return engine === "inspect" ? "connection(s) and lookup(s)" : "connection(s)";
 }
 
 /**
  * Build the annotation message text for a blocked-connections check.
  *
+ * `inspect` alone adds "and lookup(s)": its resolver answers every name with
+ * the proxy's own address, allowed or not, and logs each one against the
+ * rules, so a name the build only looked up and never connected to is counted
+ * here. No other engine decides anything about a name. Which form applies
+ * follows from the engine, fixed for a whole run, not from what a particular
+ * count happens to hold.
+ *
  * In audit mode the text always stays the fixed-format base string,
  * regardless of known_blocked_rules matching: audit mode's pass/fail
  * outcome is unaffected by matching (see determineBlockedOutcome), so
- * varying the notice text there would be misleading and would silently
- * break any tooling that matches the old fixed-format notice.
+ * varying the notice text there would be misleading.
  */
 export function buildBlockedMessage({
   blockedCount,
   blockedRows,
   engineLabel,
+  engine,
   isAudit,
 }: BuildBlockedMessageOptions): string {
-  const base = `${blockedCount} blocked connection(s) detected by buildcage ${engineLabel}`;
+  const base = `${blockedCount} blocked ${countNoun(engine)} detected by buildcage ${engineLabel}`;
   if (isAudit) return base;
   const unexpected = blockedRows.filter((row) => !row.expected).length;
   if (unexpected === blockedRows.length) return base; // nothing matched (incl. known_blocked_rules unset)
@@ -87,6 +102,8 @@ export interface DescribeBlockedOutcomeOptions {
   blockedRows: ExpectedFlag[];
   logLooksPlausible: boolean;
   engineLabel: "sandbox" | "proxy";
+  /** See BuildBlockedMessageOptions.engine. */
+  engine: ReportData["engine"];
 }
 
 /** Combines the pass/fail decision with its annotation message. */
@@ -97,6 +114,7 @@ export function describeBlockedOutcome({
   blockedRows,
   logLooksPlausible,
   engineLabel,
+  engine,
 }: DescribeBlockedOutcomeOptions): DescribedBlockedOutcome {
   const outcome = determineBlockedOutcome({
     isAudit,
@@ -105,7 +123,7 @@ export function describeBlockedOutcome({
     blockedRows,
     logLooksPlausible,
   });
-  const base = buildBlockedMessage({ blockedCount, blockedRows, engineLabel, isAudit });
+  const base = buildBlockedMessage({ blockedCount, blockedRows, engineLabel, engine, isAudit });
   if (logLooksPlausible) return { ...outcome, message: base };
   // audit's notice keeps the fixed-format opening buildBlockedMessage
   // promises, so the warning is appended rather than replacing it.
@@ -119,7 +137,7 @@ export function describeBlockedOutcome({
   const incomplete = `buildcage ${engineLabel} logs are incomplete, so this report is not a full record of what ran`;
   // Not the whole count when the log is incomplete, hence "still recorded".
   const counted = blockedCount
-    ? `${incomplete} (${blockedCount} blocked connection(s) still recorded)`
+    ? `${incomplete} (${blockedCount} blocked ${countNoun(engine)} still recorded)`
     : incomplete;
   // Enumerated, not attributed: logLooksPlausible collapses several conditions
   // into one flag, and only the benign reading is the reader's to act on.

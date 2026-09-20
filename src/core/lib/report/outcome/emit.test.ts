@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { emitBlockedOutcome } from "./emit.ts";
 import { annotateKnownBlocked } from "../build/aggregate.ts";
-import type { ReportDataCommon } from "../types.ts";
+import type { UniversalReportData } from "../types.ts";
 import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 let prevExitCode: number | string | null | undefined;
@@ -16,8 +16,9 @@ afterEach(() => {
   process.exitCode = prevExitCode;
 });
 
-function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
+function report(overrides: Partial<UniversalReportData> = {}): UniversalReportData {
   return {
+    engine: "universal",
     parameters: reportParams(),
     passed: [],
     blocked: [],
@@ -28,7 +29,7 @@ function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
 }
 
 /** A report carrying the one blocked connection no rule accounts for. */
-function blockedReport(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
+function blockedReport(overrides: Partial<UniversalReportData> = {}): UniversalReportData {
   return report({
     blockedCount: 1,
     blocked: annotateKnownBlocked(

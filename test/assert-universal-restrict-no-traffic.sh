@@ -40,8 +40,10 @@ echo ""
 
 echo "[report action] no false-positive blocked-connection error:"
 # Both annotations the head check can produce: the blocked-connection one and
-# the incomplete-log one it is replaced by when the marker is missing.
-if grep -qE "blocked connection\(s\) detected|logs are incomplete" <<< "$REPORT_OUTPUT"; then
+# the incomplete-log one it is replaced by when the marker is missing. Matched
+# on the part that outlives a rewording of what is counted: the check fires on
+# absence, where a pattern that quietly stops matching would pass.
+if grep -qE "detected by buildcage|logs are incomplete" <<< "$REPORT_OUTPUT"; then
   fail "unexpected blocked-connection or incomplete-log message in report output"
   echo "$REPORT_OUTPUT"
 else
