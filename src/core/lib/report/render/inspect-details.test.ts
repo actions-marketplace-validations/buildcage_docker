@@ -254,6 +254,37 @@ describe("renderInspectDetails", () => {
     );
     expect(rendered).toMatch(/-> no request/);
   });
+
+  // The same ⚠️ as a request that never arrived, but this one has a URL to
+  // show: it did arrive, and the rules passed on it.
+  it("marks a connection the origin broke, keeping the request it named", () => {
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "failed",
+          protocol: "https",
+          host: "a.example.com",
+          port: 443,
+          method: "GET",
+          url: "https://a.example.com/pkg.tgz",
+          reason: "origin-aborted",
+        },
+      ],
+      t,
+    );
+    expect(
+      rendered.includes("⚠️ 00:00.000: GET https://a.example.com/pkg.tgz -> origin-aborted"),
+    ).toBe(true);
+  });
+
+  it('falls back to a bare "failed" when such a connection names no reason', () => {
+    const rendered = renderInspectDetails(
+      [{ time: t, action: "failed", protocol: "https", host: "a.example.com", port: 443 }],
+      t,
+    );
+    expect(rendered).toMatch(/-> failed/);
+  });
 });
 
 describe("renderInspectDetails credential parameters", () => {

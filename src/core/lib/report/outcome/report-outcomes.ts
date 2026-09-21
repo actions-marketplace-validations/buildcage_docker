@@ -34,6 +34,8 @@ export function describeReportOutcomes(
   ];
   const undecided = describeUndecidedRequests(report, engineLabel);
   if (undecided) emissions.push(undecided);
+  const failed = describeFailedConnections(report, engineLabel);
+  if (failed) emissions.push(failed);
   return emissions;
 }
 
@@ -68,5 +70,29 @@ function describeUndecidedRequests(
       "Communication details. Each ended before a whole request had arrived, so no rule decided " +
       "it and none reached an origin: the client closed, timed out, or sent something that could " +
       "not be read as HTTP. None of them fails the step.",
+  };
+}
+
+/**
+ * The notice for connections that failed after the rules had allowed them, or
+ * undefined when there were none.
+ *
+ * A notice where describeUndecidedRequests warns: these have a table of their
+ * own, so it only has to say that the step passed although connections failed.
+ * Counted off the rows rather than a timeline, which only `inspect` has.
+ */
+function describeFailedConnections(
+  report: ReportData,
+  engineLabel: "sandbox" | "proxy",
+): OutcomeEmission | undefined {
+  const count = report.failed.reduce((total, row) => total + row.count, 0);
+  if (count === 0) return undefined;
+  return {
+    level: "notice",
+    shouldFail: false,
+    message:
+      `${count} connection(s) failed after buildcage ${engineLabel} allowed them, listed under ` +
+      "Failed Connections. The origin broke off, or its name could not be resolved upstream: no " +
+      "rule refused them and none can change the outcome, so none of them fails the step.",
   };
 }

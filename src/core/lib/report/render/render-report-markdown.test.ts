@@ -20,6 +20,7 @@ describe("renderReportMarkdown: universal", () => {
     parameters: reportParams(),
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
   };
@@ -157,6 +158,7 @@ describe("renderReportMarkdown: explicit", () => {
     parameters: reportParams(),
     passed: [allowedRow],
     blocked: [blockedRow],
+    failed: [],
     blockedCount: 1,
     logLooksPlausible: true,
     proxyLogs: {
@@ -218,6 +220,7 @@ describe("renderReportMarkdown: inspect", () => {
     parameters: reportParams(),
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
     timeline: [request],
@@ -237,5 +240,26 @@ describe("renderReportMarkdown: inspect", () => {
       "v2",
     );
     expect(md).toMatch(/allowed_url_rules|GET https:\/\/good\.com/);
+  });
+
+  const failedRow = {
+    host: "good.com",
+    port: "443",
+    ruleType: "HTTPS",
+    reason: "origin-no-response",
+    count: 1,
+  };
+
+  it("tables connections the origin broke under their own heading", () => {
+    const md = renderReportMarkdown({ ...base, failed: [failedRow] }, "buildcage/docker", "v2");
+    expect(md).toMatch(/### ⚠️ Failed Connections\n/);
+    expect(md).toMatch(/origin-no-response/);
+    // The reader is told why the step passed regardless.
+    expect(md).toMatch(/none of them fails the step/);
+  });
+
+  it("does not call a run that only failed connections no communication", () => {
+    const md = renderReportMarkdown({ ...base, failed: [failedRow] }, "buildcage/docker", "v2");
+    expect(md.includes("_(no communication)_")).toBe(false);
   });
 });

@@ -42,11 +42,17 @@ const blocked = [
   },
 ];
 
+/** A host the rules allow whose name the upstream resolver could not answer. */
+const failed = [
+  { host: "c.example.com", port: "443", ruleType: "HTTPS", reason: "dns-failed", count: 1 },
+];
+
 const universal: UniversalReportData = {
   engine: "universal",
   parameters: params(),
   passed,
   blocked,
+  failed,
   blockedCount: 2,
   logLooksPlausible: true,
 };
@@ -56,6 +62,7 @@ const explicit: ExplicitReportData = {
   parameters: params(),
   passed,
   blocked,
+  failed: [],
   blockedCount: 1,
   logLooksPlausible: true,
   proxyLogs: {
@@ -114,6 +121,18 @@ const timeline: TrafficEvent[] = [
     reason: "client-aborted",
     destination: "172.20.0.1:443",
   },
+  // A host the rules allow, so its own table rather than the blocked one.
+  {
+    time: 1787471981,
+    action: "failed",
+    protocol: "https",
+    host: "a.example.com",
+    port: 443,
+    method: "GET",
+    url: "https://a.example.com/pkg.json",
+    reason: "origin-aborted",
+    destination: "93.184.216.34",
+  },
 ];
 
 const inspect: InspectReportData = {
@@ -121,6 +140,9 @@ const inspect: InspectReportData = {
   parameters: params(),
   passed,
   blocked,
+  failed: [
+    { host: "a.example.com", port: "443", ruleType: "HTTPS", reason: "origin-aborted", count: 1 },
+  ],
   blockedCount: 1,
   logLooksPlausible: true,
   timeline,
@@ -137,7 +159,7 @@ const CASES: Record<string, ReportData> = {
   // The incomplete-log banner sits above the tables and applies to every engine.
   "universal-incomplete": { ...universal, logLooksPlausible: false },
   // Nothing happened at all: the "(no communication)" note, no tables.
-  "universal-empty": { ...universal, passed: [], blocked: [], blockedCount: 0 },
+  "universal-empty": { ...universal, passed: [], blocked: [], failed: [], blockedCount: 0 },
   // The Expected column, with the known_blocked_rules rows left unfolded.
   "universal-expected": {
     ...universal,

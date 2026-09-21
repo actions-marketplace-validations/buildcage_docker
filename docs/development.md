@@ -262,9 +262,11 @@ buildcage 1787471976000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=d
 ```
 
 `ts` is HAProxy's termination state and `reason` the refusal reason where the rule that refused knew
-one the line could not otherwise show. What the report makes of the two, and of a connection that
-never delivered a whole request, is in
-[Requests Buildcage could not act on](./reference.md#requests-buildcage-could-not-act-on).
+one the line could not otherwise show. What the report makes of the two is in
+[Requests Buildcage could not act on](./reference.md#requests-buildcage-could-not-act-on), for a
+connection that never delivered a whole request, and in
+[Connections that failed](./reference.md#connections-that-failed), for one the rules allowed that
+then came to nothing.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
 archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The

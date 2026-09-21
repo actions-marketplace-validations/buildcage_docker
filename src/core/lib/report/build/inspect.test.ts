@@ -20,6 +20,9 @@ const BAD_REQUEST =
 /** A request that parsed and carried no `Host`, so the rules had no host to
  *  match and denied it. */
 const NO_HOST = "buildcage 1787471979 http GET 403 0 ts=PR reason=- dst=172.20.0.1:8080 http://-/x";
+/** An origin that took the connection and never sent usable headers. */
+const ORIGIN_FAILED =
+  "buildcage 1787471980 https GET 502 0 ts=SH reason=- dst=104.16.1.34:443 https://registry.npmjs.org/slow";
 /** What the resolver service echoes before CoreDNS starts. */
 const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
@@ -33,6 +36,20 @@ describe("buildInspectReportData", () => {
     );
     expect(r.timeline.length).toBe(4);
     expect(r.timeline.every((e, i) => i === 0 || r.timeline[i - 1].time <= e.time)).toBe(true);
+  });
+
+  it("tables a failure the origin caused apart from what the rules refused", async () => {
+    const r = await buildInspectReportData([START, ORIGIN_FAILED], [], reportParams());
+    expect(r.failed.map((row) => `${row.host} ${row.reason}`)).toStrictEqual([
+      "registry.npmjs.org origin-no-response",
+    ]);
+    expect(r.blocked).toStrictEqual([]);
+    expect(r.passed).toStrictEqual([]);
+  });
+
+  it("leaves such a failure out of blockedCount", async () => {
+    const r = await buildInspectReportData([START, ORIGIN_FAILED, REFUSED], [], reportParams());
+    expect(r.blockedCount).toBe(1);
   });
 
   it("aggregates each side into host rows a rule could be written from", async () => {
