@@ -96,23 +96,32 @@ function isRefusal(terminationState: string): boolean {
  *
  * Only the server's own causes name the origin. `P` is this proxy refusing,
  * whatever phase it happened in: `PH` is a response it judged invalid and `PC`
- * its own connection limit, neither of which the origin chose.
+ * its own connection limit, neither of which the origin chose. In phase `R` it
+ * is haproxy's own answer to bytes that parsed as no request at all, which the
+ * method tells from a refusal the rules made.
  *
  * Phase `C` covers both a connection that could not be made and one this proxy
- * would not make, and `tlserr` is what tells them apart: the backend connects
- * with `ssl verify required` (see haproxy-sections.ts), and a handshake that
- * failed leaves haproxy's own error there where a connection that never got
- * that far leaves `-` or `0`. Any error counts, whether the certificate was
- * forged or the origin speaks no TLS at all: neither is an origin this proxy
- * could authenticate, and reading only the verify error would let the second
- * pass as an outage. A flaky origin does not land here: measured on haproxy
- * 3.4, a close during the handshake leaves `0` whether it comes before or
- * after the ClientHello.
+ * would not make, and `tlserr` is what tells them apart: the backend connects with
+ * `ssl verify required` (see haproxy-sections.ts), and a handshake that failed
+ * leaves haproxy's own error there where a connection that never got that far
+ * leaves `-` or `0`. Any error counts, whether the certificate was forged or
+ * the origin speaks no TLS at all: neither is an origin this proxy could
+ * authenticate, and reading only the verify error would let the second pass as
+ * an outage. A flaky origin does not land here: measured on haproxy 3.4, a
+ * close during the handshake leaves `0` whether it comes before or after the
+ * ClientHello.
  */
-function reasonFor(logged: string, terminationState: string, tlsError: string): string {
+function reasonFor(
+  logged: string,
+  terminationState: string,
+  tlsError: string,
+  method: string,
+): string {
   if (logged !== "-") return logged;
   const cause = terminationState[0];
-  if (cause !== "S" && cause !== "s") return "not-allowed";
+  if (cause !== "S" && cause !== "s") {
+    return method === BAD_REQUEST_METHOD ? "bad-request" : "not-allowed";
+  }
   switch (terminationState[1]) {
     case "H":
       return "origin-no-response";
@@ -125,43 +134,47 @@ function reasonFor(logged: string, terminationState: string, tlsError: string): 
 }
 
 /**
- * The whole authority a request line can leave behind, matched exactly rather
- * than by its leading `-`.
- *
- * The URL is built from the captured `Host` header and the path, for each of
- * which haproxy prints `-` when the request never carried one: `-` is a missing
- * `Host` with a path behind it, `--` bytes that parsed as neither. A `Host` the
- * build did send is logged as sent, and only the whitespace, quotes and control
- * characters the capture rewrites are gone, so a host of its own choosing could
- * otherwise pass this test: `Host: -evil.example.com` reads as an authority
- * beginning with a hyphen, and a refusal the rules did make would leave both
- * tables and `fail_on_blocked` at the sender's discretion.
+ * What haproxy logs where the method would be when the bytes it read parsed as
+ * no request at all. A client cannot send it: a method is an HTTP token, and
+ * `<` and `>` are not token characters, so this is the proxy's own word rather
+ * than anything the build chose.
  */
-const NO_AUTHORITY = new Set(["-", "--"]);
+const BAD_REQUEST_METHOD = "<BADREQ>";
 
 /**
- * What kept a whole request from reaching the rules, or undefined when one did
- * reach them.
+ * The refusals this proxy made before a whole request had arrived. Their method
+ * and URL fields hold what the log-format prints for fields that never existed,
+ * so the connection is named by its handshake instead; see hostBeforeRequest.
+ */
+const REQUESTLESS_REASONS = new Set(["bad-request", "missing-host-header"]);
+
+/**
+ * What ended a connection before a whole request had arrived, or undefined when
+ * one arrived or this proxy is the one that ended it.
  *
  * Phase `R` is the proxy still reading the request line and headers, and the
  * inspected stage resolves the Host and connects only once one has parsed, so
- * nothing left this proxy. `C` is the client closing, `c` its own timeout
- * expiring, and `P` this proxy answering: haproxy's own 400 for bytes it could
- * not read as a request, or a rule denying one whose `Host` never arrived. A
- * later phase (`CD` and the like) means the rules had already decided on a
- * request, so those stay ordinary exchanges.
+ * nothing left this proxy. `C` is the client closing and `c` its own timeout
+ * expiring, neither of which a rule had a say in. `P` is this proxy answering,
+ * which is a decision however little of the request it had, so reasonFor names
+ * it instead. Anything else in that phase is haproxy's own doing, an internal
+ * error or a resource it ran out of, and no request arrived then either.
  *
- * `P` in phase `R` is every ordinary refusal too, and the authority is what
- * tells them apart: NO_AUTHORITY holds the two the log prints when there was
- * none to print.
+ * A later phase (`CD` and the like) means the rules had already decided on a
+ * request, so those stay ordinary exchanges.
  */
-function incompleteReason(terminationState: string, url: string): string | undefined {
+function incompleteReason(terminationState: string): string | undefined {
   if (terminationState[1] !== "R") return undefined;
-  const cause = terminationState[0];
-  if (cause === "C") return "client-aborted";
-  if (cause === "c") return "client-timeout";
-  if (cause === "P" && NO_AUTHORITY.has(hostOf(url))) return "bad-request";
-  return undefined;
+  switch (terminationState[0]) {
+    case "C":
+      return "client-aborted";
+    case "c":
+      return "client-timeout";
+    case "P":
+      return undefined;
+    default:
+      return "no-request";
+  }
 }
 
 /**
@@ -221,34 +234,30 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
 
   const request = REQUEST.exec(trimmed);
   if (request) {
-    const incomplete = incompleteReason(request[6], request[12]);
-    if (incomplete) {
-      // Method and URL stay unset: `<BADREQ>` and an authority-less URL are
-      // what the log-format prints for fields that never existed.
-      return {
-        time: Number(request[1]) / 1000,
-        action: "incomplete",
-        protocol: request[2] as "http" | "https",
-        host: hostBeforeRequest(request[11], request[9]),
-        port: Number(request[10]),
-        reason: incomplete,
-        destination: `${request[9]}:${request[10]}`,
-      };
-    }
-    const reason = isRefusal(request[6])
-      ? reasonFor(request[7], request[6], request[8])
-      : undefined;
+    const incomplete = incompleteReason(request[6]);
+    const reason =
+      incomplete ??
+      (isRefusal(request[6])
+        ? reasonFor(request[7], request[6], request[8], request[3])
+        : undefined);
+    // Method and URL stay unset for these: `<BADREQ>` and an authority-less URL
+    // are what the log-format prints for fields that never existed, and the
+    // handshake is the only thing left that names the connection.
+    const requestless =
+      reason !== undefined && (incomplete !== undefined || REQUESTLESS_REASONS.has(reason));
     const event: TrafficEvent = {
       // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
-      action: actionFor(reason, isAudit),
+      action: incomplete !== undefined ? "incomplete" : actionFor(reason, isAudit),
       protocol: request[2] as "http" | "https",
-      host: hostOf(request[12]),
+      host: requestless ? hostBeforeRequest(request[11], request[9]) : hostOf(request[12]),
       port: Number(request[10]),
-      method: request[3],
-      url: request[12],
       destination: `${request[9]}:${request[10]}`,
     };
+    if (!requestless) {
+      event.method = request[3];
+      event.url = request[12];
+    }
     if (reason !== undefined) event.reason = reason;
     else {
       event.status = Number(request[4]);
@@ -261,7 +270,8 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   if (pass) {
     // This stage relays TLS rather than terminating it, so it has no backend
     // handshake to fail and phase `C` is only a connection that was not made.
-    const reason = isRefusal(pass[4]) ? reasonFor(pass[5], pass[4], "-") : undefined;
+    // It reads no request either, hence the method it could never log.
+    const reason = isRefusal(pass[4]) ? reasonFor(pass[5], pass[4], "-", "-") : undefined;
     // An ip rule names an address and carries no SNI, so the address is the
     // only identity such a connection has.
     const sni = pass[8];

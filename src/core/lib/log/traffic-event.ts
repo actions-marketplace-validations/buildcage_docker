@@ -10,9 +10,14 @@
  * them and none could. Folding any into `block` would put a row in the report
  * no rule could take away, and fail a build under fail_on_blocked over
  * something the rules had nothing to say about. A service name is answered
- * empty whatever the rules say, a connection that never delivered a whole
- * request gave a rule nothing to judge, and `failed` is what became of a
- * request the rules had already allowed.
+ * empty whatever the rules say, a connection nobody ended on purpose gave a
+ * rule nothing to judge, and `failed` is what became of a request the rules had
+ * already allowed.
+ *
+ * A request this proxy refused before one had wholly arrived is a `block` like
+ * any other, though: it refused rather than stood by, and a rule does clear it
+ * (see the bad-request remedy in docs/reference.md). `incomplete` is only what
+ * the client or the proxy's own machinery ended.
  *
  * `failed` alone names a host worth tabulating: the rules passed on it and the
  * name is the one the build asked for, so it gets a table where the other two

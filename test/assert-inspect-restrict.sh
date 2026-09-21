@@ -59,6 +59,24 @@ else
 fi
 echo ""
 
+echo "[no request] what never parsed as one is refused, not passed off as undecided:"
+# `<BADREQ>` is haproxy's own word for bytes it read no request out of, and no
+# client can send it as a method. The URL tail is the empty Host and path it
+# never had; dst is not pinned, this one never reaching set-dst.
+if grep -qE "^buildcage [0-9]+ http <BADREQ> 400 [0-9]+ ts=PR reason=\S+ tlserr=\S+ dst=\S+ http://--$" <<< "$LOGS"; then
+  pass "the bytes that were not a request were refused"
+else
+  fail "no refusal recorded for the connection that sent no request"
+fi
+# Named by the config rather than inferred from the empty Host the log prints,
+# which a Host the build chooses could imitate.
+if grep -qE "^buildcage [0-9]+ http GET 400 [0-9]+ ts=PR reason=missing-host-header tlserr=\S+ dst=\S+ http://-/public/pkg\.tgz$" <<< "$LOGS"; then
+  pass "the request that named no host was refused, with the reason named"
+else
+  fail "no missing-host-header refusal recorded"
+fi
+echo ""
+
 echo "[exfiltration] the query string is kept, which is where the payload goes:"
 if grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE" <<< "$LOGS"; then
   pass "the refused URL was recorded with its query string intact"
@@ -302,6 +320,15 @@ if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   pass "the table separates a refused request, a refused name and an origin we would not trust"
 else
   fail "the Blocked Hosts table is missing expected rows"
+fi
+# A refusal made before a whole request arrived is still a refusal, and counts
+# towards fail_on_blocked. The plain stage has no SNI to name it by, hence the
+# host these two carry.
+if grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| bad-request \|' <<< "$REPORT_MARKDOWN" \
+  && grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| missing-host-header \|' <<< "$REPORT_MARKDOWN"; then
+  pass "both refusals that named no host are in the table"
+else
+  fail "the Blocked Hosts table is missing the rows for requests that named no host"
 fi
 echo ""
 

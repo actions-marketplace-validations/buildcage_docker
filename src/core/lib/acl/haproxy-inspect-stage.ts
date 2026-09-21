@@ -67,6 +67,17 @@ export function inspectStage(
     "    # `\\\\` is one literal backslash: HAProxy's parser takes the pair as one.",
     "    http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|%2f|%5c) }",
     "    http-request deny deny_status 403 if { path -m sub \\\\ }",
+    "",
+    "    # A request with no Host names nothing: the rules match on it, the",
+    "    # origin is resolved from it, and the log's URL is built from it. Named",
+    "    # here rather than left to the log's own empty fields, which a Host the",
+    "    # client chose can imitate. Refused in `audit` too, as the same check",
+    "    # in the universal engine is: there is nothing to connect to either way.",
+    "    acl has_host hdr(host) -m found",
+    "    acl host_not_empty hdr_len(host) gt 0",
+    "    http-request set-var(txn.reason) str(missing-host-header) if !has_host or !host_not_empty",
+    "    http-request deny deny_status 400 if !has_host or !host_not_empty",
+    "",
     // %ts tells a refusal from an origin's own 403 or 503, reason says which
     // refusal, and tlserr carries haproxy's own error from the handshake with
     // the origin (see log/inspect.ts's reasonFor). All three sit ahead of the

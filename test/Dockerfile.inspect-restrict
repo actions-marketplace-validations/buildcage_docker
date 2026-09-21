@@ -243,6 +243,22 @@ RUN echo "=== [Client leaves before sending a request] ===" && \
     RC=$?; echo "curl exit=$RC"; \
     [ "$RC" = "90" ] || (echo "FAILED: expected a pinned-key mismatch (90)" && exit 1)
 
+# Bytes that are not an HTTP request, on a port no allowed_ip_rules or
+# allowed_tls_rules entry covers: anything that is not a TLS handshake reaches
+# the plain stage, which reads it as a request and refuses it. nc rather than
+# curl, which can only speak protocols it knows.
+RUN echo "=== [Not an HTTP request at all] ===" && \
+    printf 'NOT-HTTP\r\n\r\n' | nc -w 5 10.200.0.100 5432; \
+    echo "nc exit=$?"
+
+# A request that parsed and named no host. `-H 'Host:'` drops the header, and
+# HTTP/1.0 is the version that does not require one, so this reaches the stage's
+# own rules rather than haproxy's request parser.
+RUN echo "=== [Request with no Host header] ===" && \
+    CODE=$($C --http1.0 -H 'Host:' http://allowed.example.com/public/pkg.tgz) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "400" ] || (echo "FAILED: expected 400" && exit 1)
+
 # Aimed at the impostor by address while claiming an allowed name. The proxy
 # resolves the name itself, so the allowed origin answers and the impostor is
 # never reached.

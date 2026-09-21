@@ -184,64 +184,73 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("client-timeout");
   });
 
-  it("reads haproxy's own 400 as a request it could not act on", async () => {
+  it("reads haproxy's own 400 as a refusal, named by the handshake", async () => {
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "PR" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("incomplete");
+    expect(e.action).toBe("block");
     expect(e.host).toBe("registry.npmjs.org");
     expect(e.reason).toBe("bad-request");
     expect(e.url === undefined).toBe(true);
   });
 
   it("reads a request that carried no Host the same way, path and all", async () => {
-    const line = render(HTTPS, {
-      "%ST": "403",
-      "%B": "0",
-      "%ts": "PR",
-      "%[capture.req.hdr(0)]": "-",
-    });
-    const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("incomplete");
-    expect(e.reason).toBe("bad-request");
-    expect(e.method === undefined).toBe(true);
-  });
-
-  it("leaves a refusal whose sender chose a hyphen-leading Host a block", async () => {
-    // The capture rewrites only whitespace, quotes and control characters, so
-    // a Host of the build's own choosing reaches the log as sent. Reading the
-    // leading `-` alone would let it move its own refusals out of both tables
-    // and out of fail_on_blocked.
-    const line = render(HTTPS, {
-      "%ST": "403",
-      "%B": "0",
-      "%ts": "PR",
-      "%[capture.req.hdr(0)]": "-evil.example.com",
-    });
-    const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
-    expect(e.host).toBe("-evil.example.com");
-  });
-
-  it("overrides the reason the config named, audit resolving that host to nothing", async () => {
-    // audit enforces nothing, so a missing Host reaches do-resolve, which has
-    // no name to look up and lands on dns-failed. Reporting that would blame
-    // the SNI's own name for failing to resolve.
+    // The config names this one, the request having parsed far enough for its
+    // rules to run; see haproxy-inspect-stage.ts.
     const line = render(
       HTTPS,
-      { "%ST": "502", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
-      { reason: "dns-failed" },
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { reason: "missing-host-header" },
     );
-    const [e] = (await scanInspectLog([line], true)).events;
-    expect(e.action).toBe("incomplete");
-    expect(e.reason).toBe("bad-request");
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.host).toBe("registry.npmjs.org");
+    expect(e.reason).toBe("missing-host-header");
+    expect(e.method === undefined).toBe(true);
+    expect(e.url === undefined).toBe(true);
   });
 
-  it("leaves a phase R neither the client nor this proxy ended an ordinary exchange", async () => {
-    // `RR` is haproxy running out of a resource while reading the request:
-    // its own doing, but not a decision, so it names no reason of the three.
+  it("refuses a request that named no host in audit too, where no rule would have", async () => {
+    // There is nothing to resolve and nothing to connect to, so the stage
+    // denies it in either mode, as the universal engine does.
+    const line = render(
+      HTTPS,
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { reason: "missing-host-header" },
+    );
+    const [e] = (await scanInspectLog([line], true)).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("missing-host-header");
+  });
+
+  // The capture rewrites only whitespace, quotes and control characters, so a
+  // Host of the build's own choosing reaches the log as sent. Reading the
+  // authority to decide whether one arrived would let a sender move its own
+  // refusals out of both tables and out of fail_on_blocked, by writing the very
+  // text the log prints for a Host that never came.
+  it.each(["-evil.example.com", "-", "--", "-:443", "-/evil.example.com"])(
+    "leaves a refusal whose sender chose the Host %j a block",
+    async (host) => {
+      const line = render(HTTPS, {
+        "%ST": "403",
+        "%B": "0",
+        "%ts": "PR",
+        "%[capture.req.hdr(0)]": host,
+      });
+      const [e] = (await scanInspectLog([line])).events;
+      expect(e.action).toBe("block");
+      expect(e.reason).toBe("not-allowed");
+      expect(e.url).toBe(`https://${host}${PATH}`);
+    },
+  );
+
+  it("names a phase R neither the client nor this proxy ended as no request at all", async () => {
+    // `RR` is haproxy running out of a resource while reading the request: its
+    // own doing and not a decision, so it is neither allowed nor refused.
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "RR" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action === "incomplete").toBe(false);
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("no-request");
+    expect(e.host).toBe("registry.npmjs.org");
   });
 
   it("falls back to the address when the handshake carried no SNI", async () => {
