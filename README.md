@@ -284,7 +284,7 @@ caching and the image that comes out are unaffected, and nothing Buildcage does 
 cache key.
 
 [Security Details](./docs/security.md) has the architecture of each engine, with a diagram of what
-runs where and what it decides. [Development Guide](./docs/development.md) has the implementation.
+runs where and what it decides.
 
 ## CA trust and compatibility
 
@@ -465,7 +465,7 @@ firewall-enabled runner image.
 | -------------------------------------------------- | ----------------------------------------------------------------- |
 | [Reference](./docs/reference.md)                   | Every input, the rule syntax in full, and the report's own output |
 | [Security Details](./docs/security.md)             | Architecture and threat model for every engine, attack resistance |
-| [Development Guide](./docs/development.md)         | Local usage, testing, logs, and implementation internals          |
+| [Development Guide](./docs/development.md)         | Local usage, testing, logs, and the repository layout             |
 | [Explicit Proxy Engine](./docs/explicit-engine.md) | The deprecated `proxy_engine: explicit` in full                   |
 
 ## Contributing

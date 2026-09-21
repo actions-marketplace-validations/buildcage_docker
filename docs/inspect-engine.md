@@ -9,4 +9,3 @@ This page holds no content of its own. The `inspect` engine is documented in the
 - [CA trust and compatibility](../README.md#ca-trust-and-compatibility) and [Limitations](../README.md#limitations): the CA it injects, and what it cannot work with
 - [CA trust variables](./reference.md#ca-trust-variables): each variable it sets and what it points at
 - [Inspect Proxy Engine](./security.md#inspect-proxy-engine): architecture, threat model, attack resistance
-- [Inspect Engine Internals](./development.md#inspect-engine-internals): HAProxy, CoreDNS, and the runc wrapper

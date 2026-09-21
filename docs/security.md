@@ -50,6 +50,13 @@ Two components, plus a wrapper around runc:
   step that never touches its CA store leaves no trace of the injection in the image layers.
   Injection happens at exec time, never touches LLB, and so cannot affect a cache key.
 
+Where the proxy resolves a name is the container's own `/etc/resolv.conf`, here and in `universal`.
+On a runner that is Docker's embedded DNS forwarding to the runner's own resolvers, so a name only an
+internal resolver knows still resolves, and the query follows the runner's own DNS policy.
+`EXTERNAL_RESOLVER` names upstreams explicitly instead, which is not an action input and only this
+repo's own integration tests set. Either way there is no search-domain expansion, so a rule has to
+name a host in full.
+
 Like `universal`, this engine governs `RUN` step traffic only: its iptables rule redirects what
 arrives on the CNI bridge. buildkitd's own egress is left alone, so `FROM`, `ADD <url>`, git
 contexts and the `# syntax=` frontend are all unaffected: see
@@ -410,8 +417,11 @@ merges its own rules in last, so a client-supplied policy can never widen access
 allowlist. A separate **dynamic**, session-based policy mechanism (`docker buildx build
 --policy=...`) is left untouched and applies as an additional condition alongside buildcage's policy.
 
-For how the supervisor binary, gRPC interception, and policy compilation work internally, see
-[Explicit Engine Internals](./development.md#explicit-engine-internals) in the Development Guide.
+The policy is attached by a gRPC listener sitting in front of the real buildkitd control socket,
+which intercepts only the `Solve` RPC and relays every other one without decoding it. Because the
+rules it injects only ever match an `http(s)` source, a client-supplied policy naming any other
+scheme (`docker-image://`, `git://`) applies unmodified: buildcage governs only what it was
+configured to govern.
 
 ### Coverage and Visibility
 
@@ -427,7 +437,7 @@ CNI bridge and is observed, blocked, and logged. Under `explicit`, each `RUN` st
 namespace has no broader network to route through, so that traffic leaves no trace at all. That is
 the trade-off for full path-level visibility and BuildKit-native provenance integration.
 
-For exactly how the `report` action extracts allowed/denied data from buildkitd's own logs, see
+For reading the builder's own logs while reproducing one of these locally, see
 [Viewing Logs](./development.md#viewing-logs) in the Development Guide.
 
 ## What buildkitd fetches itself
