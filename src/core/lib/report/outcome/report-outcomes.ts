@@ -92,7 +92,8 @@ function describeFailedConnections(
     shouldFail: false,
     message:
       `${count} connection(s) failed after buildcage ${engineLabel} allowed them, listed under ` +
-      "Failed Connections. The origin broke off, or its name could not be resolved upstream: no " +
-      "rule refused them and none can change the outcome, so none of them fails the step.",
+      "Failed Connections. The origin could not be reached, broke off, or its name resolved " +
+      "nowhere upstream: no rule refused them and none can change the outcome, so none of them " +
+      "fails the step.",
   };
 }

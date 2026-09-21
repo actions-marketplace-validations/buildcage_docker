@@ -26,6 +26,7 @@ const SAMPLES: Record<string, string> = {
   "%B": "708",
   "%ts": "--",
   "%[var(txn.reason)]": "-",
+  "%[ssl_bc_err]": "-",
   "%[dst]": "10.200.0.100",
   "%[dst_port]": "9443",
   "%[capture.req.hdr(0)]": "registry.npmjs.org",
@@ -133,6 +134,23 @@ describe("the generated log-format and this parser describe the same line", () =
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("failed");
     expect(e.reason).toBe("origin-no-response");
+  });
+
+  // Both end in the same termination state, so the field is the only thing
+  // between them.
+  it("tells an origin it would not trust from one it could not reach", async () => {
+    const connect = { "%ts": "SC--", "%ST": "503", "%B": "0" };
+    const [unreachable] = (
+      await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "-" })])
+    ).events;
+    expect(unreachable.reason).toBe("origin-unreachable");
+    expect(unreachable.action).toBe("failed");
+
+    const [untrusted] = (
+      await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "167772294" })])
+    ).events;
+    expect(untrusted.reason).toBe("origin-untrusted");
+    expect(untrusted.action).toBe("block");
   });
 
   // What a client that finished the handshake and then left produces, and what
