@@ -335,7 +335,7 @@ data, or source you do not publish. For the full threat model, see
 - `universal` never sees the method or the path. They travel inside TLS, so neither is enforced and
   neither reaches the report or the traffic artifact. A request fronted behind an allowed SNI is
   invisible to it as well, while `inspect` matches on the real `Host` and refuses it. See
-  [What it can't see](./docs/security.md#what-it-cant-see).
+  [Domain fronting](./docs/security.md#domain-fronting).
 
 ### Protocols
 
@@ -407,7 +407,7 @@ An allowlisted name that resolves to cloud metadata, to loopback, or to an addre
 holds is refused, so a compromised name cannot turn the proxy into a route back into the runner. A
 mirror or registry running on the runner is therefore not reachable by name: allow it with
 `allowed_ip_rules`, which never goes through that guard. See
-[What it actually stops](./docs/security.md#what-it-actually-stops).
+[A name may not resolve inward](./docs/security.md#a-name-may-not-resolve-inward).
 
 ### What the audit allowlist covers
 

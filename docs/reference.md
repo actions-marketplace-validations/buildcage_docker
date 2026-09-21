@@ -403,7 +403,7 @@ A connection that never established is **not** here: it stays in Blocked Hosts a
 `origin-unreachable`, and it does fail the step. A refused port, an unroutable address and a
 certificate Buildcage would not verify all end the same way, and nothing in the log tells them
 apart, so the row is kept where the certificate check's own refusals are. See
-[the threat model](./security.md#what-it-actually-stops).
+[Inspect Proxy Engine](./security.md#inspect-proxy-engine).
 
 None of these fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
