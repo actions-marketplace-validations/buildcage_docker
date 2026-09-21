@@ -127,13 +127,20 @@ else
 fi
 echo ""
 
-# A numeric tlserr is the assertion: a port that refused the connection would
-# leave `-` there, and the row would be a failure rather than a refusal.
-echo "[origin CA] a certificate the proxy cannot verify is refused, not just unreachable:"
+# A numeric tlserr is the assertion: it is what names the certificate as the
+# reason, where a connection that never got that far leaves `-`.
+echo "[origin CA] a certificate the proxy cannot verify is refused by name:"
 if grep -qE "^buildcage [0-9]+ https GET 503 [0-9]+ ts=SC\S* reason=\S+ tlserr=[0-9]+ dst=10\.200\.0\.101:443 sni=impostor\.example\.com https://impostor\.example\.com/$" <<< "$LOGS"; then
   pass "the refusal names the TLS error the handshake failed with"
 else
   fail "no line recorded a failed origin handshake for impostor.example.com"
+fi
+# The same phase with no TLS error at all. It reads like an outage and is
+# refused anyway: nothing on this connection was ever authenticated.
+if grep -qE "^buildcage [0-9]+ https GET 503 [0-9]+ ts=[sS]C\S* reason=\S+ tlserr=\S+ dst=10\.200\.0\.102:443 sni=deadend\.example\.com https://deadend\.example\.com/$" <<< "$LOGS"; then
+  pass "a connection that never completed was recorded on its own"
+else
+  fail "no line recorded a connection that never completed for deadend.example.com"
 fi
 echo ""
 
@@ -316,8 +323,9 @@ echo "[report] Blocked Hosts, including a name that never reached the proxy:"
 if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
   && grep -qiF "| secret-in-a-name.attacker.example | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| impostor.example.com:443 | HTTPS | origin-untrusted |" <<< "$REPORT_MARKDOWN"; then
-  pass "the table separates a refused request, a refused name and an origin we would not trust"
+  && grep -qF "| impostor.example.com:443 | HTTPS | origin-untrusted |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| deadend.example.com:443 | HTTPS | origin-connect-failed |" <<< "$REPORT_MARKDOWN"; then
+  pass "the table separates a refused request, a refused name and two origins we never authenticated"
 else
   fail "the Blocked Hosts table is missing expected rows"
 fi

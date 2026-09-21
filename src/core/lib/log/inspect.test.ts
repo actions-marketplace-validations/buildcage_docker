@@ -83,16 +83,17 @@ describe("scanInspectLog", () => {
     const events = await parse(lines);
     expect(events.map((e) => e.reason)).toStrictEqual([
       "not-allowed",
-      "origin-unreachable",
+      "origin-connect-failed",
       "origin-untrusted",
       "origin-no-response",
       "not-allowed",
       "origin-aborted",
     ]);
-    // Only what this proxy itself refused stays in the blocked table.
+    // Only what this proxy itself refused stays in the blocked table, and a
+    // connection it never completed counts: it never authenticated that origin.
     expect(events.map((e) => e.action)).toStrictEqual([
       "block",
-      "failed",
+      "block",
       "block",
       "failed",
       "block",
@@ -109,7 +110,10 @@ describe("scanInspectLog", () => {
       "buildcage 2 https GET 504 0 ts=sH reason=- tlserr=- dst=1.1.1.1:443 https://b.com/",
     ];
     const events = await parse(lines);
-    expect(events.map((e) => e.reason)).toStrictEqual(["origin-unreachable", "origin-no-response"]);
+    expect(events.map((e) => e.reason)).toStrictEqual([
+      "origin-connect-failed",
+      "origin-no-response",
+    ]);
     expect(events.every((e) => e.status === undefined)).toBe(true);
   });
 

@@ -137,14 +137,15 @@ describe("the generated log-format and this parser describe the same line", () =
   });
 
   // Both end in the same termination state, so the field is the only thing
-  // between them.
+  // between them. Both are refusals: this proxy completed neither connection,
+  // so it authenticated neither origin.
   it("tells an origin it would not trust from one it could not reach", async () => {
     const connect = { "%ts": "SC--", "%ST": "503", "%B": "0" };
-    const [unreachable] = (
+    const [connectFailed] = (
       await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "-" })])
     ).events;
-    expect(unreachable.reason).toBe("origin-unreachable");
-    expect(unreachable.action).toBe("failed");
+    expect(connectFailed.reason).toBe("origin-connect-failed");
+    expect(connectFailed.action).toBe("block");
 
     const [untrusted] = (
       await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "167772294" })])
@@ -153,15 +154,24 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(untrusted.action).toBe("block");
   });
 
-  it("reads a timeout in the same phase as unreachable, whatever it left behind", async () => {
+  it("names a timeout in the same phase for the connection, not for the certificate", async () => {
     // `s` is this proxy's own timeout running out, which judged no certificate,
-    // so it must not fail the step over one.
+    // so it must not be reported as one it would not trust.
     const line = render(HTTPS, {
       "%ts": "sC--",
       "%ST": "504",
       "%B": "0",
       "%[ssl_bc_err]": "167772294",
     });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-connect-failed");
+    expect(e.action).toBe("block");
+  });
+
+  it("leaves a passthrough this proxy could not connect for a failure, not a refusal", async () => {
+    // That stage relays the handshake for the build to judge, so a connection
+    // it never made hid no certificate and no rule can change the outcome.
+    const line = render(PASSTHROUGH, { "%ts": "SC--", "%B": "0" });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.reason).toBe("origin-unreachable");
     expect(e.action).toBe("failed");

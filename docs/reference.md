@@ -411,10 +411,10 @@ passthrough rule is the only way to clear that one.
 
 ## Connections that failed
 
-A request no rule refused can still come to nothing: the origin cannot be reached, answers nothing
-usable, breaks off mid-transfer, or its name resolves nowhere. The report tables those apart from
-what the rules did refuse, under **⚠️ Failed Connections**. Under `inspect`,
-**Communication details** shows each with ⚠️ too:
+A request no rule refused can still come to nothing: the origin answers nothing usable, breaks off
+mid-transfer, or its name resolves nowhere. The report tables those apart from what the rules did
+refuse, under **⚠️ Failed Connections**. Under `inspect`, **Communication details** shows each with
+⚠️ too:
 
 ```
 ⚠️ 00:12.004: GET https://registry.npmjs.org/big.tgz -> origin-aborted
@@ -423,21 +423,39 @@ what the rules did refuse, under **⚠️ Failed Connections**. Under `inspect`,
 
 | Reason               | What happened                                                           |
 | -------------------- | ----------------------------------------------------------------------- |
-| `origin-unreachable` | the connection to the origin could not be made at all                   |
-| `origin-no-response` | it was made, and no usable response headers came back                   |
+| `origin-no-response` | the connection was made, and no usable response headers came back       |
 | `origin-aborted`     | the response started and the transfer was cut short                     |
 | `dns-failed`         | the name resolved nowhere upstream, the rules having already allowed it |
+| `origin-unreachable` | a passthrough connection could not be made at all                       |
+
+What the first two have in common is a connection that completed, which is where the origin's
+certificate was checked: whatever went wrong afterwards went wrong with an origin Buildcage had
+authenticated. `dns-failed` never reached a connection, and a passthrough is relayed for the build
+to judge rather than decrypted, so no certificate of Buildcage's was involved in either.
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
-`dns-failed` is the only one of the four it can report. `inspect` reports all four.
+`dns-failed` is the only one of the four it can report.
 
-An origin Buildcage could not authenticate is **not** here: that is `origin-untrusted`, it stays in
-Blocked Hosts, and it does fail the step. The proxy connects to the origin with the certificate
-check on, so a forged certificate, an expired one and an origin speaking no TLS at all are all
-refusals of its own rather than the origin being down. See
+**A connection Buildcage never completed is not here.** It is a refusal, it is in Blocked Hosts, and
+it does fail the step:
+
+| Reason                  | What happened                                                            |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `origin-untrusted`      | the origin's certificate was presented and Buildcage would not accept it |
+| `origin-connect-failed` | the connection never completed, so no certificate was ever accepted      |
+
+`origin-untrusted` is the plain case: a forged certificate, an expired one, or an origin speaking no
+TLS at all. `origin-connect-failed` is the one that looks like an outage and cannot be shown to be
+one. HAProxy retries a failed connection, and the TLS error it reports belongs to the last attempt
+alone, so an impostor whose certificate is refused on one attempt leaves no trace once a later
+attempt fails at TCP. The report does not claim to tell that from an origin that is simply down: a
+connection it never completed is one whose origin it never authenticated. See
 [Attempts to get around it](./security.md#attempts-to-get-around-it).
 
-None of these fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
+A host that is flaky rather than hostile is cleared the way any expected refusal is, by listing it
+in `known_blocked_rules`.
+
+None of the four fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
 match, and an `allowed_*` entry is already there. What clears one is the origin coming back, or the
 build reaching for something that is up.

@@ -100,29 +100,35 @@ function isRefusal(terminationState: string): boolean {
  * is haproxy's own answer to bytes that parsed as no request at all, which the
  * method tells from a refusal the rules made.
  *
- * `SC` covers both a connection that could not be made and one this proxy would
- * not make, and `tlserr` is what tells them apart: the backend connects with
+ * Phase `C` is a connection that never completed, and both of its reasons are
+ * this proxy's own refusal. `tlserr` says which: the backend connects with
  * `ssl verify required` (see haproxy-sections.ts), and a handshake that failed
- * leaves haproxy's own error there where a connection that never got that far
- * leaves `-` or `0`. Any error counts, whether the certificate was forged or
- * the origin speaks no TLS at all: neither is an origin this proxy could
+ * leaves haproxy's own error there, so `origin-untrusted` names a certificate
+ * this proxy would not accept. Any error counts, whether it was forged or the
+ * origin speaks no TLS at all: neither is an origin this proxy could
  * authenticate, and reading only the verify error would let the second pass as
- * an outage. A flaky origin does not land here: measured on haproxy 3.4, a
- * close during the handshake leaves `0` whether it comes before or after the
- * ClientHello. `sC` is read as unreachable whatever `tlserr` holds: that is
- * this proxy's own timeout running out, which judged no certificate.
+ * an outage.
  *
- * `tlserr` belongs to the last connection attempt alone, and a failed handshake
- * is retried: measured on haproxy 3.4, a refused certificate logs `rc=3 ts=SC`
- * with the verify error, while the same origin going silent partway through
- * those retries logs `ts=SC tlserr=-`. An origin that presents a forged
- * certificate and then stops answering therefore reads as an outage here, and
- * no other field says otherwise.
+ * `origin-connect-failed` is the rest of that phase, and is a refusal too
+ * because it cannot be shown not to be one. `tlserr` belongs to the last
+ * connection attempt alone and a failed handshake is retried, so a certificate
+ * refused on one attempt leaves no trace once a later attempt fails at TCP:
+ * measured on haproxy 3.4, an impostor logs `rc=3 ts=SC` with the verify error,
+ * and the same impostor going silent partway through those retries logs
+ * `ts=SC tlserr=-`, which is what an origin that is merely down logs too. The
+ * report cannot tell them apart, so it does not claim to: a connection this
+ * proxy never completed is one whose origin it never authenticated. A host that
+ * is flaky rather than hostile is cleared the way any expected refusal is, with
+ * known_blocked_rules.
+ *
+ * `tlsError` is undefined where no stage checked a certificate at all. The
+ * passthrough relays the handshake for the build to judge, so a connection it
+ * could not make hid nothing and stays `origin-unreachable`.
  */
 function reasonFor(
   logged: string,
   terminationState: string,
-  tlsError: string,
+  tlsError: string | undefined,
   method: string,
 ): string {
   if (logged !== "-") return logged;
@@ -137,9 +143,10 @@ function reasonFor(
     case "L":
       return "origin-aborted";
     default:
+      if (tlsError === undefined) return "origin-unreachable";
       return cause === "S" && tlsError !== "-" && tlsError !== "0"
         ? "origin-untrusted"
-        : "origin-unreachable";
+        : "origin-connect-failed";
   }
 }
 
@@ -190,14 +197,17 @@ function incompleteReason(terminationState: string, method: string): string | un
 }
 
 /**
- * The refusals that are not this proxy's own: an origin that could not be
- * reached, answered nothing usable or broke off mid-transfer, and a name the
- * upstream resolver could not answer for a host the rules had already allowed.
- * See TrafficAction for what the report does with them.
+ * The failures that are not this proxy's own: an origin that answered nothing
+ * usable or broke off mid-transfer, one no passthrough could reach, and a name
+ * the upstream resolver could not answer for a host the rules had already
+ * allowed. See TrafficAction for what the report does with them.
  *
- * `origin-untrusted` is absent on purpose: an origin this proxy would not
- * authenticate is its own refusal, like an internal address, and the CA check
- * guards nothing if it does not fail a build. See reasonFor.
+ * What the first two share is a connection that completed, which is where the
+ * origin's certificate was checked: whatever went wrong afterwards, it went
+ * wrong with an origin this proxy had authenticated. An inspected connection
+ * that never completed is absent on purpose, `origin-connect-failed` as much as
+ * `origin-untrusted`: the check guards nothing if failing it does not fail a
+ * build, and the log cannot say which of the two it was. See reasonFor.
  */
 const FAILURE_REASONS = new Set([
   "origin-unreachable",
@@ -287,7 +297,7 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
     // This stage relays TLS rather than terminating it, so it has no backend
     // handshake to fail and phase `C` is only a connection that was not made.
     // It reads no request either, hence the method it could never log.
-    const reason = isRefusal(pass[4]) ? reasonFor(pass[5], pass[4], "-", "-") : undefined;
+    const reason = isRefusal(pass[4]) ? reasonFor(pass[5], pass[4], undefined, "-") : undefined;
     // An ip rule names an address and carries no SNI, so the address is the
     // only identity such a connection has.
     const sni = pass[8];
