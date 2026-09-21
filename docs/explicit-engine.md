@@ -98,5 +98,3 @@ TLS/certificate error under `explicit` — check that tool's documentation for a
 
 - [Explicit Proxy Engine](./security.md#explicit-proxy-engine) in Security Details — architecture,
   source-policy compilation, and coverage/visibility limits
-- [Explicit Engine Internals](./development.md#explicit-engine-internals) in the Development Guide —
-  the supervisor binary, gRPC interception, and policy compilation
