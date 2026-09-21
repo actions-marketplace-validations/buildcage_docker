@@ -26,8 +26,8 @@ export function renderInspectDetails(
 }
 
 // Not `discovery`'s ℹ️: neither reaches a table, but a lookup nothing can
-// answer is harmless where a failed connection is worth a look.
-const MARK: Record<string, string> = { block: "🚫", discovery: "ℹ️", aborted: "⚠️" };
+// answer is harmless where a request that never got decided is worth a look.
+const MARK: Record<string, string> = { block: "🚫", discovery: "ℹ️", incomplete: "⚠️" };
 
 function renderEvent(event: TrafficEvent, startedAt: number | undefined): string {
   const mark = MARK[event.action] ?? "✅";
@@ -98,9 +98,9 @@ function subject(event: TrafficEvent): string {
   // The type is what tells a fallback nobody notices from an outright failure.
   if (event.queryType !== undefined) return `DNS ${event.queryType} ${event.host}`;
   if (event.protocol === "dns") return `DNS ${event.host}`;
-  // A passthrough is never decrypted and an aborted connection sent no request,
-  // so for both a name and a port is all there is. Not written as a URL: that
-  // would drop a non-default port.
+  // A passthrough is never decrypted and a connection that delivered no whole
+  // request has nothing to show, so for both a name and a port is all there is.
+  // Not written as a URL: that would drop a non-default port.
   if (event.url === undefined) {
     return `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
   }
@@ -110,8 +110,9 @@ function subject(event: TrafficEvent): string {
 /** What came of it: a refusal names its reason, anything else its result. */
 function outcome(event: TrafficEvent): string {
   if (event.action === "block") return event.reason ?? "blocked";
-  // No status behind one, and the reason tells a close from a timeout.
-  if (event.action === "aborted") return event.reason ?? "aborted";
+  // No status behind one, and the reason tells a close from a timeout and both
+  // from bytes that never parsed.
+  if (event.action === "incomplete") return event.reason ?? "no request";
   if (event.action === "discovery") return `no data (${event.queryType} is never served)`;
   const parts: string[] = [];
   if (event.status !== undefined) parts.push(String(event.status));

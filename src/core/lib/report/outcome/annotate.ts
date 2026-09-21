@@ -1,19 +1,23 @@
 import type { Annotation } from "#core/lib/actions/annotation.ts";
 
 export interface OutcomeEmission {
-  level: "none" | "notice" | "error";
+  level: "none" | "notice" | "warning" | "error";
   message: string;
   shouldFail: boolean;
 }
 
-/** Emits the annotation for a computed report outcome and sets the process
- *  exit code if it calls for failing the step. Shared by outcome/emit.ts in
- *  the report action and writeReportSummary in the run action. */
-export function applyOutcomeAnnotation(
+/** Emits the annotations for a computed report outcome, in the order given, and
+ *  sets the process exit code if any of them calls for failing the step. Shared
+ *  by outcome/emit.ts in the report action and writeReportSummary in the run
+ *  action, so a report's annotations are decided in one place for both. */
+export function applyOutcomeAnnotations(
   annotation: Annotation,
-  { level, message, shouldFail }: OutcomeEmission,
+  emissions: OutcomeEmission[],
 ): void {
-  if (level === "error") annotation.error(message);
-  else if (level === "notice") annotation.notice(message);
-  if (shouldFail) process.exitCode = 1;
+  for (const { level, message, shouldFail } of emissions) {
+    if (level === "error") annotation.error(message);
+    else if (level === "warning") annotation.warning(message);
+    else if (level === "notice") annotation.notice(message);
+    if (shouldFail) process.exitCode = 1;
+  }
 }

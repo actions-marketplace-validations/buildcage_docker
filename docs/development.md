@@ -273,7 +273,7 @@ buildcage 1787471976000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=d
 ```
 
 Only the stage that terminates TLS has an SNI, so the plain-HTTP stage logs no such field. It is
-what names the host of a connection that closed before sending a request, where the method and the
+what names the host of a connection that delivered no whole request, where the method and the
 captured `Host` are both empty.
 
 The URL and the SNI come last because a build decides how long they are: every field the report
@@ -292,6 +292,7 @@ the way `explicit`'s per-step breakdown can:
 🚫 00:01.390: POST https://registry.npmjs.org/express/-rev/1-abc -> not-allowed
 ✅ 00:02.115: TLS db.example.com:5432 -> (12.3KB)
 ⚠️ 00:03.407: HTTPS untrusted-ca.example.com:443 -> client-aborted
+⚠️ 00:04.881: HTTP (unknown):5432 -> bad-request
 ```
 
 Times are relative to when the proxy started. A refusal names its reason rather than a status. The
@@ -300,12 +301,26 @@ Times are relative to when the proxy started. A refusal names its reason rather 
 a request buildcage refused (`not-allowed`), `C` an origin that could not be reached or verified,
 `H` one that never sent usable response headers, `D`/`L` one that cut the transfer short.
 
-The ⚠️ line is the exception: a termination state of `CR` or `cR` is the client itself giving up in
-phase `R`, before a whole request had arrived. The stage resolves and connects only after one
-parses, so nothing left the proxy: the logged `dst` is still the proxy's own address. That is
-neither an allow nor a block, and like a `discovery` lookup it stays out of both host tables so no
-row appears that no rule could take away. Only `R` counts: a later phase means the rules had
-already decided on a request.
+The ⚠️ lines are the exception: phase `R` is the stage still reading the request line and headers,
+and it resolves the `Host` and connects only after one has parsed, so nothing left the proxy. The
+cause tells what ended it there: `C` the client closing (`client-aborted`), `c` its own timeout
+expiring (`client-timeout`), `P` this proxy answering (`bad-request`), either HAProxy's own 400 for
+bytes it could not read as a request or a rule denying one whose `Host` never arrived. `P` in phase
+`R` is every ordinary refusal too, so the authority tells them apart: the URL is built from the
+captured `Host` and the path, for each of which HAProxy prints `-` when the request carried none, so
+an authority of exactly `-` is a missing `Host` and `--` is bytes that parsed as neither. A `Host`
+the build did send is logged as sent, hyphen-leading or not, and stays an ordinary refusal.
+
+None of the three is an allow or a block, and like a `discovery` lookup each stays out of both host
+tables, so no row appears that no rule could take away. A `::warning::` gives their count instead,
+the collapsed details section being their only other trace. Only phase `R` counts: a later phase
+means the rules had already decided on a request.
+
+The host of such a line is its SNI. Without one the `dst` stands in, but only on the TLS stage: a
+name-based client always sends an SNI, so a handshake carrying none was aimed at an address the
+build wrote out itself. The plain-HTTP stage logs no SNI field, and CoreDNS answers every name with
+the proxy's own address, so there a name-based connection's `dst` is the proxy itself and the host
+is reported as `(unknown)`.
 
 Each log is an s6-log directory rather than a single file: `current` rotates into a timestamped
 archive once it crosses 1MB, up to 100 archives kept, and a line is only ever split past 32KB. The

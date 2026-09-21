@@ -13,6 +13,13 @@ const TLS_PASS =
  *  proxy's own address as the destination and the SNI as the only name. */
 const ABORTED =
   "buildcage 1787471978 https <BADREQ> 400 0 ts=CR reason=- dst=172.20.0.1:443 sni=untrusted-ca.example.com https://--";
+/** Bytes haproxy answered 400 to itself, having read no request out of them:
+ *  `--` is the host and the path it never had. */
+const BAD_REQUEST =
+  "buildcage 1787471979 http <BADREQ> 400 0 ts=PR reason=- dst=172.20.0.1:8080 http://--";
+/** A request that parsed and carried no `Host`, so the rules had no host to
+ *  match and denied it. */
+const NO_HOST = "buildcage 1787471979 http GET 403 0 ts=PR reason=- dst=172.20.0.1:8080 http://-/x";
 /** What the resolver service echoes before CoreDNS starts. */
 const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
@@ -127,8 +134,27 @@ describe("buildInspectReportData", () => {
     expect(r.blockedCount).toBe(0);
     expect(r.passed.length).toBe(0);
     expect(r.timeline.length).toBe(1);
-    expect(r.timeline[0].action).toBe("aborted");
+    expect(r.timeline[0].action).toBe("incomplete");
     expect(r.timeline[0].host).toBe("untrusted-ca.example.com");
+  });
+
+  it("keeps a request that named no host out of both tables too", async () => {
+    // `--` and `-` are hosts no rule can name, so counting these as blocked
+    // puts rows in the table that no allowed_* rule reaches: restrict with
+    // fail_on_blocked would fail the build with nowhere to go.
+    const r = await buildInspectReportData([START, BAD_REQUEST, NO_HOST], [], reportParams());
+    expect(r.blocked.length).toBe(0);
+    expect(r.blockedCount).toBe(0);
+    expect(r.passed.length).toBe(0);
+    expect(r.timeline.map((e) => e.action)).toStrictEqual(["incomplete", "incomplete"]);
+    expect(r.timeline.map((e) => e.reason)).toStrictEqual(["bad-request", "bad-request"]);
+  });
+
+  it("still blocks a refusal whose request did name a host", async () => {
+    // Same termination state as the two above, told apart by the authority.
+    const r = await buildInspectReportData([START, REFUSED], [], reportParams());
+    expect(r.blockedCount).toBe(1);
+    expect(r.blocked[0].host).toBe("evil.example.com");
   });
 
   it("leaves the DNS refusal for such a host standing, as the one actionable row", async () => {

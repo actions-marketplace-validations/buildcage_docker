@@ -107,7 +107,7 @@ const timeline: TrafficEvent[] = [
   // Neither table can hold this one, so the detail section is where it shows.
   {
     time: 1787471979.123,
-    action: "aborted",
+    action: "incomplete",
     protocol: "https",
     host: "untrusted-ca.example.com",
     port: 443,
