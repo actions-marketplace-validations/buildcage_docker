@@ -50,10 +50,12 @@ Two components, plus a wrapper around runc:
   step that never touches its CA store leaves no trace of the injection in the image layers.
   Injection happens at exec time, never touches LLB, and so cannot affect a cache key.
 
-Where the proxy resolves a name is the container's own `/etc/resolv.conf`, in both engines. On a
-runner that is Docker's embedded DNS forwarding to the runner's own resolvers, so a name only an
-internal resolver knows still resolves, and the query follows the runner's own DNS policy. There is
-no search-domain expansion either way, so a rule has to name a host in full.
+Where the proxy resolves a name is the container's own `/etc/resolv.conf`, here and in `universal`.
+On a runner that is Docker's embedded DNS forwarding to the runner's own resolvers, so a name only an
+internal resolver knows still resolves, and the query follows the runner's own DNS policy.
+`EXTERNAL_RESOLVER` names upstreams explicitly instead, which is not an action input and only this
+repo's own integration tests set. Either way there is no search-domain expansion, so a rule has to
+name a host in full.
 
 Like `universal`, this engine governs `RUN` step traffic only: its iptables rule redirects what
 arrives on the CNI bridge. buildkitd's own egress is left alone, so `FROM`, `ADD <url>`, git

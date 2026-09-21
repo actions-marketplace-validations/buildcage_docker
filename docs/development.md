@@ -49,6 +49,11 @@ stack (see [Engines](../README.md#engines)).
 in TypeScript. `PROXY_ENGINE` here is a raw Compose build-context selector with no alias layer, so
 it does not understand that name.
 
+`EXTERNAL_RESOLVER` is the one variable here with no action input behind it: the action pins it empty
+(`src/lib/compose-env.ts`), and locally it takes a comma-separated list of IPv4 addresses for HAProxy
+to resolve against in place of the container's own `/etc/resolv.conf`. The integration tests set it
+to reach their own fixture resolver.
+
 ### End-to-End Workflow
 
 ```bash
@@ -296,10 +301,11 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   │                         # ref, compose up. src/main.ts is only the entry guard
 │   ├── lib/                  # The setup action's own modules; setup-step.ts is the step itself
 │   └── core/                 # Code shared across both actions
-│       ├── lib/              # acl/ (rule parsing and the proxy config generators) is the one
-│       │                     # part built for both runtimes; log/, report/, docker/,
-│       │                     # provenance/ and actions/ are Node-only, and test/test-shim.ts is
-│       │                     # the node:test-alike shim *.test.ts uses under either runtime
+│       ├── lib/              # acl/ (rule parsing and the proxy config generators) is built for
+│       │                     # both runtimes, and so is anything it imports — errors.ts today.
+│       │                     # log/, report/, docker/, provenance/ and actions/ are Node-only,
+│       │                     # and test/test-shim.ts is the node:test-alike shim *.test.ts uses
+│       │                     # under either runtime
 │       └── scripts/          # QuickJS entry points, rolldown-bundled into
 │                             # /opt/buildcage/scripts/ at image build time
 ├── dist/                     # Bundled output (rolldown → CommonJS), committed. dist/qjs,
@@ -314,8 +320,6 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   │                         # buildcage-runc/ (Go module: CA trust at exec time)
 │   └── explicit/             # proxy_engine: explicit (deprecated) — buildkit-proxy/ (Go module:
 │                             # PID 1, supervises buildkitd, injects the source policy)
-│                             # Each engine also carries scripts/report-action.node.ts, which runs
-│                             # under Node on the runner after the report action copies it out
 ├── test/                     # Dockerfile.*/assert-*.sh per {engine}-{mode}, plus the fixture
 │                             # containers. helpers.sh carries what every assert script shares
 ├── compose.test-*.yaml       # Test override config, one per engine
@@ -327,6 +331,12 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 ├── compose.yaml              # Local-dev compose config (dockerfile selected by PROXY_ENGINE)
 └── Makefile                  # Operational commands
 ```
+
+Every engine directory carries a `scripts/` of its own. `report-action.node.ts` is in all three, and
+runs under Node on the runner after the report action copies it out of the image. `inspect` and
+`explicit` each have a QuickJS entry point beside it (`gen-configs.qjs.ts`,
+`gen-source-policy.qjs.ts`), so those two directories are a second QuickJS build target alongside
+`src/core/scripts/`; `tsconfig.qjs.json` names all of them.
 
 ## Troubleshooting
 
