@@ -1,0 +1,473 @@
+package main
+
+import (
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+)
+
+// mustHardLink gives one file two names, which is what an overlay's upper
+// directory and its merged view are: the listing and the removal reach the
+// same bytes by different paths.
+func mustHardLink(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.Link(from, to); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// mountLine is the shape /proc/self/mountinfo writes, taken from a real build:
+//
+//	339 508 0:114 / /var/lib/buildkit/.../rootfs rw,relatime - overlay overlay
+//	rw,lowerdir=...,upperdir=.../snapshots/4/fs,workdir=...,uuid=on,nouserxattr
+func mountLine(mountPoint, fstype, superOptions string) string {
+	return fmt.Sprintf("339 508 0:114 / %s rw,relatime shared:1 - %s overlay %s",
+		mountPoint, fstype, superOptions)
+}
+
+func overlayLine(mountPoint, upper string) string {
+	return mountLine(mountPoint, "overlay", "rw,lowerdir=/l,upperdir="+upper+",workdir=/w,nouserxattr")
+}
+
+// useMountInfo hands upperDirOf these lines instead of the test process's own
+// mount table, which holds no overlay over a temporary directory.
+func useMountInfo(t *testing.T, lines ...string) {
+	t.Helper()
+	old := readMountInfo
+	readMountInfo = func() ([]byte, error) { return []byte(strings.Join(lines, "\n") + "\n"), nil }
+	t.Cleanup(func() { readMountInfo = old })
+}
+
+func TestUpperDirOfReadsTheStepsOwnLayer(t *testing.T) {
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	upper := filepath.Join(root, "snapshots", "4", "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+
+	useMountInfo(t, overlayLine(rootfs, upper))
+	if got := upperDirOf(rootfs); got != upper {
+		t.Fatalf("got %q, want %q", got, upper)
+	}
+}
+
+// The kernel escapes the characters that would otherwise end a field, and the
+// wrapper is handed whatever --bundle said, which may be relative. Neither can
+// be compared as text, so the mount point is compared as a directory.
+func TestUpperDirOfMatchesTheMountPointHoweverItIsWritten(t *testing.T) {
+	root := t.TempDir()
+	upper := filepath.Join(root, "fs")
+	mustMkdirAll(t, upper)
+
+	t.Run("an escaped mount point", func(t *testing.T) {
+		rootfs := filepath.Join(root, "root fs")
+		mustMkdirAll(t, rootfs)
+		useMountInfo(t, overlayLine(strings.ReplaceAll(rootfs, " ", `\040`), upper))
+		if got := upperDirOf(rootfs); got != upper {
+			t.Fatalf("got %q, want %q", got, upper)
+		}
+	})
+
+	t.Run("a rootfs named relatively", func(t *testing.T) {
+		rootfs := filepath.Join(root, "relative")
+		mustMkdirAll(t, rootfs)
+		useMountInfo(t, overlayLine(rootfs, upper))
+		t.Chdir(root)
+		if got := upperDirOf("relative"); got != upper {
+			t.Fatalf("got %q, want %q", got, upper)
+		}
+	})
+}
+
+// Without an upper directory there is no layer to read back, which is what a
+// snapshotter other than overlayfs leaves and what a mount table this cannot
+// read with certainty has to be treated as.
+func TestUpperDirOfReportsNoLayerItCanBeSureOf(t *testing.T) {
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	upper := filepath.Join(root, "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+	mustWriteFile(t, filepath.Join(root, "file"), "not a directory\n")
+
+	cases := map[string][]string{
+		"no mount over the rootfs at all": {overlayLine(filepath.Join(root, "elsewhere"), upper)},
+		"a rootfs that is not an overlay": {mountLine(rootfs, "ext4", "rw,upperdir="+upper)},
+		"a mount point no longer there":   {overlayLine(filepath.Join(root, "gone"), upper)},
+		"an overlay naming no upperdir":   {mountLine(rootfs, "overlay", "rw,lowerdir=/l,workdir=/w")},
+		"a line cut short":                {"339 508 0:114 / " + rootfs + " rw,relatime"},
+		// A comma inside the path ends the option early, and what comes out is
+		// half a path rather than the layer.
+		"a comma in the upper directory": {overlayLine(rootfs, upper+"/a,b")},
+		"an upperdir that is a file":     {overlayLine(rootfs, filepath.Join(root, "file"))},
+		// The later mount covers the earlier one, so the earlier one's upper
+		// directory is not where this step's writes went.
+		"a later mount naming no upperdir": {
+			overlayLine(rootfs, upper),
+			mountLine(rootfs, "overlay", "rw,lowerdir=/l,workdir=/w"),
+		},
+	}
+	for name, lines := range cases {
+		t.Run(name, func(t *testing.T) {
+			useMountInfo(t, lines...)
+			if got := upperDirOf(rootfs); got != "" {
+				t.Fatalf("got %q, want no layer", got)
+			}
+		})
+	}
+}
+
+// Two mounts over one point are stacked, and it is the last one the step wrote
+// through.
+func TestUpperDirOfTakesTheLastMountOverThePoint(t *testing.T) {
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	for _, dir := range []string{rootfs, first, second} {
+		mustMkdirAll(t, dir)
+	}
+
+	useMountInfo(t, overlayLine(rootfs, first), overlayLine(rootfs, second))
+	if got := upperDirOf(rootfs); got != second {
+		t.Fatalf("got %q, want %q", got, second)
+	}
+}
+
+func TestUpperDirOfReportsWhatItCannotRead(t *testing.T) {
+	t.Run("a rootfs that is not there", func(t *testing.T) {
+		useMountInfo(t)
+		if got := upperDirOf(filepath.Join(t.TempDir(), "gone")); got != "" {
+			t.Fatalf("got %q, want no layer", got)
+		}
+	})
+
+	t.Run("a mount table that cannot be read", func(t *testing.T) {
+		old := readMountInfo
+		readMountInfo = func() ([]byte, error) { return nil, errBrokenFile }
+		t.Cleanup(func() { readMountInfo = old })
+		if got := upperDirOf(t.TempDir()); got != "" {
+			t.Fatalf("got %q, want no layer", got)
+		}
+	})
+}
+
+func TestUnescapeMountInfoDecodesTheCharactersTheKernelEscapes(t *testing.T) {
+	cases := map[string]string{
+		`/var/lib/buildkit`:  "/var/lib/buildkit",
+		`/a\040b/c\011d`:     "/a b/c\td",
+		`/a\134b`:            `/a\b`,
+		`/trailing\`:         `/trailing\`,
+		`/not\9zz/an/escape`: `/not\9zz/an/escape`,
+	}
+	for field, want := range cases {
+		if got := unescapeMountInfo(field); got != want {
+			t.Errorf("unescapeMountInfo(%q) = %q, want %q", field, got, want)
+		}
+	}
+}
+
+// trustedCopy is the certificate re-armoured the way a RHEL rebuild leaves it
+// in ca-bundle.trust.crt: the DER with the trust settings appended, under a
+// label of its own. Neither the raw DER nor the whole base64 of the original
+// matches it, which is why detection decodes the block.
+func trustedCopy(der []byte) string {
+	body := base64.StdEncoding.EncodeToString(append(append([]byte{}, der...), "TRUST-SETTINGS"...))
+	return "-----BEGIN TRUSTED CERTIFICATE-----\n" + body + "\n-----END TRUSTED CERTIFICATE-----\n"
+}
+
+// Every shape the four distributions were measured leaving a copy in.
+func TestSweepDirTakesOutEveryShapeOfCopy(t *testing.T) {
+	cases := map[string]string{
+		"a plain PEM copy":         string(testCA),
+		"a re-armoured PEM copy":   trustedCopy(testDER),
+		"a Java keystore":          string(keystore(2, trustedEntry(2, "buildcage", testDER))),
+		"a copy beside other work": "NOTES\n" + string(otherCA) + string(testCA),
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			mustWriteFile(t, filepath.Join(dir, "copy"), content)
+
+			if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+				t.Fatal(err)
+			}
+			left, err := verifyLayer(dir, certificateDERs(testCA))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(left) != 0 {
+				t.Fatalf("the certificate is still in %v", left)
+			}
+		})
+	}
+}
+
+// What the sweep is worth without any injection of its own: a step that copies
+// the store puts the certificate somewhere no list of paths would name.
+func TestSweepDirLeavesTheRestOfACopyIntact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.pem")
+	mustWriteFile(t, path, string(otherCA)+string(testCA))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(otherCA) {
+		t.Fatalf("got %q, want the bundle's own certificate alone", got)
+	}
+}
+
+// Detection covers every container; removal does not. A format this cannot
+// rewrite is named and fails the build rather than being left in the layer.
+func TestSweepDirFailsOnAContainerItCannotRewrite(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "cacerts.bin"), "EFI-VAR\x00"+string(testDER)+"\x00")
+
+	_, err := sweepDir(dir, dir, testCA, certificateDERs(testCA))
+	if !errors.Is(err, errUnstrippableCA) {
+		t.Fatalf("got %v, want the container to be reported", err)
+	}
+	if !strings.Contains(err.Error(), "cacerts.bin") {
+		t.Fatalf("got %v, want it to name the file", err)
+	}
+}
+
+// The sweep reads every byte a step wrote, so anything it is not here for has
+// to come out the other side untouched. On an overlay, even opening one for
+// writing would copy it into the layer.
+func TestSweepDirLeavesWhatDoesNotHoldTheCertificate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "roots.pem")
+	mustWriteFile(t, path, string(otherCA))
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := sweepDir(dir, dir, testCA, certificateDERs(testCA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != 1 {
+		t.Fatalf("read %d files, want 1", files)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Error("an untouched file was written to")
+	}
+}
+
+// Nothing but a regular file can hold a certificate, and a whiteout is a
+// character device the wrapper must not read as one.
+func TestSweepDirReadsOnlyRegularFiles(t *testing.T) {
+	dir := t.TempDir()
+	mustMkdirAll(t, filepath.Join(dir, "opaque"))
+	if err := os.Symlink("copy", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, "fifo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(dir, "copy"), string(testCA))
+
+	files, err := sweepDir(dir, dir, testCA, certificateDERs(testCA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != 1 {
+		t.Fatalf("read %d files, want only the regular one", files)
+	}
+}
+
+// The listing and the removal are two different directories for a layer: what
+// to look at comes from the overlay's upper directory, and the removal goes
+// through the rootfs, where a path the listing named may not resolve.
+func TestSweepDirReportsAPathItCannotResolveUnderTheRoot(t *testing.T) {
+	upper, root := t.TempDir(), t.TempDir()
+	mustMkdirAll(t, filepath.Join(upper, "etc"))
+	mustWriteFile(t, filepath.Join(upper, "etc", "copy.pem"), string(testCA))
+	if err := os.Symlink("etc", filepath.Join(root, "etc")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sweepDir(upper, root, testCA, certificateDERs(testCA)); !errors.Is(err, errTooManySymlinks) {
+		t.Fatalf("got %v, want the unresolvable path to be reported", err)
+	}
+}
+
+func TestSweepDirReportsADirectoryItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	failWalkOn(t, dir, 1)
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); !errors.Is(err, errBrokenWalk) {
+		t.Fatalf("got %v, want the failed listing to be reported", err)
+	}
+}
+
+func TestSweepDirReportsAFileItCannotRead(t *testing.T) {
+	skipIfRoot(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "copy")
+	mustWriteFile(t, path, string(testCA))
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err == nil {
+		t.Fatal("expected the unreadable file to be reported")
+	}
+}
+
+func TestSweepDirReportsAFileItCannotStat(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "copy"), string(testCA))
+	useBrokenBundleFile(t, &brokenFile{failStat: true})
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want the stat failure to be reported", err)
+	}
+}
+
+// stripLayer is what finish calls, and it reads the layer back rather than
+// trusting the removals it just made.
+func TestStripLayerSweepsAndThenChecksItself(t *testing.T) {
+	root := t.TempDir()
+	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+	// The same file under both names, which is what an overlay's upper
+	// directory and its merged view are.
+	mustWriteFile(t, filepath.Join(upper, "bundle.pem"), string(testCA))
+	mustHardLink(t, filepath.Join(upper, "bundle.pem"), filepath.Join(rootfs, "bundle.pem"))
+	// A second file, so the sweep reads more than the one it has to change.
+	mustWriteFile(t, filepath.Join(upper, "roots.pem"), string(otherCA))
+	mustHardLink(t, filepath.Join(upper, "roots.pem"), filepath.Join(rootfs, "roots.pem"))
+	useMountInfo(t, overlayLine(rootfs, upper))
+
+	if err := stripLayer(rootfs, testCA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(upper, "bundle.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %q, want the certificate gone from the layer", got)
+	}
+}
+
+// Without a layer to read back there is nothing to check a removal against, so
+// the sweep is skipped and the engine behaves as it did before.
+func TestStripLayerSkipsWhatIsNotAnOverlay(t *testing.T) {
+	rootfs := t.TempDir()
+	mustWriteFile(t, filepath.Join(rootfs, "bundle.pem"), string(testCA))
+	useMountInfo(t, mountLine(rootfs, "ext4", "rw"))
+
+	if err := stripLayer(rootfs, testCA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(rootfs, "bundle.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(testCA) {
+		t.Fatalf("got %q, want the file left alone", got)
+	}
+}
+
+// The check after the sweep is the guarantee: a copy the removal could not
+// reach fails the build rather than reaching the image.
+func TestStripLayerFailsOnACopyItCouldNotRemove(t *testing.T) {
+	root := t.TempDir()
+	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+	mustWriteFile(t, filepath.Join(upper, "cacerts.bin"), "EFI-VAR\x00"+string(testDER))
+	mustHardLink(t, filepath.Join(upper, "cacerts.bin"), filepath.Join(rootfs, "cacerts.bin"))
+	useMountInfo(t, overlayLine(rootfs, upper))
+
+	if err := stripLayer(rootfs, testCA); !errors.Is(err, errUnstrippableCA) {
+		t.Fatalf("got %v, want the build to be failed", err)
+	}
+}
+
+// The second reading is a reading of the layer, so it reports a failure of its
+// own rather than the sweep's conclusion.
+func TestStripLayerReportsADirectoryItCannotReadBack(t *testing.T) {
+	root := t.TempDir()
+	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+	useMountInfo(t, overlayLine(rootfs, upper))
+	failWalkOn(t, upper, 2)
+
+	if err := stripLayer(rootfs, testCA); !errors.Is(err, errBrokenWalk) {
+		t.Fatalf("got %v, want the failed listing to be reported", err)
+	}
+}
+
+// A copy the sweep believes it removed but has not is still in the layer, and
+// the reading back is what says so.
+func TestStripLayerFailsOnWhatTheSweepMissed(t *testing.T) {
+	root := t.TempDir()
+	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
+	mustMkdirAll(t, rootfs)
+	mustMkdirAll(t, upper)
+	mustWriteFile(t, filepath.Join(upper, "bundle.pem"), string(testCA))
+	// The removal goes through the rootfs, where this test leaves nothing, so
+	// the layer keeps its copy and only the reading back notices.
+	useMountInfo(t, overlayLine(rootfs, upper))
+
+	err := stripLayer(rootfs, testCA)
+	if err == nil || !strings.Contains(err.Error(), "still in the step's layer") {
+		t.Fatalf("got %v, want the leftover copy to fail the build", err)
+	}
+	if !strings.Contains(err.Error(), "bundle.pem") {
+		t.Fatalf("got %v, want it to name the file", err)
+	}
+}
+
+// The scan looks for the certificate and then reads a block back to decode it,
+// and a read failing at either point is the wrapper's own.
+func TestSweepDirReportsAFailedRead(t *testing.T) {
+	for name, broken := range map[string]*brokenFile{
+		"looking for the certificate": {failReadAt: 1},
+		"reading a block back":        {failReadAt: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			mustWriteFile(t, filepath.Join(dir, "copy"), string(testCA))
+			useBrokenBundleFile(t, broken)
+
+			if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); !errors.Is(err, errBrokenFile) {
+				t.Fatalf("got %v, want the read failure to be reported", err)
+			}
+		})
+	}
+}
+
+// A keystore this cannot reseal fails the build rather than being rewritten
+// into one the JVM that owns it can no longer open.
+func TestSweepDirFailsOnAKeystoreItCannotReseal(t *testing.T) {
+	dir := t.TempDir()
+	sealed := keystore(2, trustedEntry(2, "buildcage", testDER))
+	sealed[len(sealed)-1] ^= 0xff
+	mustWriteFile(t, filepath.Join(dir, "cacerts"), string(sealed))
+
+	_, err := sweepDir(dir, dir, testCA, certificateDERs(testCA))
+	if err == nil || !strings.Contains(err.Error(), "system keystore password") {
+		t.Fatalf("got %v, want the seal to fail the build", err)
+	}
+}

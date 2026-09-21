@@ -1,0 +1,285 @@
+package main
+
+// The step's layer, rather than a list of paths, is what the undo is measured
+// against.
+//
+// The certificate is an input to the distribution's own trust machinery, and
+// every rebuild of it spreads copies in a shape of its own: a bundle, a copy
+// under the store directory, hash links, and on a system carrying a JRE the
+// JVM's own keystore, whose path holds the vendor and version of whatever JDK
+// the step installed. Those cannot be listed ahead of time.
+//
+// What can be read back is the layer. BuildKit runs each step on an overlay
+// whose upper directory holds exactly what that step created or changed, and
+// commits that directory as the step's layer. So "the injection leaves no
+// trace" is "no file in the upper directory carries the certificate", which is
+// a question that can be asked of the layer itself.
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// errUnstrippableCA means a copy of the certificate is in a container this
+// cannot rewrite. Detection covers every format; removal does not, and the
+// difference fails the build rather than passing silently.
+var errUnstrippableCA = errors.New("the certificate is in a format this cannot strip")
+
+// readMountInfo is a var so tests can hand the parser lines captured from a
+// real build rather than the test process's own mount table.
+var readMountInfo = func() ([]byte, error) { return os.ReadFile("/proc/self/mountinfo") }
+
+// upperDirOf returns where the step's own writes land: the upper layer of the
+// overlay mounted at rootfs, which is what BuildKit commits.
+//
+// Empty when there is no such layer to read, which is what a snapshotter other
+// than overlayfs leaves, and when the mount table does not name one with
+// certainty.
+func upperDirOf(rootfs string) string {
+	want, err := os.Stat(rootfs)
+	if err != nil {
+		logf("cannot read %s to find the step's layer: %v", rootfs, err)
+		return ""
+	}
+	table, err := readMountInfo()
+	if err != nil {
+		logf("cannot read the mount table to find the step's layer: %v", err)
+		return ""
+	}
+
+	upper := ""
+	for _, line := range strings.Split(string(table), "\n") {
+		// A line is `id parent major:minor root mountpoint options
+		// [optional]... - fstype source superoptions`. The optional fields
+		// make the tail's position vary, so it is found from the separator
+		// rather than counted from the front.
+		fields := strings.Fields(line)
+		separator := slices.Index(fields, "-")
+		if separator < 6 || len(fields) < separator+4 {
+			continue
+		}
+		if fields[separator+1] != "overlay" {
+			continue
+		}
+		// Compared as a directory rather than as text: the mount point is
+		// written with the kernel's own escaping, and the rootfs arrives as
+		// whatever --bundle happened to say, which may be relative.
+		at, err := os.Stat(unescapeMountInfo(fields[4]))
+		if err != nil || !os.SameFile(want, at) {
+			continue
+		}
+		// A later mount over the same point covers an earlier one, so it is
+		// the last line that says where the step's writes went.
+		upper = ""
+		for _, option := range strings.Split(fields[separator+3], ",") {
+			if value, ok := strings.CutPrefix(option, "upperdir="); ok {
+				upper = unescapeMountInfo(value)
+			}
+		}
+	}
+	if upper == "" {
+		return ""
+	}
+	if info, err := os.Stat(upper); err != nil || !info.IsDir() {
+		// A comma in the path ends the option early and leaves half of it
+		// here. The layer is not guessed at from that.
+		logf("the overlay at %s names an upper directory that cannot be read", rootfs)
+		return ""
+	}
+	return filepath.Clean(upper)
+}
+
+// unescapeMountInfo decodes the octal escapes the kernel writes for the
+// characters that would otherwise end a field: space, tab, newline, backslash.
+func unescapeMountInfo(field string) string {
+	if !strings.Contains(field, `\`) {
+		return field
+	}
+	var out strings.Builder
+	for i := 0; i < len(field); {
+		if field[i] == '\\' && i+3 < len(field) {
+			if value, err := strconv.ParseUint(field[i+1:i+4], 8, 8); err == nil {
+				out.WriteByte(byte(value))
+				i += 4
+				continue
+			}
+		}
+		out.WriteByte(field[i])
+		i++
+	}
+	return out.String()
+}
+
+// eachFileHoldingCA reads every file listed under dir and calls hit with the
+// path of each one carrying the certificate, relative to dir. It returns how
+// many files it read.
+//
+// Only regular files are read. A whiteout is a character device, an opaque
+// directory is a directory, and a symlink carries a path rather than bytes:
+// none of them can hold a certificate, and the file a link points at is
+// listed in its own right if it is here at all.
+func eachFileHoldingCA(dir string, ders [][]byte, hit func(rel string) error) (int, error) {
+	dir = filepath.Clean(dir)
+	files := 0
+	err := walkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		files++
+		found, err := fileHoldsCA(path, ders)
+		if err != nil || !found {
+			return err
+		}
+		return hit(path[len(dir):])
+	})
+	return files, err
+}
+
+// fileHoldsCA reports whether the file at path carries the certificate. It is
+// opened read-only: on an overlay, opening a file for writing copies it up
+// into the layer, which would put a file the image shipped there for nothing.
+//
+// A path that is not there holds nothing, the same way removeCA treats one.
+// What is in the layer is settled by reading the layer back, not here.
+func fileHoldsCA(path string, ders [][]byte) (bool, error) {
+	f, err := openBundle(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, asNotRegular(path, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	return scanForCA(f, info.Size(), ders)
+}
+
+// sweepDir takes the certificate out of every file under listing that holds
+// one, and returns how many files it read.
+//
+// The two directories differ for the layer: what to look at comes from the
+// overlay's upper directory, but each removal goes through the rootfs, because
+// writing into the upper directory would step around the whiteouts overlay
+// keeps there. For a mirror they are the same directory.
+func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
+	var unstrippable []string
+	files, err := eachFileHoldingCA(listing, ders, func(rel string) error {
+		target, err := resolveInRoot(root, rel)
+		if err != nil {
+			return err
+		}
+		left, err := stripCA(target, ca, ders)
+		if err != nil {
+			return err
+		}
+		if left {
+			unstrippable = append(unstrippable, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return files, err
+	}
+	if len(unstrippable) > 0 {
+		return files, fmt.Errorf("%w: %s", errUnstrippableCA, strings.Join(unstrippable, " "))
+	}
+	return files, nil
+}
+
+// stripCA takes the certificate out of one file, in whichever shape it is in
+// there, and reports whether a copy is still in it afterwards.
+func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
+	// Read-only first, even though the listing already said this file carries
+	// the certificate: the listing named it under a different directory, and
+	// on an overlay, opening a file for writing copies it up into the layer.
+	// Nothing that does not carry the certificate is opened for writing.
+	carries, err := fileHoldsCA(path, ders)
+	if err != nil || !carries {
+		return false, err
+	}
+	if err := removeCA(path, ca); err != nil {
+		return false, err
+	}
+	left, err := fileHoldsCA(path, ders)
+	if err != nil || !left {
+		return false, err
+	}
+	// Armoured copies are gone, so what is left is a container holding the DER
+	// among its own bytes. A Java keystore is the one that can be rewritten;
+	// any other is reported rather than left in.
+	rewritten, err := removeFromKeystore(path, ders)
+	if err != nil {
+		return false, err
+	}
+	if !rewritten {
+		return true, nil
+	}
+	return fileHoldsCA(path, ders)
+}
+
+// stripLayer takes the certificate out of the step's own layer, then reads the
+// layer back to say whether any of it is left.
+//
+// Reading it back is the check that matters: the guarantee is about what
+// BuildKit commits, not about what the removals above believed they did.
+func stripLayer(rootfs string, ca []byte) error {
+	upper := upperDirOf(rootfs)
+	if upper == "" {
+		// Nothing to read the removal back from. The mirrors' own undo is
+		// unaffected, so this is the behaviour the engine had before.
+		logf("the step's layer is not an overlay upper directory; leaving it unswept")
+		return nil
+	}
+
+	ders := certificateDERs(ca)
+	started := time.Now()
+	files, err := sweepDir(upper, rootfs, ca, ders)
+	if err != nil {
+		return err
+	}
+	left, err := verifyLayer(upper, ders)
+	// Paths only, never what is in them: the sweep reads every byte the step
+	// wrote, tokens and credentials among them.
+	logf("swept %s of the step's layer at %s in %s", plural(files, "file"), upper, time.Since(started).Round(time.Millisecond))
+	if err != nil {
+		return err
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("the certificate is still in the step's layer: %s", strings.Join(left, " "))
+	}
+	return nil
+}
+
+// plural writes a count with the word it counts, agreeing with it. The log
+// line it goes in is what a build is read back through, so a step that wrote
+// one file should not report "1 files".
+func plural(n int, word string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, word)
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// verifyLayer lists what still carries the certificate after a sweep.
+func verifyLayer(upper string, ders [][]byte) ([]string, error) {
+	var left []string
+	_, err := eachFileHoldingCA(upper, ders, func(rel string) error {
+		left = append(left, rel)
+		return nil
+	})
+	return left, err
+}

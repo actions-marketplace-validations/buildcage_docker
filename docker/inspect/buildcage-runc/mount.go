@@ -282,15 +282,13 @@ func (b *dirBind) finish() error {
 		return nil
 	}
 
-	for _, name := range b.bundleFiles {
-		if err := removeCA(filepath.Join(b.scratchDir, name), b.ca); err != nil {
-			if errors.Is(err, errNotRegular) {
-				// Not the wrapper's to open; write-back below mirrors it as-is.
-				logf("cannot restore %s: %v; leaving it as the step left it", name, err)
-				continue
-			}
-			return err
-		}
+	// The whole mirror, not only the files the CA was added to. With a store,
+	// the step's writes land here rather than in the overlay's upper
+	// directory, so a copy the step left beside the bundle is not in the layer
+	// for stripLayer to find: it only gets there when the write-back below
+	// copies it up.
+	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, certificateDERs(b.ca)); err != nil {
+		return err
 	}
 
 	stripped, err := captureManifest(b.scratchDir)
