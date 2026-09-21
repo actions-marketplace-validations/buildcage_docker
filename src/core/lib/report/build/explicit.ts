@@ -22,6 +22,9 @@ export async function buildExplicitReportData(
     parameters,
     passed,
     blocked,
+    // buildkitd's log records what it refused and nothing else, so a request
+    // that failed after being allowed never appears in it.
+    failed: [],
     blockedCount,
     logLooksPlausible: hasNonDenialContent,
     proxyLogs: {

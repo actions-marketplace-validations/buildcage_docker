@@ -15,6 +15,7 @@ export async function buildUniversalReportData(
   const {
     passed,
     blocked: blockedRawRows,
+    failed,
     blockedCount,
     headIntact,
     unparsed,
@@ -26,6 +27,7 @@ export async function buildUniversalReportData(
     parameters,
     passed,
     blocked,
+    failed,
     blockedCount,
     // A decision line this cannot read may well have been a refusal, so it
     // counts the same as a log whose beginning is gone.

@@ -68,7 +68,15 @@ export function renderReportMarkdown(
       renderHostTable(blocked, { showReason: true, showExpected }) +
       "\n";
   }
-  if (report.passed.length === 0 && report.blocked.length === 0) {
+  if (report.failed.length > 0) {
+    if (report.passed.length > 0 || report.blocked.length > 0) markdown += "\n";
+    markdown +=
+      "### ⚠️ Failed Connections\n\n" +
+      renderHostTable(report.failed, { showReason: true }) +
+      "\n\n<sub>*Note: no rule refused these; the connection itself did not complete, so no rule " +
+      "can change the outcome and none of them fails the step.*</sub>\n";
+  }
+  if (report.passed.length === 0 && report.blocked.length === 0 && report.failed.length === 0) {
     // Otherwise a no-traffic build leaves nothing between the heading and the
     // footer, indistinguishable from a report that failed to generate.
     markdown += "_(no communication)_\n\n";

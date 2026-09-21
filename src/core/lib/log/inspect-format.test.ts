@@ -26,6 +26,7 @@ const SAMPLES: Record<string, string> = {
   "%B": "708",
   "%ts": "--",
   "%[var(txn.reason)]": "-",
+  "%[ssl_bc_err]": "-",
   "%[dst]": "10.200.0.100",
   "%[dst_port]": "9443",
   "%[capture.req.hdr(0)]": "registry.npmjs.org",
@@ -107,20 +108,49 @@ describe("the generated log-format and this parser describe the same line", () =
   it("reads a refusal the config named out of the reason field", async () => {
     const line = render(
       HTTPS,
+      { "%ts": "PR--", "%ST": "403", "%B": "0" },
+      { reason: "internal-address" },
+    );
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("internal-address");
+    expect(e.status === undefined).toBe(true);
+  });
+
+  it("reads an upstream resolution failure as failed, not as a refusal", async () => {
+    const line = render(
+      HTTPS,
       { "%ts": "PR--", "%ST": "502", "%B": "0" },
       { reason: "dns-failed" },
     );
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
+    expect(e.action).toBe("failed");
     expect(e.reason).toBe("dns-failed");
     expect(e.status === undefined).toBe(true);
   });
 
-  it("names a refusal the config left unnamed from the termination phase", async () => {
+  it("names a failure the config left unnamed from the termination phase", async () => {
     const line = render(HTTPS, { "%ts": "SH--", "%ST": "502", "%B": "0" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
+    expect(e.action).toBe("failed");
     expect(e.reason).toBe("origin-no-response");
+  });
+
+  // Both end in the same termination state, so the field is the only thing
+  // between them.
+  it("tells an origin it would not trust from one it could not reach", async () => {
+    const connect = { "%ts": "SC--", "%ST": "503", "%B": "0" };
+    const [unreachable] = (
+      await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "-" })])
+    ).events;
+    expect(unreachable.reason).toBe("origin-unreachable");
+    expect(unreachable.action).toBe("failed");
+
+    const [untrusted] = (
+      await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "167772294" })])
+    ).events;
+    expect(untrusted.reason).toBe("origin-untrusted");
+    expect(untrusted.action).toBe("block");
   });
 
   // What a client that finished the handshake and then left produces, and what

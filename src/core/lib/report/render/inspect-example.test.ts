@@ -219,6 +219,15 @@ describe("buildUrlRuleLines", () => {
     ];
     expect(buildUrlRuleLines(events).length).toBe(0);
   });
+
+  it("builds a rule from a request the origin failed to answer", () => {
+    const failed: TrafficEvent = {
+      ...req("GET", "https://a.example.com/x"),
+      action: "failed",
+      reason: "origin-no-response",
+    };
+    expect(buildUrlRuleLines([failed])).toStrictEqual(["GET https://a.example.com/x"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

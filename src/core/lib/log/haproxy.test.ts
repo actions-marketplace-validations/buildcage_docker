@@ -21,6 +21,14 @@ describe("scanHaproxyLog", () => {
     expect(result.blockedCount).toBe(1);
   });
 
+  it("tables a name the upstream resolver could not answer as failed, not blocked", async () => {
+    const log = '[2024-01-01T00:00:00] buildcage [BLOCKED] (HTTPS) "absent.com:443" dns-failed';
+    const result = await scanHaproxyLog(log.split("\n"), false);
+    expect(result.failed.map((row) => row.host)).toStrictEqual(["absent.com"]);
+    expect(result.blocked.length).toBe(0);
+    expect(result.blockedCount).toBe(0);
+  });
+
   it("aggregates an AUDIT log line as passed when isAudit is true", async () => {
     const log = '[2024-01-01T00:00:00] buildcage [AUDIT] (HTTPS) "any.com:443"';
     const result = await scanHaproxyLog(log.split("\n"), true);

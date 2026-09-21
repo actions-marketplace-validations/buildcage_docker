@@ -37,7 +37,7 @@ echo ""
 echo "[traversal] the path is normalized before the rules see it:"
 # Whether the proxy logs the raw or the normalized path, what must never appear
 # is a 200: that would mean the origin served /private/ for a /public/ rule.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ dst=\S+ sni=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+ sni=\S+ https://allowed\.example\.com/(public/\.\./)?private/secret$" <<< "$LOGS"; then
   pass "GET /public/../private/secret was refused"
 else
   fail "GET /public/../private/secret -- no 403 recorded"
@@ -51,7 +51,7 @@ echo "[client left first] the connection is named by its SNI, the only name it g
 # behind it, which holds because haproxy writes `-` for the empty Host capture
 # and the unset path. A version writing them as nothing would leave a bare
 # `https://`, unreadable to the parser and so a failed step. Caught here.
-if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ dst=\S+ sni=aborted\.example\.com https://--$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https <BADREQ> [0-9-]+ [0-9]+ ts=[Cc]R reason=\S+ tlserr=\S+ dst=\S+ sni=aborted\.example\.com https://--$" <<< "$LOGS"; then
   pass "recorded with the handshake's SNI"
 else
   fail "no such line for aborted.example.com"
@@ -69,7 +69,7 @@ echo ""
 
 echo "[long URL] a URL the size a signed one really is, recorded whole:"
 # The marker is the last thing on the line, so finding it proves nothing was cut.
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ dst=\S+ sni=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=\S+ reason=\S+ tlserr=\S+ dst=\S+ sni=\S+ https://blocked\.example\.com/exfil\?pad=A+&end=TAIL-MARKER$" <<< "$LOGS"; then
   pass "the whole ~1.3KB line was recorded, tail included"
 else
   fail "the long URL was cut or dropped"
@@ -86,7 +86,7 @@ fi
 echo ""
 
 echo "[non-standard port] the original port survives to the origin connection:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:9443 sni=\S+ https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ tlserr=\S+ dst=10\.200\.0\.100:9443 sni=\S+ https://allowed\.example\.com:9443/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "reached 10.200.0.100:9443, not the listener's own port"
 else
   fail "9443 did not survive to the origin connection"
@@ -95,22 +95,32 @@ fi
 echo ""
 
 echo "[forged Host] the destination came from our resolution, not the client's:"
-if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.100:443 sni=\S+ https://allowed\.example\.com/public/pkg\.tgz$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 200 [0-9]+ ts=\S+ reason=\S+ tlserr=\S+ dst=10\.200\.0\.100:443 sni=\S+ https://allowed\.example\.com/public/pkg\.tgz$" <<< "$LOGS"; then
   pass "connected to 10.200.0.100, the address we resolved"
 else
   fail "no request recorded as reaching the resolved address"
 fi
 # A refused request never connected, so its dst is still where the client
 # aimed. Only a request that got an answer proves anything was reached.
-if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 2[0-9][0-9] [0-9]+ ts=\\S+ reason=\\S+ dst=10\\.200\\.0\\.101:" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 2[0-9][0-9] [0-9]+ ts=\\S+ reason=\\S+ tlserr=\\S+ dst=10\\.200\\.0\\.101:" <<< "$LOGS"; then
   fail "a request reached the impostor at 10.200.0.101"
 else
   pass "nothing reached the impostor at 10.200.0.101"
 fi
 echo ""
 
+# A numeric tlserr is the assertion: a port that refused the connection would
+# leave `-` there, and the row would be a failure rather than a refusal.
+echo "[origin CA] a certificate the proxy cannot verify is refused, not just unreachable:"
+if grep -qE "^buildcage [0-9]+ https GET 503 [0-9]+ ts=SC\S* reason=\S+ tlserr=[0-9]+ dst=10\.200\.0\.101:443 sni=impostor\.example\.com https://impostor\.example\.com/$" <<< "$LOGS"; then
+  pass "the refusal names the TLS error the handshake failed with"
+else
+  fail "no line recorded a failed origin handshake for impostor.example.com"
+fi
+echo ""
+
 echo "[SSRF] an allowlisted name resolving inward is refused before connecting:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=169\.254\.169\.254:443 sni=\S+ https://metadata\.example\.com/latest/meta-data$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address tlserr=\S+ dst=169\.254\.169\.254:443 sni=\S+ https://metadata\.example\.com/latest/meta-data$" <<< "$LOGS"; then
   pass "the name passed the rules but the resolved metadata address was refused"
 else
   fail "the internal-destination guard did not fire"
@@ -119,7 +129,7 @@ fi
 echo ""
 
 echo "[SSRF] an allowlisted name resolving back to the runner is refused too:"
-if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address dst=10\.200\.0\.199:443 sni=\S+ https://runner\.example\.com/$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET 403 [0-9]+ ts=PR reason=internal-address tlserr=\S+ dst=10\.200\.0\.199:443 sni=\S+ https://runner\.example\.com/$" <<< "$LOGS"; then
   pass "the resolved runner address was refused despite being RFC1918"
 else
   fail "the runner's own addresses did not reach the internal-destination guard"
@@ -128,7 +138,7 @@ fi
 echo ""
 
 echo "[address destination] reached without asking any resolver:"
-if grep -qE "^buildcage [0-9]+ http GET 200 [0-9]+ ts=-- reason=- dst=10\.200\.0\.100:80 http://10\.200\.0\.100/pub-by-addr/x$" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ http GET 200 [0-9]+ ts=-- reason=- tlserr=\S+ dst=10\.200\.0\.100:80 http://10\.200\.0\.100/pub-by-addr/x$" <<< "$LOGS"; then
   pass "a rule naming an address reached it, and the path rule still applied"
 else
   fail "the address destination was not reached"
@@ -287,12 +297,23 @@ echo ""
 echo "[report] Blocked Hosts, including a name that never reached the proxy:"
 if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| absent.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| v6only.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qiF "| secret-in-a-name.attacker.example | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN"; then
-  pass "the table separates a refused request, an unresolvable name and a refused name"
+  && grep -qiF "| secret-in-a-name.attacker.example | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| impostor.example.com:443 | HTTPS | origin-untrusted |" <<< "$REPORT_MARKDOWN"; then
+  pass "the table separates a refused request, a refused name and an origin we would not trust"
 else
   fail "the Blocked Hosts table is missing expected rows"
+fi
+echo ""
+
+# A name the rules allow that resolves nowhere: no rule refused it and none can
+# clear it, so it is tabled apart and does not fail the step.
+echo "[report] Failed Connections, for a name the upstream resolver could not answer:"
+if grep -qF "### ⚠️ Failed Connections" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| absent.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| v6only.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN"; then
+  pass "an unresolvable name is reported outside the blocked table"
+else
+  fail "the Failed Connections table is missing expected rows"
 fi
 echo ""
 
@@ -305,8 +326,8 @@ else
   fail "the Communication details section is missing or still split"
 fi
 
-# A refusal names why: 403, 502 and 503 mean different things and the number
-# does not say which.
+# A refusal, and a failure the rules never touched, each name why: 403, 502 and
+# 503 mean different things and the number does not say which.
 if grep -qF "POST https://allowed.example.com/public/pkg.tgz -> not-allowed" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://absent.example.com/ -> dns-failed" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://blocked.example.com/exfil?token=*** -> not-allowed" <<< "$REPORT_MARKDOWN"; then
