@@ -68,8 +68,10 @@ export function inspectStage(
     "    http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|%2f|%5c) }",
     "    http-request deny deny_status 403 if { path -m sub \\\\ }",
     // %ts tells a refusal from an origin's own 403 or 503, reason says which
-    // refusal. Both sit ahead of the URL, the one field that could cut the line.
-    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] dst=%[dst]:%[dst_port]${sniField(scheme)} ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
+    // refusal, and tlserr carries haproxy's own error from the handshake with
+    // the origin (see log/inspect.ts's reasonFor). All three sit ahead of the
+    // URL, the one field that could cut the line.
+    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] tlserr=%[ssl_bc_err] dst=%[dst]:%[dst_port]${sniField(scheme)} ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
     "",
   );
   // The rules decide first, on the request alone (host, path, method): none

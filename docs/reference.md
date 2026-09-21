@@ -381,9 +381,10 @@ a blocked `DNS` row, which is the row to act on.
 
 ## Connections that failed
 
-A request no rule refused can still come to nothing: the origin answers nothing usable, breaks off
-mid-transfer, or its name resolves nowhere. The report tables those apart from what the rules did refuse, under
-**⚠️ Failed Connections**. Under `inspect`, **Communication details** shows each with ⚠️ too:
+A request no rule refused can still come to nothing: the origin cannot be reached, answers nothing
+usable, breaks off mid-transfer, or its name resolves nowhere. The report tables those apart from
+what the rules did refuse, under **⚠️ Failed Connections**. Under `inspect`,
+**Communication details** shows each with ⚠️ too:
 
 ```
 ⚠️ 00:12.004: GET https://registry.npmjs.org/big.tgz -> origin-aborted
@@ -392,18 +393,19 @@ mid-transfer, or its name resolves nowhere. The report tables those apart from w
 
 | Reason               | What happened                                                           |
 | -------------------- | ----------------------------------------------------------------------- |
-| `origin-no-response` | the connection was made, and no usable response headers came back       |
+| `origin-unreachable` | the connection to the origin could not be made at all                   |
+| `origin-no-response` | it was made, and no usable response headers came back                   |
 | `origin-aborted`     | the response started and the transfer was cut short                     |
 | `dns-failed`         | the name resolved nowhere upstream, the rules having already allowed it |
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
-`dns-failed` is the only one of the three it can report. `inspect` reports all three.
+`dns-failed` is the only one of the four it can report. `inspect` reports all four.
 
-A connection that never established is **not** here: it stays in Blocked Hosts as
-`origin-unreachable`, and it does fail the step. A refused port, an unroutable address and a
-certificate Buildcage would not verify all end the same way, and nothing in the log tells them
-apart, so the row is kept where the certificate check's own refusals are. See
-[Inspect Proxy Engine](./security.md#inspect-proxy-engine).
+An origin Buildcage could not authenticate is **not** here: that is `origin-untrusted`, it stays in
+Blocked Hosts, and it does fail the step. The proxy connects to the origin with the certificate
+check on, so a forged certificate, an expired one and an origin speaking no TLS at all are all
+refusals of its own rather than the origin being down. See
+[Attempts to get around it](./security.md#attempts-to-get-around-it).
 
 None of these fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
