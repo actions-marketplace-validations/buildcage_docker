@@ -21,9 +21,9 @@ describe("inspect stage", () => {
   it("refuses a request with no Host before it judges the path", () => {
     // Both are refusals, so only the reason turns on the order, and one of the
     // two names a host the report can act on where the other leaves the `-`
-    // the log prints for a Host that never came. Which rules are written makes
-    // no difference: both checks sit above the rule block either way.
-    const plain = plainStage({ httpsRules: ["a.example.com:443"] });
+    // the log prints for a Host that never came. No rule is needed to see it:
+    // both checks sit above the rule block whatever is written there.
+    const plain = plainStage({});
     expect(plain.indexOf("missing-host-header") < plain.indexOf("path -m sub")).toBe(true);
   });
 
