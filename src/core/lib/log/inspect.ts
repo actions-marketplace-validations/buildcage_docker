@@ -111,6 +111,13 @@ function isRefusal(terminationState: string): boolean {
  * close during the handshake leaves `0` whether it comes before or after the
  * ClientHello. `sC` is read as unreachable whatever `tlserr` holds: that is
  * this proxy's own timeout running out, which judged no certificate.
+ *
+ * `tlserr` belongs to the last connection attempt alone, and a failed handshake
+ * is retried: measured on haproxy 3.4, a refused certificate logs `rc=3 ts=SC`
+ * with the verify error, while the same origin going silent partway through
+ * those retries logs `ts=SC tlserr=-`. An origin that presents a forged
+ * certificate and then stops answering therefore reads as an outage here, and
+ * no other field says otherwise.
  */
 function reasonFor(
   logged: string,
