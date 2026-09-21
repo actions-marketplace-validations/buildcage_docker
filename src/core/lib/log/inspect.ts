@@ -100,8 +100,8 @@ function isRefusal(terminationState: string): boolean {
  * is haproxy's own answer to bytes that parsed as no request at all, which the
  * method tells from a refusal the rules made.
  *
- * Phase `C` covers both a connection that could not be made and one this proxy
- * would not make, and `tlserr` is what tells them apart: the backend connects with
+ * `SC` covers both a connection that could not be made and one this proxy would
+ * not make, and `tlserr` is what tells them apart: the backend connects with
  * `ssl verify required` (see haproxy-sections.ts), and a handshake that failed
  * leaves haproxy's own error there where a connection that never got that far
  * leaves `-` or `0`. Any error counts, whether the certificate was forged or
@@ -109,7 +109,8 @@ function isRefusal(terminationState: string): boolean {
  * authenticate, and reading only the verify error would let the second pass as
  * an outage. A flaky origin does not land here: measured on haproxy 3.4, a
  * close during the handshake leaves `0` whether it comes before or after the
- * ClientHello.
+ * ClientHello. `sC` is read as unreachable whatever `tlserr` holds: that is
+ * this proxy's own timeout running out, which judged no certificate.
  */
 function reasonFor(
   logged: string,
@@ -129,7 +130,9 @@ function reasonFor(
     case "L":
       return "origin-aborted";
     default:
-      return tlsError === "-" || tlsError === "0" ? "origin-unreachable" : "origin-untrusted";
+      return cause === "S" && tlsError !== "-" && tlsError !== "0"
+        ? "origin-untrusted"
+        : "origin-unreachable";
   }
 }
 

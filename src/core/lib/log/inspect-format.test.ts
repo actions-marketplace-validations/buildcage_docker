@@ -153,6 +153,20 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(untrusted.action).toBe("block");
   });
 
+  it("reads a timeout in the same phase as unreachable, whatever it left behind", async () => {
+    // `s` is this proxy's own timeout running out, which judged no certificate,
+    // so it must not fail the step over one.
+    const line = render(HTTPS, {
+      "%ts": "sC--",
+      "%ST": "504",
+      "%B": "0",
+      "%[ssl_bc_err]": "167772294",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-unreachable");
+    expect(e.action).toBe("failed");
+  });
+
   // What a client that finished the handshake and then left produces, and what
   // bytes haproxy could not read as a request produce too: with no request to
   // log, every field one would have comes out empty.
