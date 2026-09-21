@@ -94,5 +94,6 @@ export function renderReportMarkdown(
   }
 
   markdown += `\n*Reported by [${actionRepo}](https://github.com/${actionRepo})*\n`;
+  markdown += "\n<hr>\n";
   return markdown;
 }
