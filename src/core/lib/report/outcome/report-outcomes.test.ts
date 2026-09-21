@@ -111,6 +111,16 @@ describe("describeReportOutcomes", () => {
     );
   });
 
+  it("says only what happened in audit, where no rule allowed anything", () => {
+    const [, notice] = describeReportOutcomes(
+      inspect([], { failed: failedRows, parameters: reportParams({ mode: "audit" }) }),
+      options,
+    );
+    expect(
+      notice.message.startsWith("2 connection(s) buildcage proxy recorded did not complete"),
+    ).toBe(true);
+  });
+
   it("keeps the two asides apart when a run produced both", () => {
     const levels = describeReportOutcomes(
       inspect([incomplete], { failed: failedRows }),

@@ -391,15 +391,17 @@ what the rules did refuse, under **⚠️ Failed Connections**. Under `inspect`,
 ⚠️ 00:13.771: GET https://mirror.example.com/index -> origin-no-response
 ```
 
-| Reason               | What happened                                                           |
-| -------------------- | ----------------------------------------------------------------------- |
-| `origin-unreachable` | the connection to the origin could not be made at all                   |
-| `origin-no-response` | it was made, and no usable response headers came back                   |
-| `origin-aborted`     | the response started and the transfer was cut short                     |
-| `dns-failed`         | the name resolved nowhere upstream, the rules having already allowed it |
+| Reason               | What happened                                                 |
+| -------------------- | ------------------------------------------------------------- |
+| `origin-unreachable` | the connection to the origin could not be made at all         |
+| `origin-no-response` | it was made, and no usable response headers came back         |
+| `origin-aborted`     | the response started and the transfer was cut short           |
+| `dns-failed`         | the name resolved nowhere upstream, no rule having refused it |
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
-`dns-failed` is the only one of the four it can report. `inspect` reports all four.
+`dns-failed` is the only one of the four it can report. `inspect` reports all four. `audit` reports
+them the same way, though nothing there was allowed by a rule either: what the table says is that
+the rules are not what stopped these.
 
 An origin Buildcage could not authenticate is **not** here: that is `origin-untrusted`, it stays in
 Blocked Hosts, and it does fail the step. The proxy connects to the origin with the certificate
@@ -409,7 +411,7 @@ refusals of its own rather than the origin being down. See
 
 None of these fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
-match, and an `allowed_*` entry is already there. What clears one is the origin coming back, or the
+match, and an `allowed_*` entry changes nothing. What clears one is the origin coming back, or the
 build reaching for something that is up.
 
 A blocked `DNS` row for the same name means something else entirely: that one is Buildcage's own
