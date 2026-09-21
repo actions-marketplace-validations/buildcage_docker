@@ -39,11 +39,11 @@ function inspect(
 const incomplete: TrafficEvent = {
   time: 1787471975,
   action: "incomplete",
-  protocol: "http",
-  host: "(unknown)",
-  port: 8080,
-  reason: "bad-request",
-  destination: "172.20.0.1:8080",
+  protocol: "https",
+  host: "untrusted-ca.example.com",
+  port: 443,
+  reason: "client-aborted",
+  destination: "172.20.0.1:443",
 };
 
 /** Two connections to one host, as the report aggregates them. */
@@ -109,6 +109,16 @@ describe("describeReportOutcomes", () => {
     expect(outcomes[1].message.startsWith("2 connection(s) failed after buildcage proxy")).toBe(
       true,
     );
+  });
+
+  it("says only what happened in audit, where no rule allowed anything", () => {
+    const [, notice] = describeReportOutcomes(
+      inspect([], { failed: failedRows, parameters: reportParams({ mode: "audit" }) }),
+      options,
+    );
+    expect(
+      notice.message.startsWith("2 connection(s) buildcage proxy recorded did not complete"),
+    ).toBe(true);
   });
 
   it("keeps the two asides apart when a run produced both", () => {

@@ -4,26 +4,26 @@ import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 const START = "buildcage haproxy starting 1787471970000";
 const ALLOWED =
-  "buildcage 1787471975 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 https://registry.npmjs.org/pkg";
+  "buildcage 1787471975 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 host=registry.npmjs.org /pkg";
 const REFUSED =
-  "buildcage 1787471976 https POST 403 0 ts=PR reason=- tlserr=- dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
+  "buildcage 1787471976 https POST 403 0 ts=PR reason=- tlserr=- dst=1.2.3.4:443 host=evil.example.com /exfil?d=SECRET";
 const TLS_PASS =
   "buildcage 1787471977 pass tls 3421 ts=-- reason=- dst=10.0.0.9:5432 sni=db.example.com";
 /** A handshake the client completed and then walked away from, leaving the
  *  proxy's own address as the destination and the SNI as the only name. */
 const ABORTED =
-  "buildcage 1787471978 https <BADREQ> 400 0 ts=CR reason=- tlserr=- dst=172.20.0.1:443 sni=untrusted-ca.example.com https://--";
+  "buildcage 1787471978 https <BADREQ> 400 0 ts=CR reason=- tlserr=- dst=172.20.0.1:443 sni=untrusted-ca.example.com host=- -";
 /** Bytes haproxy answered 400 to itself, having read no request out of them:
- *  `--` is the host and the path it never had. */
+ *  `-` is both the host and the target it never had. */
 const BAD_REQUEST =
-  "buildcage 1787471979 http <BADREQ> 400 0 ts=PR reason=- tlserr=- dst=172.20.0.1:8080 http://--";
-/** A request that parsed and carried no `Host`, so the rules had no host to
- *  match and denied it. */
+  "buildcage 1787471979 http <BADREQ> 400 0 ts=PR reason=- tlserr=- dst=172.20.0.1:8080 host=- -";
+/** A request that parsed and carried no `Host`, which the stage refuses ahead
+ *  of the rules: there is nothing to match and nothing to resolve. */
 const NO_HOST =
-  "buildcage 1787471979 http GET 403 0 ts=PR reason=- tlserr=- dst=172.20.0.1:8080 http://-/x";
+  "buildcage 1787471979 http GET 400 0 ts=PR reason=missing-host-header tlserr=- dst=172.20.0.1:8080 host=- /x";
 /** An origin that took the connection and never sent usable headers. */
 const ORIGIN_FAILED =
-  "buildcage 1787471980 https GET 502 0 ts=SH reason=- tlserr=- dst=104.16.1.34:443 https://registry.npmjs.org/slow";
+  "buildcage 1787471980 https GET 502 0 ts=SH reason=- tlserr=- dst=104.16.1.34:443 host=registry.npmjs.org /slow";
 /** What the resolver service echoes before CoreDNS starts. */
 const DNS_START = "2026-08-23 16:44:58.000000000  buildcage coredns starting";
 
@@ -95,7 +95,7 @@ describe("buildInspectReportData", () => {
     // fail_on_blocked defaults to true, so a registry answering 403 to an
     // unauthenticated fetch would otherwise fail a build that was not blocked.
     const relayed =
-      "buildcage 3 https GET 403 90 ts=-- reason=- tlserr=- dst=1.1.1.1:443 https://reg.example.com/pkg";
+      "buildcage 3 https GET 403 90 ts=-- reason=- tlserr=- dst=1.1.1.1:443 host=reg.example.com /pkg";
     const r = await buildInspectReportData([START, relayed], [], reportParams());
     expect(r.blockedCount).toBe(0);
   });
@@ -156,20 +156,23 @@ describe("buildInspectReportData", () => {
     expect(r.timeline[0].host).toBe("untrusted-ca.example.com");
   });
 
-  it("keeps a request that named no host out of both tables too", async () => {
-    // `--` and `-` are hosts no rule can name, so counting these as blocked
-    // puts rows in the table that no allowed_* rule reaches: restrict with
-    // fail_on_blocked would fail the build with nowhere to go.
+  it("tables a request it refused before a whole one had arrived", async () => {
+    // This proxy refused these rather than merely watched them end, so they
+    // count like any other refusal. Neither row names the `-` the log prints
+    // for a Host that never came: the plain stage has no SNI to name them by,
+    // and the address is this proxy's own.
     const r = await buildInspectReportData([START, BAD_REQUEST, NO_HOST], [], reportParams());
-    expect(r.blocked.length).toBe(0);
-    expect(r.blockedCount).toBe(0);
+    expect(r.blockedCount).toBe(2);
+    expect(r.blocked.map((row) => `${row.host}:${row.port} ${row.reason}`).sort()).toStrictEqual([
+      "(unknown):8080 bad-request",
+      "(unknown):8080 missing-host-header",
+    ]);
     expect(r.passed.length).toBe(0);
-    expect(r.timeline.map((e) => e.action)).toStrictEqual(["incomplete", "incomplete"]);
-    expect(r.timeline.map((e) => e.reason)).toStrictEqual(["bad-request", "bad-request"]);
   });
 
   it("still blocks a refusal whose request did name a host", async () => {
-    // Same termination state as the two above, told apart by the authority.
+    // Same termination state as the two above, told apart by the reason and
+    // by the method haproxy logs where a request never parsed.
     const r = await buildInspectReportData([START, REFUSED], [], reportParams());
     expect(r.blockedCount).toBe(1);
     expect(r.blocked[0].host).toBe("evil.example.com");

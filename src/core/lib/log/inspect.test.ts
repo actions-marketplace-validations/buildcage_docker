@@ -5,11 +5,11 @@ import type { TrafficEvent } from "./traffic-event.ts";
 // Lines exactly as the generated configuration emits them. The timestamp is
 // milliseconds since the epoch (HAProxy's date(0,ms)).
 const ALLOWED =
-  "buildcage 1787471975123 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 https://registry.npmjs.org/pkg";
+  "buildcage 1787471975123 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 host=registry.npmjs.org /pkg";
 const REFUSED =
-  "buildcage 1787471976000 https POST 403 0 ts=PR reason=- tlserr=- dst=1.2.3.4:443 https://evil.example.com/exfil?d=SECRET";
+  "buildcage 1787471976000 https POST 403 0 ts=PR reason=- tlserr=- dst=1.2.3.4:443 host=evil.example.com /exfil?d=SECRET";
 const PLAIN =
-  "buildcage 1787471977000 http POST 201 12 ts=-- reason=- tlserr=- dst=10.0.0.5:8080 http://a.example.com:8080/x";
+  "buildcage 1787471977000 http POST 201 12 ts=-- reason=- tlserr=- dst=10.0.0.5:8080 host=a.example.com:8080 /x";
 const TLS_PASS =
   "buildcage 1787471978000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=db.example.com";
 const TCP_PASS = "buildcage 1787471979000 pass tcp 900 ts=-- reason=- dst=10.0.0.5:5432 sni=-";
@@ -52,16 +52,16 @@ describe("scanInspectLog", () => {
     // load answers 503. Counting those would fail a build where nothing was
     // blocked, since fail_on_blocked defaults to true.
     const relayed = [
-      "buildcage 1 https GET 403 120 ts=-- reason=- tlserr=- dst=1.1.1.1:443 https://reg.example.com/pkg",
-      "buildcage 2 https GET 503 90 ts=-- reason=- tlserr=- dst=1.1.1.1:443 https://reg.example.com/pkg",
+      "buildcage 1 https GET 403 120 ts=-- reason=- tlserr=- dst=1.1.1.1:443 host=reg.example.com /pkg",
+      "buildcage 2 https GET 503 90 ts=-- reason=- tlserr=- dst=1.1.1.1:443 host=reg.example.com /pkg",
     ];
     expect((await parse(relayed)).some((e) => e.action === "block")).toBe(false);
   });
 
   it("takes the reason the config wrote, whatever status the line carried", async () => {
     const lines = [
-      "buildcage 1 https GET 502 0 ts=PR-- reason=dns-failed tlserr=- dst=0.0.0.0:443 https://a.com/",
-      "buildcage 2 https GET 403 0 ts=PR-- reason=internal-address tlserr=- dst=10.0.0.1:443 https://c.com/",
+      "buildcage 1 https GET 502 0 ts=PR-- reason=dns-failed tlserr=- dst=0.0.0.0:443 host=a.com /",
+      "buildcage 2 https GET 403 0 ts=PR-- reason=internal-address tlserr=- dst=10.0.0.1:443 host=c.com /",
     ];
     expect((await parse(lines)).map((e) => e.reason)).toStrictEqual([
       "dns-failed",
@@ -73,26 +73,27 @@ describe("scanInspectLog", () => {
   // doing. Phase `C` then splits on tlserr; see reasonFor.
   it("names a refusal the config left unnamed from the cause, the phase and tlserr", async () => {
     const lines = [
-      "buildcage 1 https POST 403 0 ts=PR-- reason=- tlserr=- dst=1.1.1.1:443 https://b.com/",
-      "buildcage 2 https GET 503 0 ts=SC-- reason=- tlserr=- dst=1.1.1.1:443 https://c.com/",
-      "buildcage 3 https GET 503 0 ts=SC-- reason=- tlserr=167772294 dst=1.1.1.1:443 https://d.com/",
-      "buildcage 4 https GET 502 0 ts=SH-- reason=- tlserr=- dst=1.1.1.1:443 https://e.com/",
-      "buildcage 5 https GET 502 0 ts=PH-- reason=- tlserr=- dst=1.1.1.1:443 https://f.com/",
-      "buildcage 6 https GET 200 56 ts=SD-- reason=- tlserr=- dst=1.1.1.1:443 https://g.com/",
+      "buildcage 1 https POST 403 0 ts=PR-- reason=- tlserr=- dst=1.1.1.1:443 host=b.com /",
+      "buildcage 2 https GET 503 0 ts=SC-- reason=- tlserr=- dst=1.1.1.1:443 host=c.com /",
+      "buildcage 3 https GET 503 0 ts=SC-- reason=- tlserr=167772294 dst=1.1.1.1:443 host=d.com /",
+      "buildcage 4 https GET 502 0 ts=SH-- reason=- tlserr=- dst=1.1.1.1:443 host=e.com /",
+      "buildcage 5 https GET 502 0 ts=PH-- reason=- tlserr=- dst=1.1.1.1:443 host=f.com /",
+      "buildcage 6 https GET 200 56 ts=SD-- reason=- tlserr=- dst=1.1.1.1:443 host=g.com /",
     ];
     const events = await parse(lines);
     expect(events.map((e) => e.reason)).toStrictEqual([
       "not-allowed",
-      "origin-unreachable",
+      "origin-connect-failed",
       "origin-untrusted",
       "origin-no-response",
       "not-allowed",
       "origin-aborted",
     ]);
-    // Only what this proxy itself refused stays in the blocked table.
+    // Only what this proxy itself refused stays in the blocked table, and a
+    // connection it never completed counts: it never authenticated that origin.
     expect(events.map((e) => e.action)).toStrictEqual([
       "block",
-      "failed",
+      "block",
       "block",
       "failed",
       "block",
@@ -105,18 +106,21 @@ describe("scanInspectLog", () => {
     // does for `SC` and `SH`; whether the origin refused the connection or
     // simply went quiet is all that separates the two.
     const lines = [
-      "buildcage 1 https GET 503 0 ts=sC reason=- tlserr=- dst=1.1.1.1:443 https://a.com/",
-      "buildcage 2 https GET 504 0 ts=sH reason=- tlserr=- dst=1.1.1.1:443 https://b.com/",
+      "buildcage 1 https GET 503 0 ts=sC reason=- tlserr=- dst=1.1.1.1:443 host=a.com /",
+      "buildcage 2 https GET 504 0 ts=sH reason=- tlserr=- dst=1.1.1.1:443 host=b.com /",
     ];
     const events = await parse(lines);
-    expect(events.map((e) => e.reason)).toStrictEqual(["origin-unreachable", "origin-no-response"]);
+    expect(events.map((e) => e.reason)).toStrictEqual([
+      "origin-connect-failed",
+      "origin-no-response",
+    ]);
     expect(events.every((e) => e.status === undefined)).toBe(true);
   });
 
   it("leaves a timeout that cut an answered transfer short with the origin's own result", async () => {
     const lines = [
-      "buildcage 1 https GET 200 61 ts=sD reason=- tlserr=- dst=1.1.1.1:443 https://a.com/",
-      "buildcage 2 https GET 200 56 ts=cD reason=- tlserr=- dst=1.1.1.1:443 https://b.com/",
+      "buildcage 1 https GET 200 61 ts=sD reason=- tlserr=- dst=1.1.1.1:443 host=a.com /",
+      "buildcage 2 https GET 200 56 ts=cD reason=- tlserr=- dst=1.1.1.1:443 host=b.com /",
       "buildcage 3 pass tls 4096 ts=sD reason=- dst=10.0.0.5:5432 sni=db.example.com",
     ];
     const events = await parse(lines);
@@ -126,7 +130,7 @@ describe("scanInspectLog", () => {
 
   it("keeps the generic reason for a termination state it does not know", async () => {
     const lines = [
-      "buildcage 1 https GET 403 0 ts=P reason=- tlserr=- dst=1.1.1.1:443 https://a.com/",
+      "buildcage 1 https GET 403 0 ts=P reason=- tlserr=- dst=1.1.1.1:443 host=a.com /",
     ];
     expect((await parse(lines))[0].reason).toBe("not-allowed");
   });
@@ -187,12 +191,12 @@ describe("scanInspectLog", () => {
     expect((await parse(lines)).length).toBe(1);
   });
 
-  it("reads a request line whose URL runs to thousands of bytes", async () => {
-    const url = `https://example.com/x?token=${"a".repeat(15000)}`;
+  it("reads a request line whose target runs to thousands of bytes", async () => {
+    const target = `/x?token=${"a".repeat(15000)}`;
     const [e] = await parse([
-      `buildcage 1 https GET 403 0 ts=PR reason=- tlserr=- dst=1.1.1.1:443 ${url}`,
+      `buildcage 1 https GET 403 0 ts=PR reason=- tlserr=- dst=1.1.1.1:443 host=example.com ${target}`,
     ]);
-    expect(e.url).toBe(url);
+    expect(e.url).toBe(`https://example.com${target}`);
     expect(e.action).toBe("block");
   });
 
@@ -204,11 +208,19 @@ describe("scanInspectLog", () => {
     expect(unparsed).toBe(1);
   });
 
-  it("counts a line cut where the SNI ends, rather than reading the SNI as the URL", async () => {
+  it("counts a line cut where the SNI ends, rather than reading the SNI as the host", async () => {
     // The one cut that leaves something shaped like a whole line: every field
-    // up to the SNI is there, and only the URL is gone.
+    // up to the SNI is there, and only the host and the target are gone.
     const { events, unparsed } = await scanInspectLog([
       "buildcage 1 https GET 200 708 ts=-- reason=- tlserr=- dst=1.1.1.1:443 sni=example.com",
+    ]);
+    expect(events.length).toBe(0);
+    expect(unparsed).toBe(1);
+  });
+
+  it("counts a line cut where the host ends, rather than reading it without a target", async () => {
+    const { events, unparsed } = await scanInspectLog([
+      "buildcage 1 https GET 200 708 ts=-- reason=- tlserr=- dst=1.1.1.1:443 sni=a.com host=a.com",
     ]);
     expect(events.length).toBe(0);
     expect(unparsed).toBe(1);
@@ -391,14 +403,35 @@ describe("lines and stamps the inspect logs can carry", () => {
   });
 });
 
-describe("a request line whose URL names no authority", () => {
-  // The log-format writes the scheme itself and the captured Host after it, so
-  // an empty capture leaves a URL with no host in it.
-  it("keeps the field as-is rather than inventing a host", async () => {
-    const line =
-      "buildcage 1787471975123 https GET 200 708 ts=-- reason=- tlserr=- dst=1.2.3.4:443 https:///pkg";
-    const { events } = await scanInspectLog([line]);
-    expect(events[0].host).toBe("https:///pkg");
+describe("a request whose target is not a path", () => {
+  // `OPTIONS *` (RFC 9112 §3.2.4) and a CONNECT's authority are both legal
+  // request-targets that leave haproxy's pathq empty, printed as `-`. Read as
+  // the tail of a URL they would name the host `registry.npmjs.org-`, which
+  // nothing resolves and no rule can be written for.
+  const ASTERISK =
+    "buildcage 1787471975123 https OPTIONS 403 0 ts=PR reason=- tlserr=- dst=1.2.3.4:443 sni=registry.npmjs.org host=registry.npmjs.org -";
+
+  it("names the host the request actually carried", async () => {
+    const [e] = await parse([ASTERISK]);
+    expect(e.host).toBe("registry.npmjs.org");
+    expect(e.method).toBe("OPTIONS");
+    expect(e.action).toBe("block");
+  });
+
+  it("reports no URL rather than inventing one", async () => {
+    // A URL here would reach the generated restrict example as an origin and
+    // a path, proposing a rule that cannot match what was sent.
+    expect((await parse([ASTERISK]))[0].url === undefined).toBe(true);
+  });
+
+  it("keeps the URL of a request that named a path but no host", async () => {
+    // The two are separate cases: an authority of `-` still has a path to
+    // show, and the stage names that refusal for itself. Only the target
+    // being no path leaves nothing to build a URL around.
+    const [e] = await parse([
+      "buildcage 1787471975123 http GET 400 0 ts=PR reason=missing-host-header tlserr=- dst=1.2.3.4:80 host=- /x",
+    ]);
+    expect(e.url).toBe("http://-/x");
   });
 });
 
