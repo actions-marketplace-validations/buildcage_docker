@@ -137,20 +137,54 @@ describe("the generated log-format and this parser describe the same line", () =
   });
 
   // Both end in the same termination state, so the field is the only thing
-  // between them.
+  // between them. Both are refusals: this proxy completed neither connection,
+  // so it authenticated neither origin.
   it("tells an origin it would not trust from one it could not reach", async () => {
     const connect = { "%ts": "SC--", "%ST": "503", "%B": "0" };
-    const [unreachable] = (
+    const [connectFailed] = (
       await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "-" })])
     ).events;
-    expect(unreachable.reason).toBe("origin-unreachable");
-    expect(unreachable.action).toBe("failed");
+    expect(connectFailed.reason).toBe("origin-connect-failed");
+    expect(connectFailed.action).toBe("block");
 
     const [untrusted] = (
       await scanInspectLog([render(HTTPS, { ...connect, "%[ssl_bc_err]": "167772294" })])
     ).events;
     expect(untrusted.reason).toBe("origin-untrusted");
     expect(untrusted.action).toBe("block");
+  });
+
+  it("names a timeout in the same phase for the connection, not for the certificate", async () => {
+    // `s` is this proxy's own timeout running out, which judged no certificate,
+    // so it must not be reported as one it would not trust.
+    const line = render(HTTPS, {
+      "%ts": "sC--",
+      "%ST": "504",
+      "%B": "0",
+      "%[ssl_bc_err]": "167772294",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-connect-failed");
+    expect(e.action).toBe("block");
+  });
+
+  it("leaves a passthrough this proxy could not connect for a failure, not a refusal", async () => {
+    // That stage relays the handshake for the build to judge, so a connection
+    // it never made hid no certificate and no rule can change the outcome.
+    const line = render(PASSTHROUGH, { "%ts": "SC--", "%B": "0" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-unreachable");
+    expect(e.action).toBe("failed");
+  });
+
+  it("leaves a plaintext connection this proxy could not make a failure too", async () => {
+    // origin_plain verifies nothing (see haproxy-sections.ts), so there was no
+    // certificate for a connection that never completed to have hidden. The
+    // stage logs `tlserr` all the same, and it means nothing here.
+    const line = render(HTTP, { "%ts": "sC--", "%ST": "503", "%B": "0" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-unreachable");
+    expect(e.action).toBe("failed");
   });
 
   // What a client that finished the handshake and then left produces, and what
@@ -184,64 +218,95 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("client-timeout");
   });
 
-  it("reads haproxy's own 400 as a request it could not act on", async () => {
+  it("reads haproxy's own 400 as a refusal, named by the handshake", async () => {
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "PR" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("incomplete");
+    expect(e.action).toBe("block");
     expect(e.host).toBe("registry.npmjs.org");
     expect(e.reason).toBe("bad-request");
     expect(e.url === undefined).toBe(true);
   });
 
   it("reads a request that carried no Host the same way, path and all", async () => {
-    const line = render(HTTPS, {
-      "%ST": "403",
-      "%B": "0",
-      "%ts": "PR",
-      "%[capture.req.hdr(0)]": "-",
-    });
-    const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("incomplete");
-    expect(e.reason).toBe("bad-request");
-    expect(e.method === undefined).toBe(true);
-  });
-
-  it("leaves a refusal whose sender chose a hyphen-leading Host a block", async () => {
-    // The capture rewrites only whitespace, quotes and control characters, so
-    // a Host of the build's own choosing reaches the log as sent. Reading the
-    // leading `-` alone would let it move its own refusals out of both tables
-    // and out of fail_on_blocked.
-    const line = render(HTTPS, {
-      "%ST": "403",
-      "%B": "0",
-      "%ts": "PR",
-      "%[capture.req.hdr(0)]": "-evil.example.com",
-    });
-    const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
-    expect(e.host).toBe("-evil.example.com");
-  });
-
-  it("overrides the reason the config named, audit resolving that host to nothing", async () => {
-    // audit enforces nothing, so a missing Host reaches do-resolve, which has
-    // no name to look up and lands on dns-failed. Reporting that would blame
-    // the SNI's own name for failing to resolve.
+    // The config names this one, the request having parsed far enough for its
+    // rules to run; see haproxy-inspect-stage.ts.
     const line = render(
       HTTPS,
-      { "%ST": "502", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
-      { reason: "dns-failed" },
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { reason: "missing-host-header" },
     );
-    const [e] = (await scanInspectLog([line], true)).events;
-    expect(e.action).toBe("incomplete");
-    expect(e.reason).toBe("bad-request");
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.host).toBe("registry.npmjs.org");
+    expect(e.reason).toBe("missing-host-header");
+    // The request line did parse, and the path is the whole record of what was
+    // asked for. Only the authority is the log's `-` for a Host never sent.
+    expect(e.method).toBe("GET");
+    expect(e.url).toBe(`https://-${PATH}`);
   });
 
-  it("leaves a phase R neither the client nor this proxy ended an ordinary exchange", async () => {
-    // `RR` is haproxy running out of a resource while reading the request:
-    // its own doing, but not a decision, so it names no reason of the three.
+  it("refuses a request that named no host in audit too, where no rule would have", async () => {
+    // There is nothing to resolve and nothing to connect to, so the stage
+    // denies it in either mode, as the universal engine does.
+    const line = render(
+      HTTPS,
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { reason: "missing-host-header" },
+    );
+    const [e] = (await scanInspectLog([line], true)).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("missing-host-header");
+  });
+
+  // The capture rewrites only whitespace, quotes and control characters, so a
+  // Host of the build's own choosing reaches the log as sent. Reading the
+  // authority to decide whether one arrived would let a sender move its own
+  // refusals out of both tables and out of fail_on_blocked, by writing the very
+  // text the log prints for a Host that never came.
+  it.each(["-evil.example.com", "-", "--", "-:443", "-/evil.example.com"])(
+    "leaves a refusal whose sender chose the Host %j a block",
+    async (host) => {
+      const line = render(HTTPS, {
+        "%ST": "403",
+        "%B": "0",
+        "%ts": "PR",
+        "%[capture.req.hdr(0)]": host,
+      });
+      const [e] = (await scanInspectLog([line])).events;
+      expect(e.action).toBe("block");
+      expect(e.reason).toBe("not-allowed");
+      expect(e.url).toBe(`https://${host}${PATH}`);
+    },
+  );
+
+  // A phase that implies a request was being processed cannot be reached
+  // without one, but nothing in the log makes the two fields agree. Whatever
+  // pair arrives, a line carrying no request must not become a host: `--` is
+  // the empty Host and path, and a table row naming it says nothing a reader
+  // could act on.
+  it("never reads a line with no request in it as an allowed host, in any state", async () => {
+    const states = "CcSsPRIDUKL-"
+      .split("")
+      .flatMap((cause) => "RQCHDLT-".split("").map((phase) => `${cause}${phase}--`));
+    for (const state of states) {
+      for (const isAudit of [false, true]) {
+        const line = render(HTTPS, { ...NO_REQUEST, "%ts": state });
+        const [e] = (await scanInspectLog([line], isAudit)).events;
+        expect(`${state}: ${e.action} ${e.host}`).toBe(
+          `${state}: ${state[0] === "P" ? "block" : "incomplete"} registry.npmjs.org`,
+        );
+      }
+    }
+  });
+
+  it("names a phase R neither the client nor this proxy ended as no request at all", async () => {
+    // `RR` is haproxy running out of a resource while reading the request: its
+    // own doing and not a decision, so it is neither allowed nor refused.
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "RR" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action === "incomplete").toBe(false);
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("no-request");
+    expect(e.host).toBe("registry.npmjs.org");
   });
 
   it("falls back to the address when the handshake carried no SNI", async () => {

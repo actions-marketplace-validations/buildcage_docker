@@ -28,6 +28,7 @@ ENV C='curl -sS -o /dev/null -w %{http_code} --max-time 10'
 #   allowed_https_rules: sub.wildcard.example.com:443 absent.example.com:443
 #                        v6only.example.com:443 metadata.example.com:443
 #                        runner.example.com:443 impostor.example.com:443
+#                        deadend.example.com:443
 #   allowed_http_rules:  allowed.example.com:80
 #   allowed_tls_rules:   tlspass.example.com:443
 # ---------------------------------------------------------------------------
@@ -218,6 +219,23 @@ RUN echo "=== [Origin certificate not trusted] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "503" ] || (echo "FAILED: expected 503" && exit 1)
 
+# Allowlisted and resolvable, with nothing listening there. The connection
+# never completes, so no certificate is ever accepted on it, and
+# assert-inspect-restrict.sh checks that is reported as a refusal rather than
+# as an outage.
+RUN echo "=== [Origin connection never completes] ===" && \
+    CODE=$($C https://deadend.example.com/) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "503" ] || (echo "FAILED: expected 503" && exit 1)
+
+# The same host over plaintext, where no certificate was ever going to be
+# checked. That one is an outage and nothing more, which is the distinction
+# assert-inspect-restrict.sh checks the report keeps.
+RUN echo "=== [Plaintext origin connection never completes] ===" && \
+    CODE=$($C http://deadend.example.com/) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "503" ] || (echo "FAILED: expected 503" && exit 1)
+
 # Refused like an absent name, and on every attempt rather than sometimes.
 RUN echo "=== [Name has AAAA records only] ===" && \
     CODE=$($C https://v6only.example.com/) && \
@@ -242,6 +260,22 @@ RUN echo "=== [Client leaves before sending a request] ===" && \
       https://aborted.example.com/; \
     RC=$?; echo "curl exit=$RC"; \
     [ "$RC" = "90" ] || (echo "FAILED: expected a pinned-key mismatch (90)" && exit 1)
+
+# Bytes that are not an HTTP request, on a port no allowed_ip_rules or
+# allowed_tls_rules entry covers: anything that is not a TLS handshake reaches
+# the plain stage, which reads it as a request and refuses it. nc rather than
+# curl, which can only speak protocols it knows.
+RUN echo "=== [Not an HTTP request at all] ===" && \
+    printf 'NOT-HTTP\r\n\r\n' | nc -w 5 10.200.0.100 5432; \
+    echo "nc exit=$?"
+
+# A request that parsed and named no host. `-H 'Host:'` drops the header, and
+# HTTP/1.0 is the version that does not require one, so this reaches the stage's
+# own rules rather than haproxy's request parser.
+RUN echo "=== [Request with no Host header] ===" && \
+    CODE=$($C --http1.0 -H 'Host:' http://allowed.example.com/public/pkg.tgz) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "400" ] || (echo "FAILED: expected 400" && exit 1)
 
 # Aimed at the impostor by address while claiming an allowed name. The proxy
 # resolves the name itself, so the allowed origin answers and the impostor is

@@ -68,8 +68,10 @@ function describeUndecidedRequests(
     message:
       `${count} request(s) buildcage ${engineLabel} could not act on, shown with ⚠️ in ` +
       "Communication details. Each ended before a whole request had arrived, so no rule decided " +
-      "it and none reached an origin: the client closed, timed out, or sent something that could " +
-      "not be read as HTTP. None of them fails the step.",
+      "it and none reached an origin: the client closed, its own timeout expired, or this proxy " +
+      "ran into an error while still reading. None of them fails the step. Bytes this proxy " +
+      "would not read as a request are not among them: that is a refusal, and it is in Blocked " +
+      "Hosts.",
   };
 }
 
@@ -84,6 +86,11 @@ function describeUndecidedRequests(
  * `audit` enforces nothing, so nothing there was allowed by a rule and the
  * opening says only what happened, the same distinction actionFor makes between
  * an audited connection and an allowed one.
+ *
+ * "could not be reached" is deliberately absent: a connection that never
+ * completed is a refusal wherever a certificate was going to be checked, and
+ * the few that are not refusals have a table entry of their own to explain
+ * them (see FAILURE_REASONS and docs/reference.md).
  */
 function describeFailedConnections(
   report: ReportData,
@@ -99,8 +106,8 @@ function describeFailedConnections(
     level: "notice",
     shouldFail: false,
     message:
-      `${opening}, listed under Failed Connections. The origin could not be reached, broke off, ` +
-      "or its name resolved nowhere upstream: no rule refused them and none can change the " +
-      "outcome, so none of them fails the step.",
+      `${opening}, listed under Failed Connections. The origin broke off, answered nothing ` +
+      "usable, or its name resolved nowhere upstream: no rule refused them and none can change " +
+      "the outcome, so none of them fails the step.",
   };
 }

@@ -267,7 +267,7 @@ with the origin, which is what tells a connection the proxy would not make from 
 make; the passthrough stage terminates no TLS and logs no such field.
 
 What the report makes of those is in
-[Requests Buildcage could not act on](./reference.md#requests-buildcage-could-not-act-on), for a
+[Requests that never arrived whole](./reference.md#requests-that-never-arrived-whole), for a
 connection that never delivered a whole request, and in
 [Connections that failed](./reference.md#connections-that-failed), for one the rules allowed that
 then came to nothing.

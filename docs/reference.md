@@ -11,7 +11,7 @@ and links here for the details.
 - [Rule syntax](#rule-syntax)
 - [Report action inputs](#report-action-inputs)
 - [Blocked service names](#blocked-service-names)
-- [Requests Buildcage could not act on](#requests-buildcage-could-not-act-on)
+- [Requests that never arrived whole](#requests-that-never-arrived-whole)
 - [Connections that failed](#connections-that-failed)
 - [Traffic artifact](#traffic-artifact)
 - [CA trust variables](#ca-trust-variables)
@@ -336,36 +336,43 @@ Naming the service name in an `allowed_*` rule also clears the row, but it is th
 it reads as permission to reach something that nothing can connect to, and the record still does not
 resolve.
 
-## Requests Buildcage could not act on
+## Requests that never arrived whole
 
-Under `inspect`, a connection can end before a whole request has arrived, leaving the rules nothing
-to decide. **Communication details** shows each one with ⚠️ and the reason:
+Under `inspect`, a connection can end before a whole request has arrived. What the report does with
+one turns on who ended it: a client that walks away decided nothing, while bytes Buildcage refused to
+read as a request are a refusal like any other.
+
+Whichever it was, the host is the name from the handshake's SNI; a TLS connection that carried none
+was aimed at an address the build wrote out itself, so the address stands in. The plain-HTTP stage
+has no SNI to fall back on and its destination is Buildcage's own address for every name-based
+connection, so the host reads `(unknown)` there. The address it was sent to is still recorded, in the
+`destination` field of the [traffic artifact](#traffic-artifact).
+
+A row carries no method or URL where no request line ever parsed. `missing-host-header` is the
+exception: that one did parse, so it keeps the method and the path it asked for, with `-` standing
+where the `Host` would have been.
+
+### The ones nobody decided
+
+**Communication details** shows these with ⚠️ and the reason:
 
 ```
 ⚠️ 00:09.123: HTTPS untrusted-ca.example.com:443 -> client-aborted
 ⚠️ 00:11.407: HTTPS untrusted-ca.example.com:443 -> client-timeout
-⚠️ 00:14.002: HTTPS api.example.com:443 -> bad-request
-⚠️ 00:15.880: HTTP (unknown):5432 -> bad-request
+⚠️ 00:13.500: HTTPS api.example.com:443 -> no-request
 ```
 
 | Reason           | What happened                                                                   |
 | ---------------- | ------------------------------------------------------------------------------- |
 | `client-aborted` | the client finished the TLS handshake and then closed without sending a request |
 | `client-timeout` | it held the connection open instead of closing it, until the timeout expired    |
-| `bad-request`    | it sent bytes that could not be read as an HTTP request, or one with no `Host`  |
+| `no-request`     | no request arrived, and neither the client nor a rule of Buildcage's ended it   |
 
 The commonest cause of the first two is a container with no `ca-certificates` installed: the client
-cannot verify the certificate Buildcage signs and gives up at that point. `bad-request` is most often
-a protocol that is not HTTP at all, a database or `git://` connection to a port no `allowed_ip_rules`
-or `allowed_tls_rules` entry covers, since anything that is not a TLS handshake is handed to the
-plain-HTTP stage.
-
-There is no method or URL on these rows, because neither was ever readable. The host is the name from
-the handshake's SNI; a TLS connection that carried none was aimed at an address the build wrote out
-itself, so the address stands in. The plain-HTTP stage has no SNI to fall back on and its destination
-is Buildcage's own address for every name-based connection, so the host reads `(unknown)` there. The
-address it was sent to is still recorded, in the `destination` field of the
-[traffic artifact](#traffic-artifact).
+cannot verify the certificate Buildcage signs and gives up at that point. `no-request` is the rest:
+Buildcage's proxy running into an error of its own while still reading, and any other connection
+that carried no request and that neither of the first two explains. It is rare, and it is not the
+build's doing.
 
 Such a row is in neither host table and never fails the step, not even with `fail_on_blocked: true`:
 no rule refused it, so `known_blocked_rules` has nothing to match, and nothing reached an origin. A
@@ -373,43 +380,87 @@ no rule refused it, so `known_blocked_rules` has nothing to match, and nothing r
 they appear.
 
 What clears one is the client, not a rule. Install `ca-certificates`, or whatever else kept the
-client from trusting the CA; for traffic that is not HTTP, add the port to `allowed_ip_rules` or the
-name to `allowed_tls_rules` so the connection is passed through undecrypted instead of being read as
-a request. An `allowed_https_rules` or `allowed_http_rules` entry changes nothing, there having been
-no host to match it against. If the host is one the build does need, its name usually also appears as
-a blocked `DNS` row, which is the row to act on.
+client from trusting the CA. An `allowed_https_rules` or `allowed_http_rules` entry changes nothing,
+there having been no host to match it against. If the host is one the build does need, its name
+usually also appears as a blocked `DNS` row, which is the row to act on.
+
+### The ones Buildcage refused
+
+These are refusals: they are in **🚫 Blocked Hosts**, counted in the blocked-connections annotation,
+and they fail the step under `fail_on_blocked: true` like any other refused connection.
+
+```
+🚫 00:14.002: GET https://-/pkg.tgz?token=*** -> missing-host-header
+🚫 00:15.880: HTTP (unknown):5432 -> bad-request
+```
+
+| Reason                | What happened                                                          |
+| --------------------- | ---------------------------------------------------------------------- |
+| `bad-request`         | the build sent bytes that could not be read as an HTTP request at all  |
+| `missing-host-header` | a request parsed, and carried no `Host` for a rule to match or resolve |
+
+`bad-request` is most often a protocol that is not HTTP at all, a database or `git://` connection to
+a port no `allowed_ip_rules` or `allowed_tls_rules` entry covers: anything that is not a TLS
+handshake is handed to the plain-HTTP stage, which reads it as a request and refuses it. Both are
+refused in `audit` mode too, as the same check is under `universal`, since a request naming no host
+has nothing to connect to whatever the rules say.
+
+What clears one is a rule, though not a host rule. For traffic that is not HTTP, add the port to
+`allowed_ip_rules` or the name to `allowed_tls_rules`, and the connection is passed through
+undecrypted instead of being read as a request. `known_blocked_rules` can mark a row whose host is a
+name from the SNI; a row reading `(unknown)` names nothing a rule can be written against, so the
+passthrough rule is the only way to clear that one.
 
 ## Connections that failed
 
-A request no rule refused can still come to nothing: the origin cannot be reached, answers nothing
-usable, breaks off mid-transfer, or its name resolves nowhere. The report tables those apart from
-what the rules did refuse, under **⚠️ Failed Connections**. Under `inspect`,
-**Communication details** shows each with ⚠️ too:
+A request no rule refused can still come to nothing: the origin answers nothing usable, breaks off
+mid-transfer, or its name resolves nowhere. The report tables those apart from what the rules did
+refuse, under **⚠️ Failed Connections**. Under `inspect`, **Communication details** shows each with
+⚠️ too:
 
 ```
 ⚠️ 00:12.004: GET https://registry.npmjs.org/big.tgz -> origin-aborted
 ⚠️ 00:13.771: GET https://mirror.example.com/index -> origin-no-response
 ```
 
-| Reason               | What happened                                                 |
-| -------------------- | ------------------------------------------------------------- |
-| `origin-unreachable` | the connection to the origin could not be made at all         |
-| `origin-no-response` | it was made, and no usable response headers came back         |
-| `origin-aborted`     | the response started and the transfer was cut short           |
-| `dns-failed`         | the name resolved nowhere upstream, no rule having refused it |
+| Reason               | What happened                                                         |
+| -------------------- | --------------------------------------------------------------------- |
+| `origin-no-response` | the connection was made, and no usable response headers came back     |
+| `origin-aborted`     | the response started and the transfer was cut short                   |
+| `dns-failed`         | the name resolved nowhere upstream, no rule having refused it         |
+| `origin-unreachable` | a connection carrying no certificate of Buildcage's could not be made |
+
+What the first two have in common is a connection that completed, which is where the origin's
+certificate was checked: whatever went wrong afterwards went wrong with an origin Buildcage had
+authenticated. `dns-failed` never reached a connection, and neither a plaintext request nor a
+passthrough has a certificate of Buildcage's behind it: the first is carried as it was sent, the
+second is relayed for the build to judge rather than decrypted.
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
-`dns-failed` is the only one of the four it can report. `inspect` reports all four. `audit` reports
-them the same way, though nothing there was allowed by a rule either: what the table says is that
-the rules are not what stopped these.
+`dns-failed` is the only one of the four it can report. `audit` reports them the same way, though
+nothing there was allowed by a rule either: what the table says is that the rules are not what
+stopped these.
 
-An origin Buildcage could not authenticate is **not** here: that is `origin-untrusted`, it stays in
-Blocked Hosts, and it does fail the step. The proxy connects to the origin with the certificate
-check on, so a forged certificate, an expired one and an origin speaking no TLS at all are all
-refusals of its own rather than the origin being down. See
+**A connection Buildcage never completed is not here.** It is a refusal, it is in Blocked Hosts, and
+it does fail the step:
+
+| Reason                  | What happened                                                            |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `origin-untrusted`      | the origin's certificate was presented and Buildcage would not accept it |
+| `origin-connect-failed` | the connection never completed, so no certificate was ever accepted      |
+
+`origin-untrusted` is the plain case: a forged certificate, an expired one, or an origin speaking no
+TLS at all. `origin-connect-failed` is the one that looks like an outage and cannot be shown to be
+one. HAProxy retries a failed connection, and the TLS error it reports belongs to the last attempt
+alone, so an impostor whose certificate is refused on one attempt leaves no trace once a later
+attempt fails at TCP. The report does not claim to tell that from an origin that is simply down: a
+connection it never completed is one whose origin it never authenticated. See
 [Attempts to get around it](./security.md#attempts-to-get-around-it).
 
-None of these fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
+A host that is flaky rather than hostile is cleared the way any expected refusal is, by listing it
+in `known_blocked_rules`.
+
+None of the four fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
 match, and an `allowed_*` entry changes nothing. What clears one is the origin coming back, or the
 build reaching for something that is up.
