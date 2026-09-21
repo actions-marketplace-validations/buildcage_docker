@@ -88,7 +88,7 @@ choice between the two.
 
 The [report action](#report-action) writes every destination the build contacted to the Job Summary:
 
-<img src="assets/report-inspect-audit-mode.png" alt="Outbound Traffic Report - audit mode" width="556">
+<img src="assets/report-inspect-audit-mode.png" alt="Outbound Traffic Report (audit mode)" width="568">
 
 Its **Switch to restrict mode** section holds the allowlist, already written out from what the build
 actually did.
@@ -112,7 +112,7 @@ Paste that allowlist into the setup step and switch the mode:
 Each rule names the methods it permits, so this one lets npm fetch packages without letting it
 publish any: a `POST` to the same host is refused, as is every host not listed.
 
-<img src="assets/report-inspect-restrict-mode.png" alt="Outbound Traffic Report - restrict mode" width="556">
+<img src="assets/report-inspect-restrict-mode.png" alt="Outbound Traffic Report (restrict mode)" width="568">
 
 A blocked connection fails the job at the report step, so a build that starts reaching somewhere new
 doesn't pass unnoticed.
