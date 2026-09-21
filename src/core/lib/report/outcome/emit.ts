@@ -1,25 +1,18 @@
 import { createAnnotation } from "#core/lib/actions/annotation.ts";
-import { describeBlockedOutcome } from "./blocked-outcome.ts";
-import { applyOutcomeAnnotation } from "./annotate.ts";
-import type { ReportDataCommon } from "../types.ts";
+import { describeReportOutcomes } from "./report-outcomes.ts";
+import { applyOutcomeAnnotations } from "./annotate.ts";
+import type { ReportData } from "../types.ts";
 
-export interface EmitBlockedOutcomeOptions {
+export interface EmitReportOutcomesOptions {
   failOnBlocked: boolean;
   summaryFile: string | undefined;
 }
 
-export function emitBlockedOutcome(
-  report: ReportDataCommon,
-  { failOnBlocked, summaryFile }: EmitBlockedOutcomeOptions,
+export function emitReportOutcomes(
+  report: ReportData,
+  { failOnBlocked, summaryFile }: EmitReportOutcomesOptions,
 ): void {
-  const outcome = describeBlockedOutcome({
-    isAudit: report.parameters.mode === "audit",
-    failOnBlocked,
-    blockedCount: report.blockedCount,
-    blockedRows: report.blocked,
-    logLooksPlausible: report.logLooksPlausible,
-    engineLabel: "proxy",
-  });
+  const outcomes = describeReportOutcomes(report, { failOnBlocked, engineLabel: "proxy" });
 
-  applyOutcomeAnnotation(createAnnotation(Boolean(summaryFile)), outcome);
+  applyOutcomeAnnotations(createAnnotation(Boolean(summaryFile)), outcomes);
 }

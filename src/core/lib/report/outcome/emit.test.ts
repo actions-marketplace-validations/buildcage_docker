@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { emitBlockedOutcome } from "./emit.ts";
+import { emitReportOutcomes } from "./emit.ts";
 import { annotateKnownBlocked } from "../build/aggregate.ts";
-import type { ReportDataCommon } from "../types.ts";
+import type { UniversalReportData } from "../types.ts";
 import { reportParams } from "#core/lib/test/report-data.node.ts";
 
 let prevExitCode: number | string | null | undefined;
@@ -16,8 +16,9 @@ afterEach(() => {
   process.exitCode = prevExitCode;
 });
 
-function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
+function report(overrides: Partial<UniversalReportData> = {}): UniversalReportData {
   return {
+    engine: "universal",
     parameters: reportParams(),
     passed: [],
     blocked: [],
@@ -28,7 +29,7 @@ function report(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
 }
 
 /** A report carrying the one blocked connection no rule accounts for. */
-function blockedReport(overrides: Partial<ReportDataCommon> = {}): ReportDataCommon {
+function blockedReport(overrides: Partial<UniversalReportData> = {}): UniversalReportData {
   return report({
     blockedCount: 1,
     blocked: annotateKnownBlocked(
@@ -61,10 +62,10 @@ function captureAnnotations(run: () => void): { notices: string[]; errors: strin
 // The decision matrix is blocked-outcome.ts's (tested there), and emitting the
 // decision is annotate.ts's (tested there). What is left here is the mapping
 // from a report to that decision, and the gate on summaryFile.
-describe("emitBlockedOutcome", () => {
+describe("emitReportOutcomes", () => {
   it("leaves exitCode untouched and says nothing when there are no blocked connections", () => {
     const { notices, errors } = captureAnnotations(() =>
-      emitBlockedOutcome(report(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
+      emitReportOutcomes(report(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
     );
     expect(process.exitCode).toBe(undefined);
     expect([...notices, ...errors]).toStrictEqual([]);
@@ -72,7 +73,7 @@ describe("emitBlockedOutcome", () => {
 
   it("fails the step with an ::error:: for a blocked connection in restrict mode", () => {
     const { notices, errors } = captureAnnotations(() =>
-      emitBlockedOutcome(blockedReport(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
+      emitReportOutcomes(blockedReport(), { failOnBlocked: true, summaryFile: "/tmp/summary.md" }),
     );
     expect(process.exitCode).toBe(1);
     expect(errors.length).toBe(1);
@@ -81,7 +82,7 @@ describe("emitBlockedOutcome", () => {
 
   it("reads the report's own mode, so audit gets a ::notice:: and no failure", () => {
     const { notices, errors } = captureAnnotations(() =>
-      emitBlockedOutcome(blockedReport({ parameters: reportParams({ mode: "audit" }) }), {
+      emitReportOutcomes(blockedReport({ parameters: reportParams({ mode: "audit" }) }), {
         failOnBlocked: true,
         summaryFile: "/tmp/summary.md",
       }),
@@ -93,7 +94,7 @@ describe("emitBlockedOutcome", () => {
 
   it("still fails the step with no summaryFile, which only suppresses the annotation", () => {
     const { notices, errors } = captureAnnotations(() =>
-      emitBlockedOutcome(blockedReport(), { failOnBlocked: true, summaryFile: undefined }),
+      emitReportOutcomes(blockedReport(), { failOnBlocked: true, summaryFile: undefined }),
     );
     expect(process.exitCode).toBe(1);
     expect([...notices, ...errors]).toStrictEqual([]);

@@ -112,18 +112,43 @@ function reasonFor(logged: string, terminationState: string): string {
 }
 
 /**
- * Whether the client gave up before it had sent a whole request.
+ * The whole authority a request line can leave behind, matched exactly rather
+ * than by its leading `-`.
+ *
+ * The URL is built from the captured `Host` header and the path, for each of
+ * which haproxy prints `-` when the request never carried one: `-` is a missing
+ * `Host` with a path behind it, `--` bytes that parsed as neither. A `Host` the
+ * build did send is logged as sent, and only the whitespace, quotes and control
+ * characters the capture rewrites are gone, so a host of its own choosing could
+ * otherwise pass this test: `Host: -evil.example.com` reads as an authority
+ * beginning with a hyphen, and a refusal the rules did make would leave both
+ * tables and `fail_on_blocked` at the sender's discretion.
+ */
+const NO_AUTHORITY = new Set(["-", "--"]);
+
+/**
+ * What kept a whole request from reaching the rules, or undefined when one did
+ * reach them.
  *
  * Phase `R` is the proxy still reading the request line and headers, and the
  * inspected stage resolves the Host and connects only once one has parsed, so
- * nothing left this proxy: the logged destination is still the proxy's own
- * address. `C` is the client closing, `c` its own timeout expiring. A later
- * phase (`CD` and the like) means the rules had already decided on a request,
- * so those stay ordinary exchanges.
+ * nothing left this proxy. `C` is the client closing, `c` its own timeout
+ * expiring, and `P` this proxy answering: haproxy's own 400 for bytes it could
+ * not read as a request, or a rule denying one whose `Host` never arrived. A
+ * later phase (`CD` and the like) means the rules had already decided on a
+ * request, so those stay ordinary exchanges.
+ *
+ * `P` in phase `R` is every ordinary refusal too, and the authority is what
+ * tells them apart: NO_AUTHORITY holds the two the log prints when there was
+ * none to print.
  */
-function isAborted(terminationState: string): boolean {
+function incompleteReason(terminationState: string, url: string): string | undefined {
+  if (terminationState[1] !== "R") return undefined;
   const cause = terminationState[0];
-  return terminationState[1] === "R" && (cause === "C" || cause === "c");
+  if (cause === "C") return "client-aborted";
+  if (cause === "c") return "client-timeout";
+  if (cause === "P" && NO_AUTHORITY.has(hostOf(url))) return "bad-request";
+  return undefined;
 }
 
 function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
@@ -138,24 +163,43 @@ function hostOf(url: string): string {
   return parseObservedUrl(url)?.host ?? url;
 }
 
+/** Stands in for a host the log has no way to name; see hostBeforeRequest. */
+const UNKNOWN_HOST = "(unknown)";
+
+/**
+ * The host of a connection that never delivered a whole request: its SNI, the
+ * only name such a line carries.
+ *
+ * Without one the destination address stands in, but only on the stage that
+ * logs an SNI at all. A name-based TLS client always sends one, so a handshake
+ * that carried none was aimed at an address the build wrote out itself, and
+ * that address is the connection's identity. The plain stage logs no SNI field,
+ * and there the address names nothing: CoreDNS answers every name with the
+ * proxy's own, so a name-based connection's destination is the proxy itself,
+ * and no field tells that from an address the build really did name.
+ */
+function hostBeforeRequest(sni: string | undefined, destination: string): string {
+  if (sni === undefined) return UNKNOWN_HOST;
+  return sni === "-" ? destination : sni;
+}
+
 /** Parse one proxy-log line, or null if it is not one of ours. */
 function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   const trimmed = line.trim();
 
   const request = REQUEST.exec(trimmed);
   if (request) {
-    if (isAborted(request[6])) {
-      const sni = request[10];
-      // The SNI is the only name given, the address the only identity without
-      // one. Method and URL stay unset: `<BADREQ>` and an authority-less URL
-      // are what the log-format prints for fields that never existed.
+    const incomplete = incompleteReason(request[6], request[11]);
+    if (incomplete) {
+      // Method and URL stay unset: `<BADREQ>` and an authority-less URL are
+      // what the log-format prints for fields that never existed.
       return {
         time: Number(request[1]) / 1000,
-        action: "aborted",
+        action: "incomplete",
         protocol: request[2] as "http" | "https",
-        host: sni === undefined || sni === "-" ? request[8] : sni,
+        host: hostBeforeRequest(request[10], request[8]),
         port: Number(request[9]),
-        reason: request[6][0] === "c" ? "client-timeout" : "client-aborted",
+        reason: incomplete,
         destination: `${request[8]}:${request[9]}`,
       };
     }

@@ -18,7 +18,7 @@ import type { Docker } from "#core/lib/docker/client.ts";
 import { createDocker } from "#core/lib/docker/client.ts";
 import { readActionVersion } from "./action-version.ts";
 import { buildReportParameters } from "./parameters.ts";
-import { emitBlockedOutcome } from "./outcome/emit.ts";
+import { emitReportOutcomes } from "./outcome/emit.ts";
 import { buildTrafficRecords, writeTrafficFile } from "./outcome/traffic-output.ts";
 import { renderReportMarkdown } from "./render/render-report-markdown.ts";
 import { truncateForStepSummary } from "./render/truncate-communication-details.ts";
@@ -117,7 +117,7 @@ export async function runReportAction(
     writeTrafficFile(trafficFile, buildTrafficRecords(report.timeline, report.startedAt));
   }
 
-  emitBlockedOutcome(report, {
+  emitReportOutcomes(report, {
     failOnBlocked: deps.failOnBlocked ?? readFailOnBlocked(),
     summaryFile: env.GITHUB_STEP_SUMMARY,
   });
