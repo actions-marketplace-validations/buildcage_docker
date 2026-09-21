@@ -366,11 +366,13 @@ where the `Host` would have been.
 | ---------------- | ------------------------------------------------------------------------------- |
 | `client-aborted` | the client finished the TLS handshake and then closed without sending a request |
 | `client-timeout` | it held the connection open instead of closing it, until the timeout expired    |
-| `no-request`     | Buildcage's own proxy ended it while still reading, having run into an error    |
+| `no-request`     | no request arrived, and neither the client nor a rule of Buildcage's ended it   |
 
 The commonest cause of the first two is a container with no `ca-certificates` installed: the client
-cannot verify the certificate Buildcage signs and gives up at that point. `no-request` is rare and is
-not the build's doing at all.
+cannot verify the certificate Buildcage signs and gives up at that point. `no-request` is the rest:
+Buildcage's proxy running into an error of its own while still reading, and any other connection
+that carried no request and that neither of the first two explains. It is rare, and it is not the
+build's doing.
 
 Such a row is in neither host table and never fails the step, not even with `fail_on_blocked: true`:
 no rule refused it, so `known_blocked_rules` has nothing to match, and nothing reached an origin. A

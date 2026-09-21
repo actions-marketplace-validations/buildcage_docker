@@ -177,6 +177,16 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.action).toBe("failed");
   });
 
+  it("leaves a plaintext connection this proxy could not make a failure too", async () => {
+    // origin_plain verifies nothing (see haproxy-sections.ts), so there was no
+    // certificate for a connection that never completed to have hidden. The
+    // stage logs `tlserr` all the same, and it means nothing here.
+    const line = render(HTTP, { "%ts": "sC--", "%ST": "503", "%B": "0" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.reason).toBe("origin-unreachable");
+    expect(e.action).toBe("failed");
+  });
+
   // What a client that finished the handshake and then left produces, and what
   // bytes haproxy could not read as a request produce too: with no request to
   // log, every field one would have comes out empty.

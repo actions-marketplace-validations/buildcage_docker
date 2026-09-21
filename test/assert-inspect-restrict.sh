@@ -338,6 +338,13 @@ if grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| bad-request \|' <<< "$REPORT_MARK
 else
   fail "the Blocked Hosts table is missing the rows for requests that named no host"
 fi
+# The same unreachable host over plaintext, where no certificate was ever going
+# to be checked, so nothing was hidden by the connection failing.
+if grep -qF "| deadend.example.com:80 | HTTP | origin-unreachable |" <<< "$REPORT_MARKDOWN"; then
+  pass "a plaintext connection that failed is a failure, not a refusal"
+else
+  fail "the plaintext connection failure was not reported as a failure"
+fi
 echo ""
 
 # A name the rules allow that resolves nowhere: no rule refused it and none can

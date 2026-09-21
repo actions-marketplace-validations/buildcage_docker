@@ -228,6 +228,14 @@ RUN echo "=== [Origin connection never completes] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "503" ] || (echo "FAILED: expected 503" && exit 1)
 
+# The same host over plaintext, where no certificate was ever going to be
+# checked. That one is an outage and nothing more, which is the distinction
+# assert-inspect-restrict.sh checks the report keeps.
+RUN echo "=== [Plaintext origin connection never completes] ===" && \
+    CODE=$($C http://deadend.example.com/) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "503" ] || (echo "FAILED: expected 503" && exit 1)
+
 # Refused like an absent name, and on every attempt rather than sometimes.
 RUN echo "=== [Name has AAAA records only] ===" && \
     CODE=$($C https://v6only.example.com/) && \

@@ -121,9 +121,12 @@ function isRefusal(terminationState: string): boolean {
  * is flaky rather than hostile is cleared the way any expected refusal is, with
  * known_blocked_rules.
  *
- * `tlsError` is undefined where no stage checked a certificate at all. The
- * passthrough relays the handshake for the build to judge, so a connection it
- * could not make hid nothing and stays `origin-unreachable`.
+ * `tlsError` is undefined where this proxy checked no certificate at all, and
+ * a connection it could not make there hid nothing: the plain stage carries
+ * plaintext to `origin_plain`, which verifies nothing, and the passthrough
+ * relays the handshake for the build to judge. Both stay `origin-unreachable`.
+ * Only where a certificate was going to be checked is a connection that never
+ * completed a refusal.
  */
 function reasonFor(
   logged: string,
@@ -257,11 +260,13 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
   const request = REQUEST.exec(trimmed);
   if (request) {
     const incomplete = incompleteReason(request[6], request[3]);
+    // Only the https stage connects with `ssl verify required`; the plain one
+    // logs the field all the same and has no certificate behind it. See
+    // reasonFor for what that changes.
+    const tlsError = request[2] === "https" ? request[8] : undefined;
     const reason =
       incomplete ??
-      (isRefusal(request[6])
-        ? reasonFor(request[7], request[6], request[8], request[3])
-        : undefined);
+      (isRefusal(request[6]) ? reasonFor(request[7], request[6], tlsError, request[3]) : undefined);
     // The URL is built from the `Host` that never came, so the handshake is the
     // only thing left that names the connection.
     const namedByHandshake =
