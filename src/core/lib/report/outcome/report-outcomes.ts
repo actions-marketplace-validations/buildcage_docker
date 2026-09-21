@@ -76,12 +76,21 @@ function describeUndecidedRequests(
 }
 
 /**
- * The notice for connections that failed after the rules had allowed them, or
+ * The notice for connections that failed after the rules had passed on them, or
  * undefined when there were none.
  *
  * A notice where describeUndecidedRequests warns: these have a table of their
  * own, so it only has to say that the step passed although connections failed.
  * Counted off the rows rather than a timeline, which only `inspect` has.
+ *
+ * `audit` enforces nothing, so nothing there was allowed by a rule and the
+ * opening says only what happened, the same distinction actionFor makes between
+ * an audited connection and an allowed one.
+ *
+ * "could not be reached" is deliberately absent: a connection that never
+ * completed is a refusal wherever a certificate was going to be checked, and
+ * the few that are not refusals have a table entry of their own to explain
+ * them (see FAILURE_REASONS and docs/reference.md).
  */
 function describeFailedConnections(
   report: ReportData,
@@ -89,13 +98,16 @@ function describeFailedConnections(
 ): OutcomeEmission | undefined {
   const count = report.failed.reduce((total, row) => total + row.count, 0);
   if (count === 0) return undefined;
+  const opening =
+    report.parameters.mode === "audit"
+      ? `${count} connection(s) buildcage ${engineLabel} recorded did not complete`
+      : `${count} connection(s) failed after buildcage ${engineLabel} allowed them`;
   return {
     level: "notice",
     shouldFail: false,
     message:
-      `${count} connection(s) failed after buildcage ${engineLabel} allowed them, listed under ` +
-      "Failed Connections. The origin could not be reached, broke off, or its name resolved " +
-      "nowhere upstream: no rule refused them and none can change the outcome, so none of them " +
-      "fails the step.",
+      `${opening}, listed under Failed Connections. The origin broke off, answered nothing ` +
+      "usable, or its name resolved nowhere upstream: no rule refused them and none can change " +
+      "the outcome, so none of them fails the step.",
   };
 }

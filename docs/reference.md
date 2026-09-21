@@ -423,20 +423,23 @@ refuse, under **⚠️ Failed Connections**. Under `inspect`, **Communication de
 ⚠️ 00:13.771: GET https://mirror.example.com/index -> origin-no-response
 ```
 
-| Reason               | What happened                                                           |
-| -------------------- | ----------------------------------------------------------------------- |
-| `origin-no-response` | the connection was made, and no usable response headers came back       |
-| `origin-aborted`     | the response started and the transfer was cut short                     |
-| `dns-failed`         | the name resolved nowhere upstream, the rules having already allowed it |
-| `origin-unreachable` | a passthrough connection could not be made at all                       |
+| Reason               | What happened                                                         |
+| -------------------- | --------------------------------------------------------------------- |
+| `origin-no-response` | the connection was made, and no usable response headers came back     |
+| `origin-aborted`     | the response started and the transfer was cut short                   |
+| `dns-failed`         | the name resolved nowhere upstream, no rule having refused it         |
+| `origin-unreachable` | a connection carrying no certificate of Buildcage's could not be made |
 
 What the first two have in common is a connection that completed, which is where the origin's
 certificate was checked: whatever went wrong afterwards went wrong with an origin Buildcage had
-authenticated. `dns-failed` never reached a connection, and a passthrough is relayed for the build
-to judge rather than decrypted, so no certificate of Buildcage's was involved in either.
+authenticated. `dns-failed` never reached a connection, and neither a plaintext request nor a
+passthrough has a certificate of Buildcage's behind it: the first is carried as it was sent, the
+second is relayed for the build to judge rather than decrypted.
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
-`dns-failed` is the only one of the four it can report.
+`dns-failed` is the only one of the four it can report. `audit` reports them the same way, though
+nothing there was allowed by a rule either: what the table says is that the rules are not what
+stopped these.
 
 **A connection Buildcage never completed is not here.** It is a refusal, it is in Blocked Hosts, and
 it does fail the step:
@@ -459,7 +462,7 @@ in `known_blocked_rules`.
 
 None of the four fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
 count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
-match, and an `allowed_*` entry is already there. What clears one is the origin coming back, or the
+match, and an `allowed_*` entry changes nothing. What clears one is the origin coming back, or the
 build reaching for something that is up.
 
 A blocked `DNS` row for the same name means something else entirely: that one is Buildcage's own
