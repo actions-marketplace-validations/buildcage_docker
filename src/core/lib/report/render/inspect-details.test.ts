@@ -230,12 +230,14 @@ describe("renderInspectDetails", () => {
     );
   });
 
-  it("marks a request the proxy could not read, naming the reason it logged", () => {
+  it("marks a request the proxy could not read as the refusal it was", () => {
+    // Refused, so 🚫 rather than ⚠️, and named by its port alone: the plain
+    // stage has no SNI, and no request arrived to carry a Host.
     const rendered = renderInspectDetails(
       [
         {
           time: t,
-          action: "incomplete",
+          action: "block",
           protocol: "http",
           host: "(unknown)",
           port: 8080,
@@ -244,7 +246,24 @@ describe("renderInspectDetails", () => {
       ],
       t,
     );
-    expect(rendered.includes("⚠️ 00:00.000: HTTP (unknown):8080 -> bad-request")).toBe(true);
+    expect(rendered.includes("🚫 00:00.000: HTTP (unknown):8080 -> bad-request")).toBe(true);
+  });
+
+  it("marks a connection haproxy itself ended before a request arrived", () => {
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "incomplete",
+          protocol: "https",
+          host: "a.example.com",
+          port: 443,
+          reason: "no-request",
+        },
+      ],
+      t,
+    );
+    expect(rendered.includes("⚠️ 00:00.000: HTTPS a.example.com:443 -> no-request")).toBe(true);
   });
 
   it('falls back to a bare "no request" when such a connection names no reason', () => {

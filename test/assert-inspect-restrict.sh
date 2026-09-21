@@ -59,6 +59,24 @@ else
 fi
 echo ""
 
+echo "[no request] what never parsed as one is refused, not passed off as undecided:"
+# `<BADREQ>` is haproxy's own word for bytes it read no request out of, and no
+# client can send it as a method. The URL tail is the empty Host and path it
+# never had; dst is not pinned, this one never reaching set-dst.
+if grep -qE "^buildcage [0-9]+ http <BADREQ> 400 [0-9]+ ts=PR reason=\S+ tlserr=\S+ dst=\S+ http://--$" <<< "$LOGS"; then
+  pass "the bytes that were not a request were refused"
+else
+  fail "no refusal recorded for the connection that sent no request"
+fi
+# Named by the config rather than inferred from the empty Host the log prints,
+# which a Host the build chooses could imitate.
+if grep -qE "^buildcage [0-9]+ http GET 400 [0-9]+ ts=PR reason=missing-host-header tlserr=\S+ dst=\S+ http://-/public/pkg\.tgz$" <<< "$LOGS"; then
+  pass "the request that named no host was refused, with the reason named"
+else
+  fail "no missing-host-header refusal recorded"
+fi
+echo ""
+
 echo "[exfiltration] the query string is kept, which is where the payload goes:"
 if grep -qF "https://blocked.example.com/exfil?token=SECRET-VALUE" <<< "$LOGS"; then
   pass "the refused URL was recorded with its query string intact"
@@ -109,13 +127,20 @@ else
 fi
 echo ""
 
-# A numeric tlserr is the assertion: a port that refused the connection would
-# leave `-` there, and the row would be a failure rather than a refusal.
-echo "[origin CA] a certificate the proxy cannot verify is refused, not just unreachable:"
+# A numeric tlserr is the assertion: it is what names the certificate as the
+# reason, where a connection that never got that far leaves `-`.
+echo "[origin CA] a certificate the proxy cannot verify is refused by name:"
 if grep -qE "^buildcage [0-9]+ https GET 503 [0-9]+ ts=SC\S* reason=\S+ tlserr=[0-9]+ dst=10\.200\.0\.101:443 sni=impostor\.example\.com https://impostor\.example\.com/$" <<< "$LOGS"; then
   pass "the refusal names the TLS error the handshake failed with"
 else
   fail "no line recorded a failed origin handshake for impostor.example.com"
+fi
+# The same phase with no TLS error at all. It reads like an outage and is
+# refused anyway: nothing on this connection was ever authenticated.
+if grep -qE "^buildcage [0-9]+ https GET 503 [0-9]+ ts=[sS]C\S* reason=\S+ tlserr=\S+ dst=10\.200\.0\.102:443 sni=deadend\.example\.com https://deadend\.example\.com/$" <<< "$LOGS"; then
+  pass "a connection that never completed was recorded on its own"
+else
+  fail "no line recorded a connection that never completed for deadend.example.com"
 fi
 echo ""
 
@@ -298,10 +323,27 @@ echo "[report] Blocked Hosts, including a name that never reached the proxy:"
 if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
   && grep -qiF "| secret-in-a-name.attacker.example | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| impostor.example.com:443 | HTTPS | origin-untrusted |" <<< "$REPORT_MARKDOWN"; then
-  pass "the table separates a refused request, a refused name and an origin we would not trust"
+  && grep -qF "| impostor.example.com:443 | HTTPS | origin-untrusted |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| deadend.example.com:443 | HTTPS | origin-connect-failed |" <<< "$REPORT_MARKDOWN"; then
+  pass "the table separates a refused request, a refused name and two origins we never authenticated"
 else
   fail "the Blocked Hosts table is missing expected rows"
+fi
+# A refusal made before a whole request arrived is still a refusal, and counts
+# towards fail_on_blocked. The plain stage has no SNI to name it by, hence the
+# host these two carry.
+if grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| bad-request \|' <<< "$REPORT_MARKDOWN" \
+  && grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| missing-host-header \|' <<< "$REPORT_MARKDOWN"; then
+  pass "both refusals that named no host are in the table"
+else
+  fail "the Blocked Hosts table is missing the rows for requests that named no host"
+fi
+# The same unreachable host over plaintext, where no certificate was ever going
+# to be checked, so nothing was hidden by the connection failing.
+if grep -qF "| deadend.example.com:80 | HTTP | origin-unreachable |" <<< "$REPORT_MARKDOWN"; then
+  pass "a plaintext connection that failed is a failure, not a refusal"
+else
+  fail "the plaintext connection failure was not reported as a failure"
 fi
 echo ""
 

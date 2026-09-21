@@ -39,11 +39,11 @@ function inspect(
 const incomplete: TrafficEvent = {
   time: 1787471975,
   action: "incomplete",
-  protocol: "http",
-  host: "(unknown)",
-  port: 8080,
-  reason: "bad-request",
-  destination: "172.20.0.1:8080",
+  protocol: "https",
+  host: "untrusted-ca.example.com",
+  port: 443,
+  reason: "client-aborted",
+  destination: "172.20.0.1:443",
 };
 
 /** Two connections to one host, as the report aggregates them. */

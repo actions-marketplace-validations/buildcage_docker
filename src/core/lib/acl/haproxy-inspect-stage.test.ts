@@ -18,6 +18,15 @@ function plainStage(inputs: RuleInputs): string {
 }
 
 describe("inspect stage", () => {
+  it("refuses a request with no Host before it judges the path", () => {
+    // Both are refusals, so only the reason turns on the order, and one of the
+    // two names a host the report can act on where the other leaves the `-`
+    // the log prints for a Host that never came. No rule is needed to see it:
+    // both checks sit above the rule block whatever is written there.
+    const plain = plainStage({});
+    expect(plain.indexOf("missing-host-header") < plain.indexOf("path -m sub")).toBe(true);
+  });
+
   it("writes nothing below a deny that carries no condition and so is final", () => {
     // HAProxy skips every http-request rule after an unconditional deny and
     // warns that they are NOOP. The resolver block is what would follow here.
