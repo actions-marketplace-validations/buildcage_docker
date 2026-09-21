@@ -266,6 +266,29 @@ describe("renderInspectDetails", () => {
     expect(rendered.includes("⚠️ 00:00.000: HTTPS a.example.com:443 -> no-request")).toBe(true);
   });
 
+  it("keeps the method of a request whose target no URL fits", () => {
+    // `OPTIONS *` reaches the rules and is refused by them, so the row is a
+    // refusal rather than a connection that carried nothing. Without the
+    // method it would read as the latter.
+    const rendered = renderInspectDetails(
+      [
+        {
+          time: t,
+          action: "block",
+          protocol: "https",
+          host: "registry.npmjs.org",
+          port: 443,
+          method: "OPTIONS",
+          reason: "not-allowed",
+        },
+      ],
+      t,
+    );
+    expect(
+      rendered.includes("🚫 00:00.000: OPTIONS HTTPS registry.npmjs.org:443 -> not-allowed"),
+    ).toBe(true);
+  });
+
   it('falls back to a bare "no request" when such a connection names no reason', () => {
     const rendered = renderInspectDetails(
       [{ time: t, action: "incomplete", protocol: "https", host: "a.example.com", port: 443 }],

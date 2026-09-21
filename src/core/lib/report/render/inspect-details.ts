@@ -109,7 +109,13 @@ function subject(event: TrafficEvent): string {
   // request has nothing to show, so for both a name and a port is all there is.
   // Not written as a URL: that would drop a non-default port.
   if (event.url === undefined) {
-    return `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
+    const nameAndPort = `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
+    // Unless a method did arrive: the request was then whole, and it is its
+    // target that no URL fits (`OPTIONS *`; see log/inspect.ts's urlOf).
+    // Dropping the method would read as a connection that carried no request.
+    // The log records only that there was no path, not which other form the
+    // target took, so naming the form here would be a guess.
+    return event.method === undefined ? nameAndPort : `${event.method} ${nameAndPort}`;
   }
   return `${event.method} ${redactCredentialQuery(event.url)}`;
 }

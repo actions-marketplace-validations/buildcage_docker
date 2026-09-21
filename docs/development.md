@@ -253,13 +253,18 @@ docker compose exec builder cat /var/log/haproxy/current
 docker compose exec builder cat /var/log/coredns/current
 ```
 
-HAProxy's log carries one line per request, oldest first, with its method, status, size, and its
-full URL last:
+HAProxy's log carries one line per request, oldest first, with its method, status, size, the `Host`
+header it carried, and its request target last:
 
 ```
-buildcage 1787471975123 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 sni=registry.npmjs.org https://registry.npmjs.org/express
+buildcage 1787471975123 https GET 200 708 ts=-- reason=- tlserr=- dst=104.16.1.34:443 sni=registry.npmjs.org host=registry.npmjs.org /express
 buildcage 1787471976000 pass tls 3421 ts=-- reason=- dst=10.200.0.100:5432 sni=db.example.com
 ```
+
+`host` and the target are two fields rather than one URL because a request target need not be a
+path: `OPTIONS *` and a `CONNECT`'s authority are both legal, and both leave the target as `-`, so a
+reader splitting a URL back apart would take the host for `registry.npmjs.org-`. A missing `Host`
+prints as `-` too.
 
 `ts` is HAProxy's termination state and `reason` the refusal reason where the rule that refused
 knew one the line could not otherwise show. `tlserr` carries haproxy's own error from the handshake

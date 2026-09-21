@@ -2,8 +2,8 @@
  * Parsers for the `inspect` engine's two logs, whose formats are emitted by
  * haproxy-config.ts and coredns-config.ts. Seven kinds of line:
  *
- *   buildcage <ms> https <method> <status> <bytes> ts=<st> reason=<r> tlserr=<n|-> dst=<addr>:<port> sni=<name|-> <url>
- *   buildcage <ms> http <method> <status> <bytes> ts=<st> reason=<r> tlserr=<n|-> dst=<addr>:<port> <url>
+ *   buildcage <ms> https <method> <status> <bytes> ts=<st> reason=<r> tlserr=<n|-> dst=<addr>:<port> sni=<name|-> host=<authority|-> <target|->
+ *   buildcage <ms> http <method> <status> <bytes> ts=<st> reason=<r> tlserr=<n|-> dst=<addr>:<port> host=<authority|-> <target|->
  *   buildcage <ms> pass <tls|tcp> <bytes> ts=<st> reason=<r> dst=<addr>:<port> sni=<name|->
  *   <timestamp>  [INFO] buildcage dns <allowed|denied> name=<name>.
  *   <timestamp>  [INFO] buildcage dns discovery name=<name>. type=<qtype>
@@ -20,12 +20,12 @@
  */
 
 import type { TrafficAction, TrafficEvent } from "./traffic-event.ts";
-import { parseObservedUrl } from "./authority.ts";
+import { splitHostPort } from "./authority.ts";
 import { PROXY_START_MARKER } from "./start-marker.ts";
 
 export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-event.ts";
 
-// The URL and the SNI come last because the build chooses their length: a
+// The target and the SNI come last because the build chooses their length: a
 // cut line costs their tail, not the decision. Nothing should cut one, since
 // both the configured line length and s6-log's split are above the longest
 // request haproxy accepts, so `unparsed` counts what arrives unreadable
@@ -34,11 +34,11 @@ export type { TrafficAction, TrafficEvent, TrafficProtocol } from "./traffic-eve
 // half-written write would otherwise parse as one event instead of counting
 // as unparsed.
 // sni= is optional: the plain stage terminates no TLS and logs no such field.
-// The URL keeps its scheme for that reason, or a line cut right after the SNI
-// would parse with `sni=<name>` read as the URL instead of counting as
+// `host=` is a named field for that reason, or a line cut right after the SNI
+// would parse with `sni=<name>` read as the authority instead of counting as
 // unreadable.
 const REQUEST =
-  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) tlserr=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?(https?:\/\/\S+)$/;
+  /^buildcage (\d+) (https?) (\S+) (-?\d+) (\d+) ts=(\S*) reason=(\S+) tlserr=(\S+) dst=(\S+):(\d+) (?:sni=(\S+) )?host=(\S+) (\S+)$/;
 const PASSTHROUGH =
   /^buildcage (\d+) pass (tls|tcp) (\d+) ts=(\S*) reason=(\S+) dst=(\S+):(\d+) sni=(\S+)$/;
 const DNS = /^(\S+ \S+)\s+.*buildcage dns (allowed|denied) name=(\S+?)\.?$/;
@@ -162,9 +162,9 @@ function reasonFor(
 const BAD_REQUEST_METHOD = "<BADREQ>";
 
 /**
- * The refusals this proxy made over a request that named no host. The URL field
- * is built from the `Host` the log prints as `-`, so the connection is named by
- * its handshake instead; see hostBeforeRequest.
+ * The refusals this proxy made over a request that named no host. The host
+ * field is the `Host` the log prints as `-`, so the connection is named by its
+ * handshake instead; see hostBeforeRequest.
  */
 const REQUESTLESS_REASONS = new Set(["bad-request", "missing-host-header"]);
 
@@ -228,9 +228,22 @@ function actionFor(reason: string | undefined, isAudit: boolean): TrafficAction 
   return isAudit ? "audit" : "allow";
 }
 
-/** The host half of an absolute URL's authority, without its port. */
-function hostOf(url: string): string {
-  return parseObservedUrl(url)?.host ?? url;
+/**
+ * The absolute URL a request named, joined from the two fields that carry it,
+ * or undefined where its target was no path for one to be built around.
+ *
+ * haproxy's `pathq` is empty, printed as `-`, for every request-target that is
+ * not origin-form: the asterisk-form `OPTIONS *` of RFC 9112 §3.2.4 and a
+ * CONNECT's authority. Both are legal requests that reach the rules and are
+ * refused by them, since every path matcher wants a leading slash, so the
+ * report still has an event to show; it just has no URL to show for it.
+ *
+ * An authority of `-` still builds one. That request did name a path, and the
+ * path is what the report has to show; the host it is joined to is a refusal
+ * this proxy names for itself (see REQUESTLESS_REASONS).
+ */
+function urlOf(scheme: string, authority: string, target: string): string | undefined {
+  return target.startsWith("/") ? `${scheme}://${authority}${target}` : undefined;
 }
 
 /** Stands in for a host the log has no way to name; see hostBeforeRequest. */
@@ -267,7 +280,7 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
     const reason =
       incomplete ??
       (isRefusal(request[6]) ? reasonFor(request[7], request[6], tlsError, request[3]) : undefined);
-    // The URL is built from the `Host` that never came, so the handshake is the
+    // The host field holds the `Host` that never came, so the handshake is the
     // only thing left that names the connection.
     const namedByHandshake =
       reason !== undefined && (incomplete !== undefined || REQUESTLESS_REASONS.has(reason));
@@ -276,18 +289,25 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
     // the authority is the log's own word for one that never arrived, and no
     // longer decides anything here.
     const parsedRequest = request[3] !== BAD_REQUEST_METHOD;
+    const scheme = request[2] as "http" | "https";
+    const authority = request[12];
     const event: TrafficEvent = {
       // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
       action: incomplete !== undefined ? "incomplete" : actionFor(reason, isAudit),
-      protocol: request[2] as "http" | "https",
-      host: namedByHandshake ? hostBeforeRequest(request[11], request[9]) : hostOf(request[12]),
+      protocol: scheme,
+      // The `Host` header names the host; the port comes from dst=, where the
+      // request was actually sent.
+      host: namedByHandshake
+        ? hostBeforeRequest(request[11], request[9])
+        : splitHostPort(authority).host,
       port: Number(request[10]),
       destination: `${request[9]}:${request[10]}`,
     };
     if (parsedRequest) {
       event.method = request[3];
-      event.url = request[12];
+      const url = urlOf(scheme, authority, request[13]);
+      if (url !== undefined) event.url = url;
     }
     if (reason !== undefined) event.reason = reason;
     else {

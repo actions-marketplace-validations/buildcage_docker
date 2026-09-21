@@ -84,8 +84,13 @@ export function inspectStage(
     // %ts tells a refusal from an origin's own 403 or 503, reason says which
     // refusal, and tlserr carries haproxy's own error from the handshake with
     // the origin (see log/inspect.ts's reasonFor). All three sit ahead of the
-    // URL, the one field that could cut the line.
-    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] tlserr=%[ssl_bc_err] dst=%[dst]:%[dst_port]${sniField(scheme)} ${scheme}://%[capture.req.hdr(0)]%[var(txn.pathq)]"`,
+    // target, the one field that could cut the line.
+    // host and target are two fields rather than one URL: pathq is empty for
+    // a request-target that is not a path (`OPTIONS *`, RFC 9112 §3.2.4, and
+    // a CONNECT's authority), the log-format prints an empty sample as `-`,
+    // and log/inspect.ts would read the joined-up
+    // `https://registry.npmjs.org-` as a host no rule can be written for.
+    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] tlserr=%[ssl_bc_err] dst=%[dst]:%[dst_port]${sniField(scheme)} host=%[capture.req.hdr(0)] %[var(txn.pathq)]"`,
     "",
   );
   // The rules decide first, on the request alone (host, path, method): none
