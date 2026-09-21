@@ -211,6 +211,21 @@ describe("buildUrlRuleLines", () => {
     expect(buildUrlRuleLines([req("GET", "not a url")]).length).toBe(0);
   });
 
+  it("proposes nothing for a request whose target was no path", () => {
+    // `OPTIONS *` is logged with no URL (see log/inspect.ts's urlOf), and no
+    // allowed_url_rules line can match it: every path matcher wants a leading
+    // slash. A rule built from the host alone would be one that does nothing.
+    const asterisk: TrafficEvent = {
+      time: 1,
+      action: "audit",
+      protocol: "https",
+      host: "registry.npmjs.org",
+      port: 443,
+      method: "OPTIONS",
+    };
+    expect(buildUrlRuleLines([asterisk]).length).toBe(0);
+  });
+
   it("builds nothing from a refusal, a passthrough or a name lookup", () => {
     const events: TrafficEvent[] = [
       { ...req("GET", "https://a.example.com/x"), action: "block", reason: "not-allowed" },

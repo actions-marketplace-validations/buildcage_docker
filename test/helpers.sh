@@ -125,8 +125,18 @@ assert_no_forged_log_lines() {
 # matches on it exactly rather than on a substring that could drift.
 assert_logged() {
   local method="$1" url="$2" status="$3"
+  # The line carries the Host capture and the request target as two fields, so
+  # the URL is split back into them here rather than matched whole. The
+  # authority ends at the first `/`, `?` or `#`: splitting on `/` alone would
+  # take a query that follows no path for part of the host.
+  local rest="${url#*://}"
+  local authority="${rest%%[/?#]*}"
+  local target="${rest#"$authority"}"
+  # A URL written with no path is still sent with one, so the logged target
+  # always opens with a slash.
+  [[ "$target" == /* ]] || target="/$target"
   # sni= is optional: only the stage that terminates TLS has one to log.
-  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+( sni=\S+)? $(esc "$url")$" <<< "$LOGS"; then
+  if grep -qE "^buildcage [0-9]+ https? ${method} ${status} [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+( sni=\S+)? host=$(esc "$authority") $(esc "$target")$" <<< "$LOGS"; then
     pass "[$status] $method $url"
   else
     fail "[$status] $method $url -- no such line in the proxy log"

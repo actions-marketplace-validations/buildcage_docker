@@ -249,6 +249,16 @@ RUN echo "=== [Name outside the allowlist] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
+# A request-target that is not a path: RFC 9112 §3.2.4's asterisk-form, which
+# asks about the server rather than about a resource. No path rule can match
+# it, so restrict refuses it; assert-inspect-restrict.sh checks the line names
+# the host the request carried rather than one built from an empty path.
+RUN echo "=== [Request target is not a path] ===" && \
+    CODE=$(curl -sS -o /dev/null -w %{http_code} --max-time 10 \
+      -X OPTIONS --request-target '*' https://allowed.example.com/) && \
+    echo "status=$CODE" && \
+    [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
+
 # A client that completes the handshake and then leaves without sending a
 # request. Pinning a key the generated certificate cannot have stops curl at
 # exactly that point (exit 90); in the wild it is an image with no CA store.

@@ -327,8 +327,8 @@ describe("what a log line records", () => {
   it("records the path in a form that does not depend on the HTTP version", () => {
     // %HU is the request target as sent: a path over HTTP/1.1, an absolute URI
     // over HTTP/2, which every TLS client negotiates by default.
-    expect(FULL_CONFIG.includes("%[capture.req.hdr(0)]%HU")).toBe(false);
-    expect(FULL_CONFIG.includes("%[capture.req.hdr(0)]%[var(txn.pathq)]")).toBe(true);
+    expect(FULL_CONFIG.includes("host=%[capture.req.hdr(0)] %HU")).toBe(false);
+    expect(FULL_CONFIG.includes("host=%[capture.req.hdr(0)] %[var(txn.pathq)]")).toBe(true);
     expect(FULL_CONFIG.includes("http-request set-var(txn.pathq) 'pathq,regsub(")).toBe(true);
   });
 
@@ -339,7 +339,7 @@ describe("what a log line records", () => {
   });
 
   it("puts the one field the build sizes at the end of every line it logs", () => {
-    // Whatever cuts a line then costs a URL's tail, not the decision.
+    // Whatever cuts a line then costs the target's tail, not the decision.
     const formats = FULL_CONFIG.split("\n").filter((line) =>
       line.includes('log-format "buildcage'),
     );
@@ -391,13 +391,16 @@ describe("what a log line records", () => {
     expect(http?.includes("sni=")).toBe(false);
   });
 
-  it("puts the SNI ahead of the URL, not after it", () => {
-    // The URL is the field the build sizes, so it stays last: a cut line then
-    // costs the URL, and the name that says which host it was survives.
+  it("puts the SNI and the host ahead of the target, not after it", () => {
+    // The target is the field the build sizes, so it stays last: a cut line
+    // then costs the target, and both names that say which host it was
+    // survive.
     const https = FULL_CONFIG.split("\n").find((line) =>
       line.includes('"buildcage %[date(0,ms)] https'),
     );
-    expect((https?.indexOf("sni=") ?? -1) < (https?.indexOf("https://%[capture") ?? -1)).toBe(true);
+    const target = https?.indexOf("%[var(txn.pathq)]") ?? -1;
+    expect((https?.indexOf("sni=") ?? -1) < target).toBe(true);
+    expect((https?.indexOf("host=%[capture") ?? -1) < target).toBe(true);
   });
 
   it("leaves a non-default port's ':' untouched in the Host capture", () => {
@@ -416,8 +419,9 @@ describe("what a log line records", () => {
   });
 
   it("records the path before refusing a traversal, not after", () => {
-    // Denying first leaves txn.pathq unset, so the log shows a bare host and
-    // the report loses the URL of exactly the requests worth seeing.
+    // Denying first leaves txn.pathq unset, which the log prints as `-`, and
+    // the report shows no URL for a request that named no path. Exactly the
+    // requests worth seeing would lose theirs.
     const capture = FULL_CONFIG.indexOf("set-var(txn.pathq)");
     const deny = FULL_CONFIG.indexOf("deny deny_status 403 if { path -m reg");
     expect(capture !== -1 && capture < deny).toBe(true);
@@ -526,12 +530,12 @@ describe("audit mode", () => {
     expect(audit.includes("# No rules for this scheme")).toBe(false);
   });
 
-  it("still records the time, the method and the full URL", () => {
+  it("still records the time, the method, the host and the target", () => {
     expect(audit.includes('log-format "buildcage %[date(0,ms)] https %HM %ST %B ts=%ts')).toBe(
       true,
     );
     expect(audit.includes('log-format "buildcage %[date(0,ms)] http %HM %ST %B ts=%ts')).toBe(true);
-    expect(audit.includes("https://%[capture.req.hdr(0)]%[var(txn.pathq)]")).toBe(true);
+    expect(audit.includes("host=%[capture.req.hdr(0)] %[var(txn.pathq)]")).toBe(true);
   });
 
   it("still connects only where it resolved the name", () => {
