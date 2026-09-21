@@ -22,6 +22,7 @@ function report(overrides: Partial<UniversalReportData> = {}): UniversalReportDa
     parameters: reportParams(),
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
     ...overrides,

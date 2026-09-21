@@ -287,12 +287,22 @@ echo ""
 echo "[report] Blocked Hosts, including a name that never reached the proxy:"
 if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| absent.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| v6only.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
   && grep -qiF "| secret-in-a-name.attacker.example | DNS | dns-not-allowed |" <<< "$REPORT_MARKDOWN"; then
-  pass "the table separates a refused request, an unresolvable name and a refused name"
+  pass "the table separates a refused request from a refused name"
 else
   fail "the Blocked Hosts table is missing expected rows"
+fi
+echo ""
+
+# A name the rules allow that resolves nowhere: no rule refused it and none can
+# clear it, so it is tabled apart and does not fail the step.
+echo "[report] Failed Connections, for a name the upstream resolver could not answer:"
+if grep -qF "### ⚠️ Failed Connections" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| absent.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| v6only.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN"; then
+  pass "an unresolvable name is reported outside the blocked table"
+else
+  fail "the Failed Connections table is missing expected rows"
 fi
 echo ""
 
@@ -305,8 +315,8 @@ else
   fail "the Communication details section is missing or still split"
 fi
 
-# A refusal names why: 403, 502 and 503 mean different things and the number
-# does not say which.
+# A refusal, and a failure the rules never touched, each name why: 403, 502 and
+# 503 mean different things and the number does not say which.
 if grep -qF "POST https://allowed.example.com/public/pkg.tgz -> not-allowed" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://absent.example.com/ -> dns-failed" <<< "$REPORT_MARKDOWN" \
   && grep -qF "https://blocked.example.com/exfil?token=*** -> not-allowed" <<< "$REPORT_MARKDOWN"; then

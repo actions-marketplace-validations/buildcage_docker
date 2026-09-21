@@ -11,22 +11,28 @@ function universal(overrides: Partial<UniversalReportData> = {}): UniversalRepor
     parameters: reportParams(),
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
     ...overrides,
   };
 }
 
-function inspect(timeline: TrafficEvent[]): InspectReportData {
+function inspect(
+  timeline: TrafficEvent[],
+  overrides: Partial<InspectReportData> = {},
+): InspectReportData {
   return {
     engine: "inspect",
     parameters: reportParams(),
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
     startedAt: 1787471970,
     timeline,
+    ...overrides,
   };
 }
 
@@ -39,6 +45,11 @@ const incomplete: TrafficEvent = {
   reason: "bad-request",
   destination: "172.20.0.1:8080",
 };
+
+/** Two connections to one host, as the report aggregates them. */
+const failedRows = [
+  { host: "a.example.com", port: "443", ruleType: "HTTPS", reason: "origin-no-response", count: 2 },
+];
 
 // The blocked decision itself is blocked-outcome.ts's, tested there. What is
 // left here is which emissions a report produces and in what order.
@@ -88,5 +99,29 @@ describe("describeReportOutcomes", () => {
   it("avoids the word the report already uses for a log that lost its beginning", () => {
     const [, warning] = describeReportOutcomes(inspect([incomplete]), options);
     expect(warning.message.includes("incomplete")).toBe(false);
+  });
+
+  it("notices connections that failed after the rules allowed them", () => {
+    const outcomes = describeReportOutcomes(inspect([], { failed: failedRows }), options);
+    expect(outcomes.length).toBe(2);
+    expect(outcomes[1].level).toBe("notice");
+    expect(outcomes[1].shouldFail).toBe(false);
+    expect(outcomes[1].message.startsWith("2 connection(s) failed after buildcage proxy")).toBe(
+      true,
+    );
+  });
+
+  it("keeps the two asides apart when a run produced both", () => {
+    const levels = describeReportOutcomes(
+      inspect([incomplete], { failed: failedRows }),
+      options,
+    ).map((outcome) => outcome.level);
+    expect(levels).toStrictEqual(["none", "warning", "notice"]);
+  });
+
+  it("notices them for universal too, which has no timeline to count", () => {
+    const [, notice] = describeReportOutcomes(universal({ failed: failedRows }), options);
+    expect(notice.level).toBe("notice");
+    expect(notice.message.startsWith("2 connection(s) failed after buildcage proxy")).toBe(true);
   });
 });

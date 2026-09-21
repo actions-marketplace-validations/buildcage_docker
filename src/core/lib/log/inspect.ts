@@ -93,21 +93,26 @@ function isRefusal(terminationState: string): boolean {
  * The config names the refusals only it can tell apart: 502 is both our DNS
  * deny and an origin that gave up, and a passthrough reject has no status at
  * all. Everything else the phase already names, so the field stays `-`.
+ *
+ * Only the server's own causes name the origin. `P` is this proxy refusing,
+ * whatever phase it happened in: `PH` is a response it judged invalid and `PC`
+ * its own connection limit, neither of which the origin chose.
+ *
+ * Phase `C` keeps the origin's name but stays a refusal all the same; see
+ * FAILURE_REASONS.
  */
 function reasonFor(logged: string, terminationState: string): string {
   if (logged !== "-") return logged;
+  const cause = terminationState[0];
+  if (cause !== "S" && cause !== "s") return "not-allowed";
   switch (terminationState[1]) {
-    case "R":
-      return "not-allowed";
-    case "C":
-      return "origin-unreachable";
     case "H":
       return "origin-no-response";
     case "D":
     case "L":
       return "origin-aborted";
     default:
-      return "not-allowed";
+      return "origin-unreachable";
   }
 }
 
@@ -151,8 +156,24 @@ function incompleteReason(terminationState: string, url: string): string | undef
   return undefined;
 }
 
-function actionFor(refused: boolean, isAudit: boolean): TrafficAction {
-  if (refused) return "block";
+/**
+ * The refusals that are not this proxy's own: an origin that answered nothing
+ * usable or broke off mid-transfer, and a name the upstream resolver could not
+ * answer for a host the rules had already allowed. See TrafficAction for what
+ * the report does with them.
+ *
+ * `origin-unreachable` is absent on purpose. A connection that never
+ * established is a refused port, an unroutable address or a certificate this
+ * proxy would not verify (the backend connects with `ssl verify required`; see
+ * haproxy-sections.ts), and no field tells them apart: counting the phase as
+ * the origin's failure would take the CA check out of what fails a build.
+ */
+const FAILURE_REASONS = new Set(["origin-no-response", "origin-aborted", "dns-failed"]);
+
+/** Decided from the reason rather than from the termination state, which says
+ *  that something was refused but not by whom. */
+function actionFor(reason: string | undefined, isAudit: boolean): TrafficAction {
+  if (reason !== undefined) return FAILURE_REASONS.has(reason) ? "failed" : "block";
   // audit enforces nothing, so nothing here was allowed by a rule. Calling it
   // "allow" would claim a decision that was never made.
   return isAudit ? "audit" : "allow";
@@ -203,11 +224,11 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
         destination: `${request[8]}:${request[9]}`,
       };
     }
-    const refused = isRefusal(request[6]);
+    const reason = isRefusal(request[6]) ? reasonFor(request[7], request[6]) : undefined;
     const event: TrafficEvent = {
       // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
-      action: actionFor(refused, isAudit),
+      action: actionFor(reason, isAudit),
       protocol: request[2] as "http" | "https",
       host: hostOf(request[11]),
       port: Number(request[9]),
@@ -215,7 +236,7 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
       url: request[11],
       destination: `${request[8]}:${request[9]}`,
     };
-    if (refused) event.reason = reasonFor(request[7], request[6]);
+    if (reason !== undefined) event.reason = reason;
     else {
       event.status = Number(request[4]);
       event.bytes = Number(request[5]);
@@ -225,20 +246,20 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
 
   const pass = PASSTHROUGH.exec(trimmed);
   if (pass) {
-    const refused = isRefusal(pass[4]);
+    const reason = isRefusal(pass[4]) ? reasonFor(pass[5], pass[4]) : undefined;
     // An ip rule names an address and carries no SNI, so the address is the
     // only identity such a connection has.
     const sni = pass[8];
     const event: TrafficEvent = {
       time: Number(pass[1]) / 1000,
-      action: actionFor(refused, isAudit),
+      action: actionFor(reason, isAudit),
       protocol: pass[2] as "tls" | "tcp",
       host: sni === "-" ? pass[6] : sni,
       port: Number(pass[7]),
       destination: `${pass[6]}:${pass[7]}`,
     };
     // Never decrypted, so there is no status to report either way.
-    if (refused) event.reason = reasonFor(pass[5], pass[4]);
+    if (reason !== undefined) event.reason = reason;
     else event.bytes = Number(pass[3]);
     return event;
   }
@@ -377,13 +398,14 @@ export async function scanInspectDnsLog(
     }
   }
   const events = [...seen.entries()].map(([host, { time, allowed }]) => {
+    const reason = allowed ? undefined : "dns-not-allowed";
     const event: TrafficEvent = {
       time,
-      action: actionFor(!allowed, isAudit),
+      action: actionFor(reason, isAudit),
       protocol: "dns",
       host,
     };
-    if (!allowed) event.reason = "dns-not-allowed";
+    if (reason !== undefined) event.reason = reason;
     return event;
   });
   for (const { time, host, queryType } of discovery.values()) {
@@ -392,7 +414,7 @@ export async function scanInspectDnsLog(
   for (const { time, host, queryType } of service.values()) {
     events.push({
       time,
-      action: actionFor(true, isAudit),
+      action: actionFor("dns-service-not-allowed", isAudit),
       protocol: "dns",
       host,
       queryType,

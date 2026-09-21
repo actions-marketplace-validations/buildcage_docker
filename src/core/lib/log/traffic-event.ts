@@ -6,14 +6,19 @@
 /**
  * What a rule decided, or would have decided had one been enforced.
  *
- * `discovery` and `incomplete` are neither: no rule decided them and none
- * could. Folding either into `block` would put a row in the report no rule
- * could take away, and fail a build under fail_on_blocked over something that
- * reached nothing: a service name is answered empty whatever the rules say,
- * and a connection that never delivered a whole request gave a rule nothing
- * to judge.
+ * `discovery`, `incomplete` and `failed` are none of those: no rule decided
+ * them and none could. Folding any into `block` would put a row in the report
+ * no rule could take away, and fail a build under fail_on_blocked over
+ * something the rules had nothing to say about. A service name is answered
+ * empty whatever the rules say, a connection that never delivered a whole
+ * request gave a rule nothing to judge, and `failed` is what became of a
+ * request the rules had already allowed.
+ *
+ * `failed` alone names a host worth tabulating: the rules passed on it and the
+ * name is the one the build asked for, so it gets a table where the other two
+ * reach only the timeline.
  */
-export type TrafficAction = "allow" | "block" | "audit" | "discovery" | "incomplete";
+export type TrafficAction = "allow" | "block" | "audit" | "discovery" | "incomplete" | "failed";
 
 export type TrafficProtocol = "https" | "http" | "tls" | "tcp" | "dns";
 

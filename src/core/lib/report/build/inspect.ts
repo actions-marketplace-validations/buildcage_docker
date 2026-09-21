@@ -53,6 +53,7 @@ export async function buildInspectReportData(
 
   const passedRows: LogEntry[] = [];
   const blockedRows: LogEntry[] = [];
+  const failedRows: LogEntry[] = [];
   const connected = connectedHosts(timeline);
   for (const event of timeline) {
     // Decided by no rule, so it belongs in neither table. The timeline keeps it.
@@ -61,7 +62,10 @@ export async function buildInspectReportData(
     // One with no connection behind it is the sole trace of a name reached for
     // and never used, in audit as much as in restrict.
     if (isRedundantDns(event, connected)) continue;
-    (event.action === "block" ? blockedRows : passedRows).push(toHostRow(event));
+    // Its own table: the rules passed on these, and what broke was not this
+    // proxy. See TrafficAction.
+    if (event.action === "failed") failedRows.push(toHostRow(event));
+    else (event.action === "block" ? blockedRows : passedRows).push(toHostRow(event));
   }
 
   const blocked = annotateKnownBlocked(aggregate(blockedRows), parameters.knownBlockedRules);
@@ -71,6 +75,7 @@ export async function buildInspectReportData(
     parameters,
     passed: aggregate(passedRows),
     blocked,
+    failed: aggregate(failedRows),
     // Every blocked event is counted, not just the distinct hosts the table
     // collapses them into.
     blockedCount: blockedRows.length,

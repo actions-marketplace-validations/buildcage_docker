@@ -103,6 +103,9 @@ function sortMethods(methods: Iterable<string>): string[] {
 export function buildUrlRuleLines(requests: TrafficEvent[]): string[] {
   // Only what the build actually reached: a refused request is not a rule to
   // reproduce, and a passthrough or a name lookup has no URL to write one from.
+  // One that failed at the origin is kept: the rules did permit it and the
+  // build will ask again, so leaving it out would write an allowlist that
+  // breaks the next run.
   const byOriginMethod = new Map<string, { origin: string; method: string; paths: string[] }>();
   for (const request of requests) {
     if (request.action === "block") continue;

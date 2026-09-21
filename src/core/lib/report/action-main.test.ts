@@ -26,6 +26,7 @@ const universal: UniversalReportData = {
   parameters,
   passed: [{ host: "a.example.com", port: "443", ruleType: "HTTPS", reason: "-", count: 1 }],
   blocked: [],
+  failed: [],
   blockedCount: 0,
   logLooksPlausible: true,
 };
@@ -113,6 +114,7 @@ describe("runReportAction and the traffic file", () => {
     parameters,
     passed: [],
     blocked: [],
+    failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
     timeline: [

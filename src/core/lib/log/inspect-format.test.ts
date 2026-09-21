@@ -107,19 +107,31 @@ describe("the generated log-format and this parser describe the same line", () =
   it("reads a refusal the config named out of the reason field", async () => {
     const line = render(
       HTTPS,
+      { "%ts": "PR--", "%ST": "403", "%B": "0" },
+      { reason: "internal-address" },
+    );
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("internal-address");
+    expect(e.status === undefined).toBe(true);
+  });
+
+  it("reads an upstream resolution failure as failed, not as a refusal", async () => {
+    const line = render(
+      HTTPS,
       { "%ts": "PR--", "%ST": "502", "%B": "0" },
       { reason: "dns-failed" },
     );
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
+    expect(e.action).toBe("failed");
     expect(e.reason).toBe("dns-failed");
     expect(e.status === undefined).toBe(true);
   });
 
-  it("names a refusal the config left unnamed from the termination phase", async () => {
+  it("names a failure the config left unnamed from the termination phase", async () => {
     const line = render(HTTPS, { "%ts": "SH--", "%ST": "502", "%B": "0" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("block");
+    expect(e.action).toBe("failed");
     expect(e.reason).toBe("origin-no-response");
   });
 

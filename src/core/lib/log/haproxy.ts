@@ -8,6 +8,9 @@ export interface HaproxyLogScanResult {
    *  both (see `isAudit`). */
   passed: AggregatedEntry[];
   blocked: AggregatedEntry[];
+  /** The BLOCKED lines this proxy did not decide; see FAILURE_REASONS. Kept
+   *  out of `blocked` and of `blockedCount`. */
+  failed: AggregatedEntry[];
   /** Raw BLOCKED line count, pre-aggregation: distinct from blocked.length. */
   blockedCount: number;
   /** True iff the log opens with the startup marker. Anything else means its
@@ -31,6 +34,14 @@ const logPattern =
 const DECISION_MARKER = "buildcage [";
 
 /**
+ * The refusal this proxy did not decide: a name the upstream resolver could
+ * not answer. The config rejects a host no rule covers before it ever resolves
+ * one, so a line reaching this reason had passed the allowlist. See
+ * TrafficAction for why such a row is kept apart.
+ */
+const FAILURE_REASONS = new Set(["dns-failed"]);
+
+/**
  * Single forward pass over the log: matching lines fold directly into
  * incremental aggregators (never collected into a flat array first).
  *
@@ -43,6 +54,7 @@ export async function scanHaproxyLog(
 ): Promise<HaproxyLogScanResult> {
   const passed = createIncrementalAggregator();
   const blocked = createIncrementalAggregator();
+  const failed = createIncrementalAggregator();
   const passedDecision = isAudit ? "AUDIT" : "ALLOWED";
   let blockedCount = 0;
   let headIntact: boolean | undefined;
@@ -65,14 +77,19 @@ export async function scanHaproxyLog(
     if (decision === passedDecision) {
       passed.add(entry);
     } else if (decision === "BLOCKED") {
-      blocked.add(entry);
-      blockedCount++;
+      if (FAILURE_REASONS.has(entry.reason)) {
+        failed.add(entry);
+      } else {
+        blocked.add(entry);
+        blockedCount++;
+      }
     }
   }
 
   return {
     passed: passed.toSortedArray(),
     blocked: blocked.toSortedArray(),
+    failed: failed.toSortedArray(),
     blockedCount,
     headIntact: headIntact ?? false,
     unparsed,

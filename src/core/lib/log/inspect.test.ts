@@ -69,7 +69,9 @@ describe("scanInspectLog", () => {
     ]);
   });
 
-  it("names a refusal the config left unnamed from the termination phase", async () => {
+  // The cause comes first: `P` is this proxy, so `PH` is not the origin's
+  // doing. See reasonFor for why phase `C` stays a refusal.
+  it("names a refusal the config left unnamed from the termination cause and phase", async () => {
     const lines = [
       "buildcage 1 https POST 403 0 ts=PR-- reason=- dst=1.1.1.1:443 https://b.com/",
       "buildcage 2 https GET 503 0 ts=SC-- reason=- dst=1.1.1.1:443 https://c.com/",
@@ -77,12 +79,21 @@ describe("scanInspectLog", () => {
       "buildcage 4 https GET 502 0 ts=PH-- reason=- dst=1.1.1.1:443 https://e.com/",
       "buildcage 5 https GET 200 56 ts=SD-- reason=- dst=1.1.1.1:443 https://f.com/",
     ];
-    expect((await parse(lines)).map((e) => e.reason)).toStrictEqual([
+    const events = await parse(lines);
+    expect(events.map((e) => e.reason)).toStrictEqual([
       "not-allowed",
       "origin-unreachable",
       "origin-no-response",
-      "origin-no-response",
+      "not-allowed",
       "origin-aborted",
+    ]);
+    // Only what the origin itself did leaves the blocked table.
+    expect(events.map((e) => e.action)).toStrictEqual([
+      "block",
+      "block",
+      "failed",
+      "block",
+      "failed",
     ]);
   });
 

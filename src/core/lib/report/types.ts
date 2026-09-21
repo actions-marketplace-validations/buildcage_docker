@@ -27,6 +27,13 @@ export interface ReportDataCommon {
    *  knownBlockedRules. Can be non-empty even in audit mode. */
   blocked: AnnotatedBlockedRow[];
 
+  /** Connections the rules allowed that then did not complete: the origin
+   *  broke off, or the upstream resolver could not answer the name. Tabulated
+   *  apart from `blocked` and left out of `blockedCount`; see TrafficAction.
+   *  Always empty for explicit, whose denial log records only what buildkitd
+   *  refused. */
+  failed: AggregatedEntry[];
+
   /** Raw blocked-event count. Larger than blocked.length wherever the engine
    *  counts log lines rather than aggregated rows (universal and inspect);
    *  equal to it for explicit, whose denial log has no finer granularity. */
