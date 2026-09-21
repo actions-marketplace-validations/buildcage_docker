@@ -24,6 +24,7 @@ const message = (overrides: Partial<BuildBlockedMessageOptions> = {}) =>
     blockedCount: 2,
     blockedRows: [{ expected: false }, { expected: false }],
     engineLabel: "sandbox",
+    engine: "universal",
     isAudit: false,
     ...overrides,
   });
@@ -36,6 +37,7 @@ const described = (overrides: Partial<DescribeBlockedOutcomeOptions> = {}) =>
     blockedRows: [{ expected: false }],
     logLooksPlausible: true,
     engineLabel: "proxy",
+    engine: "universal",
     ...overrides,
   });
 
@@ -110,8 +112,19 @@ describe("determineBlockedOutcome", () => {
 });
 
 describe("buildBlockedMessage", () => {
-  it("matches the legacy wording when no rows matched known_blocked_rules", () => {
+  it("stays the base text when no rows matched known_blocked_rules", () => {
     expect(message()).toBe("2 blocked connection(s) detected by buildcage sandbox");
+  });
+
+  // Every other engine takes universal's branch: only inspect's resolver
+  // decides about a name, so only its count can hold a lookup.
+  it("names lookups too under inspect, and connections alone otherwise", () => {
+    expect(message({ engine: "inspect" })).toBe(
+      "2 blocked connection(s) and lookup(s) detected by buildcage sandbox",
+    );
+    expect(message({ engine: "universal" })).toBe(
+      "2 blocked connection(s) detected by buildcage sandbox",
+    );
   });
 
   it("notes that all rows matched when every row is expected", () => {
