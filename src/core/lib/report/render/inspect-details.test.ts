@@ -216,7 +216,7 @@ describe("renderInspectDetails", () => {
       [
         {
           time: t,
-          action: "aborted",
+          action: "incomplete",
           protocol: "https",
           host: "a.example.com",
           port: 8443,
@@ -230,12 +230,29 @@ describe("renderInspectDetails", () => {
     );
   });
 
-  it('falls back to a bare "aborted" when such a connection names no reason', () => {
+  it("marks a request the proxy could not read, naming the reason it logged", () => {
     const rendered = renderInspectDetails(
-      [{ time: t, action: "aborted", protocol: "https", host: "a.example.com", port: 443 }],
+      [
+        {
+          time: t,
+          action: "incomplete",
+          protocol: "http",
+          host: "(unknown)",
+          port: 8080,
+          reason: "bad-request",
+        },
+      ],
       t,
     );
-    expect(rendered).toMatch(/-> aborted/);
+    expect(rendered.includes("⚠️ 00:00.000: HTTP (unknown):8080 -> bad-request")).toBe(true);
+  });
+
+  it('falls back to a bare "no request" when such a connection names no reason', () => {
+    const rendered = renderInspectDetails(
+      [{ time: t, action: "incomplete", protocol: "https", host: "a.example.com", port: 443 }],
+      t,
+    );
+    expect(rendered).toMatch(/-> no request/);
   });
 });
 

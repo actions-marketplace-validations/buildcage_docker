@@ -123,9 +123,10 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("origin-no-response");
   });
 
-  // What a client that finished the handshake and then left produces: with no
-  // request to log, every field one would have comes out empty.
-  const ABORTED = {
+  // What a client that finished the handshake and then left produces, and what
+  // bytes haproxy could not read as a request produce too: with no request to
+  // log, every field one would have comes out empty.
+  const NO_REQUEST = {
     "%HM": "<BADREQ>",
     "%ST": "400",
     "%B": "0",
@@ -134,9 +135,9 @@ describe("the generated log-format and this parser describe the same line", () =
   };
 
   it("takes the host of a connection closed before its request from the SNI", async () => {
-    const line = render(HTTPS, { ...ABORTED, "%ts": "CR" });
+    const line = render(HTTPS, { ...NO_REQUEST, "%ts": "CR" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("aborted");
+    expect(e.action).toBe("incomplete");
     expect(e.host).toBe("registry.npmjs.org");
     expect(e.port).toBe(9443);
     expect(e.reason).toBe("client-aborted");
@@ -147,15 +148,61 @@ describe("the generated log-format and this parser describe the same line", () =
   });
 
   it("tells a client that closed from one that waited out its own timeout", async () => {
-    const line = render(HTTPS, { ...ABORTED, "%ts": "cR", "%ST": "408" });
+    const line = render(HTTPS, { ...NO_REQUEST, "%ts": "cR", "%ST": "408" });
     const [e] = (await scanInspectLog([line])).events;
-    expect(e.action).toBe("aborted");
+    expect(e.action).toBe("incomplete");
     expect(e.reason).toBe("client-timeout");
   });
 
-  it("falls back to the address when the handshake carried no SNI", async () => {
+  it("reads haproxy's own 400 as a request it could not act on", async () => {
+    const line = render(HTTPS, { ...NO_REQUEST, "%ts": "PR" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("incomplete");
+    expect(e.host).toBe("registry.npmjs.org");
+    expect(e.reason).toBe("bad-request");
+    expect(e.url === undefined).toBe(true);
+  });
+
+  it("reads a request that carried no Host the same way, path and all", async () => {
     const line = render(HTTPS, {
-      ...ABORTED,
+      "%ST": "403",
+      "%B": "0",
+      "%ts": "PR",
+      "%[capture.req.hdr(0)]": "-",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("bad-request");
+    expect(e.method === undefined).toBe(true);
+  });
+
+  it("overrides the reason the config named, audit resolving that host to nothing", async () => {
+    // audit enforces nothing, so a missing Host reaches do-resolve, which has
+    // no name to look up and lands on dns-failed. Reporting that would blame
+    // the SNI's own name for failing to resolve.
+    const line = render(
+      HTTPS,
+      { "%ST": "502", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { reason: "dns-failed" },
+    );
+    const [e] = (await scanInspectLog([line], true)).events;
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("bad-request");
+  });
+
+  it("leaves a phase R neither the client nor this proxy ended an ordinary exchange", async () => {
+    // `RR` is haproxy running out of a resource while reading the request:
+    // its own doing, but not a decision, so it names no reason of the three.
+    const line = render(HTTPS, { ...NO_REQUEST, "%ts": "RR" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action === "incomplete").toBe(false);
+  });
+
+  it("falls back to the address when the handshake carried no SNI", async () => {
+    // A name-based client always sends one, so a handshake without it was
+    // aimed at an address the build wrote out itself.
+    const line = render(HTTPS, {
+      ...NO_REQUEST,
       "%ts": "CR",
       "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "-",
     });
@@ -163,14 +210,16 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.host).toBe("10.200.0.100");
   });
 
-  it("falls back the same way on the plain stage, which logs no SNI at all", async () => {
-    const line = render(HTTP, { ...ABORTED, "%ts": "CR" });
+  it("names no host at all on the plain stage, which logs no SNI to fall back on", async () => {
+    const line = render(HTTP, { ...NO_REQUEST, "%ts": "CR" });
     const { events, unparsed } = await scanInspectLog([line]);
     expect(unparsed).toBe(0);
     const [e] = events;
-    expect(e.action).toBe("aborted");
+    expect(e.action).toBe("incomplete");
     expect(e.protocol).toBe("http");
-    expect(e.host).toBe("10.200.0.100");
+    expect(e.host).toBe("(unknown)");
+    // The address is still recorded; it is just not a host the build asked for.
+    expect(e.destination).toBe("10.200.0.100:9443");
   });
 
   it("leaves a client that abandoned an allowed request an ordinary exchange", async () => {
