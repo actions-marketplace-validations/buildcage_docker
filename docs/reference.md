@@ -342,12 +342,15 @@ Under `inspect`, a connection can end before a whole request has arrived. What t
 one turns on who ended it: a client that walks away decided nothing, while bytes Buildcage refused to
 read as a request are a refusal like any other.
 
-Whichever it was, there is no method or URL on the row, because neither was ever readable. The host
-is the name from the handshake's SNI; a TLS connection that carried none was aimed at an address the
-build wrote out itself, so the address stands in. The plain-HTTP stage has no SNI to fall back on and
-its destination is Buildcage's own address for every name-based connection, so the host reads
-`(unknown)` there. The address it was sent to is still recorded, in the `destination` field of the
-[traffic artifact](#traffic-artifact).
+Whichever it was, the host is the name from the handshake's SNI; a TLS connection that carried none
+was aimed at an address the build wrote out itself, so the address stands in. The plain-HTTP stage
+has no SNI to fall back on and its destination is Buildcage's own address for every name-based
+connection, so the host reads `(unknown)` there. The address it was sent to is still recorded, in the
+`destination` field of the [traffic artifact](#traffic-artifact).
+
+A row carries no method or URL where no request line ever parsed. `missing-host-header` is the
+exception: that one did parse, so it keeps the method and the path it asked for, with `-` standing
+where the `Host` would have been.
 
 ### The ones nobody decided
 
@@ -383,6 +386,11 @@ usually also appears as a blocked `DNS` row, which is the row to act on.
 
 These are refusals: they are in **🚫 Blocked Hosts**, counted in the blocked-connections annotation,
 and they fail the step under `fail_on_blocked: true` like any other refused connection.
+
+```
+🚫 00:14.002: GET https://-/pkg.tgz?token=*** -> missing-host-header
+🚫 00:15.880: HTTP (unknown):5432 -> bad-request
+```
 
 | Reason                | What happened                                                          |
 | --------------------- | ---------------------------------------------------------------------- |

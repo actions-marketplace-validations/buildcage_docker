@@ -145,9 +145,9 @@ function reasonFor(
 const BAD_REQUEST_METHOD = "<BADREQ>";
 
 /**
- * The refusals this proxy made before a whole request had arrived. Their method
- * and URL fields hold what the log-format prints for fields that never existed,
- * so the connection is named by its handshake instead; see hostBeforeRequest.
+ * The refusals this proxy made over a request that named no host. The URL field
+ * is built from the `Host` the log prints as `-`, so the connection is named by
+ * its handshake instead; see hostBeforeRequest.
  */
 const REQUESTLESS_REASONS = new Set(["bad-request", "missing-host-header"]);
 
@@ -245,21 +245,25 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
       (isRefusal(request[6])
         ? reasonFor(request[7], request[6], request[8], request[3])
         : undefined);
-    // Method and URL stay unset for these: `<BADREQ>` and an authority-less URL
-    // are what the log-format prints for fields that never existed, and the
-    // handshake is the only thing left that names the connection.
-    const requestless =
+    // The URL is built from the `Host` that never came, so the handshake is the
+    // only thing left that names the connection.
+    const namedByHandshake =
       reason !== undefined && (incomplete !== undefined || REQUESTLESS_REASONS.has(reason));
+    // A request line that did parse is kept whole even so. The path is where a
+    // payload sits, and the report is the only place a reader looks; `-` for
+    // the authority is the log's own word for one that never arrived, and no
+    // longer decides anything here.
+    const parsedRequest = request[3] !== BAD_REQUEST_METHOD;
     const event: TrafficEvent = {
       // <ms> is milliseconds; TrafficEvent.time is seconds.
       time: Number(request[1]) / 1000,
       action: incomplete !== undefined ? "incomplete" : actionFor(reason, isAudit),
       protocol: request[2] as "http" | "https",
-      host: requestless ? hostBeforeRequest(request[11], request[9]) : hostOf(request[12]),
+      host: namedByHandshake ? hostBeforeRequest(request[11], request[9]) : hostOf(request[12]),
       port: Number(request[10]),
       destination: `${request[9]}:${request[10]}`,
     };
-    if (!requestless) {
+    if (parsedRequest) {
       event.method = request[3];
       event.url = request[12];
     }

@@ -219,8 +219,10 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.action).toBe("block");
     expect(e.host).toBe("registry.npmjs.org");
     expect(e.reason).toBe("missing-host-header");
-    expect(e.method === undefined).toBe(true);
-    expect(e.url === undefined).toBe(true);
+    // The request line did parse, and the path is the whole record of what was
+    // asked for. Only the authority is the log's `-` for a Host never sent.
+    expect(e.method).toBe("GET");
+    expect(e.url).toBe(`https://-${PATH}`);
   });
 
   it("refuses a request that named no host in audit too, where no rule would have", async () => {
@@ -262,7 +264,7 @@ describe("the generated log-format and this parser describe the same line", () =
   // pair arrives, a line carrying no request must not become a host: `--` is
   // the empty Host and path, and a table row naming it says nothing a reader
   // could act on.
-  it("reads no termination state at all as an allowed host when no request parsed", async () => {
+  it("never reads a line with no request in it as an allowed host, in any state", async () => {
     const states = "CcSsPRIDUKL-"
       .split("")
       .flatMap((cause) => "RQCHDLT-".split("").map((phase) => `${cause}${phase}--`));
