@@ -307,9 +307,9 @@ cause tells what ended it there: `C` the client closing (`client-aborted`), `c` 
 expiring (`client-timeout`), `P` this proxy answering (`bad-request`), either HAProxy's own 400 for
 bytes it could not read as a request or a rule denying one whose `Host` never arrived. `P` in phase
 `R` is every ordinary refusal too, so the authority tells them apart: the URL is built from the
-captured `Host`, for which HAProxy prints `-` when none arrived, and RFC 1123 forbids a host
-beginning with a hyphen. A request HAProxy could not parse loses its path the same way, leaving
-`--`.
+captured `Host` and the path, for each of which HAProxy prints `-` when the request carried none, so
+an authority of exactly `-` is a missing `Host` and `--` is bytes that parsed as neither. A `Host`
+the build did send is logged as sent, hyphen-leading or not, and stays an ordinary refusal.
 
 None of the three is an allow or a block, and like a `discovery` lookup each stays out of both host
 tables, so no row appears that no rule could take away. A `::warning::` gives their count instead,

@@ -176,6 +176,22 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.method === undefined).toBe(true);
   });
 
+  it("leaves a refusal whose sender chose a hyphen-leading Host a block", async () => {
+    // The capture rewrites only whitespace, quotes and control characters, so
+    // a Host of the build's own choosing reaches the log as sent. Reading the
+    // leading `-` alone would let it move its own refusals out of both tables
+    // and out of fail_on_blocked.
+    const line = render(HTTPS, {
+      "%ST": "403",
+      "%B": "0",
+      "%ts": "PR",
+      "%[capture.req.hdr(0)]": "-evil.example.com",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.host).toBe("-evil.example.com");
+  });
+
   it("overrides the reason the config named, audit resolving that host to nothing", async () => {
     // audit enforces nothing, so a missing Host reaches do-resolve, which has
     // no name to look up and lands on dns-failed. Reporting that would blame

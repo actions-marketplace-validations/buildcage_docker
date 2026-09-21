@@ -112,6 +112,21 @@ function reasonFor(logged: string, terminationState: string): string {
 }
 
 /**
+ * The whole authority a request line can leave behind, matched exactly rather
+ * than by its leading `-`.
+ *
+ * The URL is built from the captured `Host` header and the path, for each of
+ * which haproxy prints `-` when the request never carried one: `-` is a missing
+ * `Host` with a path behind it, `--` bytes that parsed as neither. A `Host` the
+ * build did send is logged as sent, and only the whitespace, quotes and control
+ * characters the capture rewrites are gone, so a host of its own choosing could
+ * otherwise pass this test: `Host: -evil.example.com` reads as an authority
+ * beginning with a hyphen, and a refusal the rules did make would leave both
+ * tables and `fail_on_blocked` at the sender's discretion.
+ */
+const NO_AUTHORITY = new Set(["-", "--"]);
+
+/**
  * What kept a whole request from reaching the rules, or undefined when one did
  * reach them.
  *
@@ -124,17 +139,15 @@ function reasonFor(logged: string, terminationState: string): string {
  * request, so those stay ordinary exchanges.
  *
  * `P` in phase `R` is every ordinary refusal too, and the authority is what
- * tells them apart. The logged URL is built from the captured `Host` header,
- * for which haproxy prints `-` when none arrived, and RFC 1123 forbids a host
- * beginning with a hyphen, so that `-` cannot be a host the build named. Bytes
- * haproxy could not parse lose the path the same way, leaving `--`.
+ * tells them apart: NO_AUTHORITY holds the two the log prints when there was
+ * none to print.
  */
 function incompleteReason(terminationState: string, url: string): string | undefined {
   if (terminationState[1] !== "R") return undefined;
   const cause = terminationState[0];
   if (cause === "C") return "client-aborted";
   if (cause === "c") return "client-timeout";
-  if (cause === "P" && hostOf(url).startsWith("-")) return "bad-request";
+  if (cause === "P" && NO_AUTHORITY.has(hostOf(url))) return "bad-request";
   return undefined;
 }
 
