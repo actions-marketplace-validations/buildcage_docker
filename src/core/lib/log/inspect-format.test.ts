@@ -257,6 +257,26 @@ describe("the generated log-format and this parser describe the same line", () =
     },
   );
 
+  // A phase that implies a request was being processed cannot be reached
+  // without one, but nothing in the log makes the two fields agree. Whatever
+  // pair arrives, a line carrying no request must not become a host: `--` is
+  // the empty Host and path, and a table row naming it says nothing a reader
+  // could act on.
+  it("reads no termination state at all as an allowed host when no request parsed", async () => {
+    const states = "CcSsPRIDUKL-"
+      .split("")
+      .flatMap((cause) => "RQCHDLT-".split("").map((phase) => `${cause}${phase}--`));
+    for (const state of states) {
+      for (const isAudit of [false, true]) {
+        const line = render(HTTPS, { ...NO_REQUEST, "%ts": state });
+        const [e] = (await scanInspectLog([line], isAudit)).events;
+        expect(`${state}: ${e.action} ${e.host}`).toBe(
+          `${state}: ${state[0] === "P" ? "block" : "incomplete"} registry.npmjs.org`,
+        );
+      }
+    }
+  });
+
   it("names a phase R neither the client nor this proxy ended as no request at all", async () => {
     // `RR` is haproxy running out of a resource while reading the request: its
     // own doing and not a decision, so it is neither allowed nor refused.

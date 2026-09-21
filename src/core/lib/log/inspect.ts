@@ -164,20 +164,22 @@ const REQUESTLESS_REASONS = new Set(["bad-request", "missing-host-header"]);
  * error or a resource it ran out of, and no request arrived then either.
  *
  * A later phase (`CD` and the like) means the rules had already decided on a
- * request, so those stay ordinary exchanges.
+ * request, so those stay ordinary exchanges, unless the method says otherwise:
+ * a queue, a connection or a transfer cannot be reached without a request, and
+ * `<BADREQ>` says none parsed. Nothing in the log makes the two agree, so a
+ * line whose own fields contradict each other is counted here rather than
+ * believed, or `--` would reach a host table as something allowed.
  */
-function incompleteReason(terminationState: string): string | undefined {
-  if (terminationState[1] !== "R") return undefined;
-  switch (terminationState[0]) {
-    case "C":
-      return "client-aborted";
-    case "c":
-      return "client-timeout";
-    case "P":
-      return undefined;
-    default:
-      return "no-request";
+function incompleteReason(terminationState: string, method: string): string | undefined {
+  const cause = terminationState[0];
+  // This proxy answering is a decision however little of the request it had.
+  if (cause === "P") return undefined;
+  if (terminationState[1] !== "R") {
+    return method === BAD_REQUEST_METHOD ? "no-request" : undefined;
   }
+  if (cause === "C") return "client-aborted";
+  if (cause === "c") return "client-timeout";
+  return "no-request";
 }
 
 /**
@@ -237,7 +239,7 @@ function parseProxyLine(line: string, isAudit: boolean): TrafficEvent | null {
 
   const request = REQUEST.exec(trimmed);
   if (request) {
-    const incomplete = incompleteReason(request[6]);
+    const incomplete = incompleteReason(request[6], request[3]);
     const reason =
       incomplete ??
       (isRefusal(request[6])
