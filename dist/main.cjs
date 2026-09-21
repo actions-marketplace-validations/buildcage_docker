@@ -466,14 +466,10 @@ function buildUrlRules(rulesInput) {
 }
 //#endregion
 //#region src/lib/engine.ts
-const ENGINES = [
-	"universal",
-	"explicit",
-	"inspect"
-], ENGINE_ALIASES = { transparent: "universal" };
+const ENGINES = ["universal", "inspect"], ENGINE_ALIASES = { transparent: "universal" };
 function resolveProxyEngine(input, notice) {
 	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
-	alias && notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.");
+	if (alias && notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal."), trimmed === "explicit") throw new SetupError("proxy_engine: explicit has been removed. Use proxy_engine: universal (network-level SNI/Host inspection) or inspect (TLS-terminating URL enforcement).", "INVALID_PROXY_ENGINE");
 	let engine = alias ?? trimmed;
 	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
 	return engine;

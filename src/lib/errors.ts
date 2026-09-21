@@ -9,7 +9,7 @@ import { ActionError } from "#core/lib/errors.ts";
  * Codes:
  *   DOCKER_UNAVAILABLE:   docker CLI missing from PATH or a docker command failed
  *   BUILDER_NOT_READY:    the builder container started but never became usable
- *   INVALID_PROXY_ENGINE: proxy_engine input isn't "universal", "explicit", or "inspect"
+ *   INVALID_PROXY_ENGINE: proxy_engine input isn't "universal" or "inspect"
  */
 export type SetupErrorCode = "DOCKER_UNAVAILABLE" | "BUILDER_NOT_READY" | "INVALID_PROXY_ENGINE";
 

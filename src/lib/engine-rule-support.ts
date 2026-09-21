@@ -4,7 +4,7 @@ import type { ProxyEngine } from "./engine.ts";
 /**
  * Only `inspect` terminates TLS, so it's the only engine that can see an HTTP
  * method or a path, which makes `allowed_url_rules` and `allowed_tls_rules`
- * no-ops on `universal` / `explicit`. Called once at setup, before the
+ * no-ops on `universal`. Called once at setup, before the
  * container starts, so a mismatch is caught immediately instead of silently
  * not enforcing.
  *

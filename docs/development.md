@@ -22,7 +22,7 @@ the uppercase form of the same names (`PROXY_MODE`).
 
 ### Starting the Builder
 
-There's one `setup_buildkit_{engine}_{mode}` target per (`universal`, `inspect`, `explicit`) x
+There's one `setup_buildkit_{engine}_{mode}` target per (`universal`, `inspect`) x
 (`audit`, `restrict`) combination:
 
 ```bash
@@ -30,8 +30,6 @@ make setup_buildkit_universal_audit
 make setup_buildkit_universal_restrict
 make setup_buildkit_inspect_audit
 make setup_buildkit_inspect_restrict
-make setup_buildkit_explicit_audit
-make setup_buildkit_explicit_restrict
 ```
 
 **Start with custom domains** (restrict mode only):
@@ -41,9 +39,8 @@ ALLOWED_HTTPS_RULES="github.com:443 npmjs.org:443 example.com:443" make setup_bu
 ```
 
 Each target sets `PROXY_ENGINE`, which picks the build context at image build time through
-`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile`. The `explicit_*`
-targets therefore get BuildKit's native `--proxy-network` instead of the CNI/DNS-redirect/HAProxy
-stack (see [Engines](../README.md#engines)).
+`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile` (see
+[Engines](../README.md#engines)).
 
 `transparent` is an alias for `universal` in the action's own `proxy_engine` **input** only, resolved
 in TypeScript. `PROXY_ENGINE` here is a raw Compose build-context selector with no alias layer, so
@@ -84,8 +81,6 @@ Most `setup_buildkit_{engine}_{mode}` targets have a matching
 ```bash
 make test_integration_buildkit_universal_audit
 make test_integration_buildkit_universal_restrict
-make test_integration_buildkit_explicit_audit
-make test_integration_buildkit_explicit_restrict
 make test_integration_buildkit_inspect_restrict
 # Debian/apt build, which starts with no CA store at all
 make test_integration_buildkit_inspect_debian_audit
@@ -236,7 +231,7 @@ docker compose logs builder
 docker compose logs -f builder
 ```
 
-**Log format (`universal` and `explicit`):**
+**Log format (`universal`):**
 
 ```
 [28/Feb/2026:10:15:30 +0000] buildcage [ALLOWED] "github.com:443" -
@@ -327,15 +322,13 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   ├── seccomp/              # The builder container's seccomp profile and gen-profile.mjs,
 │   │                         # read by the Docker client on the runner, not copied into an image
 │   ├── universal/            # proxy_engine: universal — BuildKit, HAProxy, dnsmasq, s6-overlay
-│   ├── inspect/              # proxy_engine: inspect — HAProxy, CoreDNS, s6-overlay, and
-│   │                         # buildcage-runc/ (Go module: CA trust at exec time)
-│   └── explicit/             # proxy_engine: explicit (deprecated) — buildkit-proxy/ (Go module:
-│                             # PID 1, supervises buildkitd, injects the source policy)
+│   └── inspect/              # proxy_engine: inspect — HAProxy, CoreDNS, s6-overlay, and
+│                             # buildcage-runc/ (Go module: CA trust at exec time)
 ├── test/                     # Dockerfile.*/assert-*.sh per {engine}-{mode}, plus the fixture
 │                             # containers. helpers.sh carries what every assert script shares
 ├── compose.test-*.yaml       # Test override config, one per engine
 ├── report/                   # Report action: action.yml, src/ (ESM), dist/ (rolldown → CommonJS)
-├── docs/                     # development.md, security.md, explicit-engine.md, plus the
+├── docs/                     # development.md, security.md, plus the
 │                             # reference.md/rules.md/inspect-engine.md link stubs
 ├── licenses/                 # gen-license-file.mjs, which regenerates THIRD_PARTY_LICENSES_NPM
 │                             # during `vp run build`, and what .glf.jsonc substitutes in
@@ -343,11 +336,10 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 └── Makefile                  # Operational commands
 ```
 
-Every engine directory carries a `scripts/` of its own. `report-action.node.ts` is in all three, and
-runs under Node on the runner after the report action copies it out of the image. `inspect` and
-`explicit` each have a QuickJS entry point beside it (`gen-configs.qjs.ts`,
-`gen-source-policy.qjs.ts`), so those two directories are a second QuickJS build target alongside
-`src/core/scripts/`; `tsconfig.qjs.json` names all of them.
+Every engine directory carries a `scripts/` of its own. `report-action.node.ts` is in both, and
+runs under Node on the runner after the report action copies it out of the image. `inspect` also has
+a QuickJS entry point beside it (`gen-configs.qjs.ts`), so that directory is a second QuickJS build
+target alongside `src/core/scripts/`; `tsconfig.qjs.json` names both.
 
 ## Troubleshooting
 
@@ -374,20 +366,14 @@ If you encounter issues, try reproducing the problem locally to get detailed log
    See [Limitations](../README.md#limitations). The JVM is the common case; fall back to
    `universal` for it.
 
-4. **TLS/certificate errors under `proxy_engine: explicit`**: if a `RUN` step fails with a
-   certificate error there but works fine under `universal` (or without Buildcage at all), the tool
-   likely bundles its own CA store instead of consulting the system one BuildKit already trusts. See
-   [CA trust for tools with their own CA store](./explicit-engine.md#ca-trust-for-tools-with-their-own-ca-store)
-   in the Explicit Proxy Engine doc.
-
-5. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
+4. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
 workers` never succeeded inside it. The step prints the container log; locally:
 
    ```bash
    docker inspect --format '{{json .State.Health}}' buildcage
    ```
 
-6. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
+5. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
    - Your Dockerfile
    - The audit mode report output
    - Full error messages from `docker compose logs builder`

@@ -8,7 +8,7 @@ import { SetupError } from "./errors.ts";
  * Lives here rather than in the entry point so lib/ modules can import the
  * type without importing back out of it.
  */
-const ENGINES = ["universal", "explicit", "inspect"] as const;
+const ENGINES = ["universal", "inspect"] as const;
 export type ProxyEngine = (typeof ENGINES)[number];
 
 // `transparent` is a permanently supported alias for `universal`, normalized
@@ -24,6 +24,14 @@ export function resolveProxyEngine(
   if (alias) {
     notice(
       "proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal.",
+    );
+  }
+  // The explicit engine (BuildKit's native --proxy-network) was removed; point
+  // anyone still on it at a supported engine rather than a bare invalid value.
+  if (trimmed === "explicit") {
+    throw new SetupError(
+      "proxy_engine: explicit has been removed. Use proxy_engine: universal (network-level SNI/Host inspection) or inspect (TLS-terminating URL enforcement).",
+      "INVALID_PROXY_ENGINE",
     );
   }
   const engine = alias ?? trimmed;

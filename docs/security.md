@@ -62,14 +62,12 @@ into the Dockerfile, so they are reviewable source, and they are resolved before
 covers them is ordinary supply chain practice: reviewing the Dockerfile, and pinning base images and
 the `# syntax=` frontend by digest rather than by a floating tag.
 
-`explicit` is the one partial exception: its BuildKit source policy matches `http(s)://` sources, so
-`ADD <url>` is enforced there. Image and git sources stay unaffected on every engine.
+`ADD <url>`, image and git sources stay unaffected on every engine.
 
 ## How the cage works
 
 `universal` and `inspect` share the arrangement below, and differ only in how much of a connection
-they can read. The deprecated `explicit` engine replaces it with BuildKit's own mechanism, and is
-described under [Engines](#engines).
+they can read.
 
 ### Every RUN step runs on its own network
 
@@ -218,38 +216,6 @@ origin; only the log line reflects the host-only nature of that decision. See
 [Rule syntax](./reference.md#rule-syntax) for how to write a host pattern that doesn't widen this
 more than intended.
 
-### Explicit proxy engine
-
-> [!WARNING]
-> `explicit` is **deprecated**. It still works and existing workflows keep running, but it receives
-> no further development. For request-level enforcement, use [`inspect`](#inspect-proxy-engine)
-> instead.
-
-<img src="../assets/diagram-architecture-explicit.png" alt="Explicit proxy engine architecture" width="611" height="454">
-
-It uses BuildKit's native `--proxy-network` rather than the CNI and HAProxy stack above. Each `RUN`
-step is isolated into its own point-to-point network namespace whose only reachable peer is
-buildkitd's built-in MITM proxy, with `HTTP_PROXY`/`HTTPS_PROXY` and a generated CA injected
-automatically. The proxy decrypts the traffic and checks the host against a BuildKit
-[source policy](https://github.com/moby/buildkit/blob/master/docs/proxy.md) that buildcage compiles
-from your allowlist and attaches through a gRPC listener in front of buildkitd's control socket.
-Enforcement is at host and port granularity, as in `universal`, since the rule syntax it accepts has
-no path component. `allowed_ip_rules` compiles into the same kind of policy rule as a domain rule,
-so there is no raw passthrough here. buildcage merges its own rules in last, so a
-client-supplied static source policy can never widen access beyond your allowlist, and a policy
-naming another scheme applies unmodified.
-
-The structural difference is what happens to a tool that ignores the proxy variables. Under
-`universal` and `inspect` it still reaches the CNI bridge and is observed, blocked and logged. Under
-`explicit`,
-a `RUN` step's namespace has no broader network to route through, so such traffic gets an immediate
-"network unreachable" and leaves **no trace anywhere**, in the build log, the report or the
-provenance, whether or not a rule would have allowed it. A denied `ADD <url>` also aborts the whole
-build at LLB load time rather than failing one step.
-
-For how to enable it and how it compares in daily use, see
-[Explicit Proxy Engine](./explicit-engine.md).
-
 ## Attempts to get around it
 
 | What the build does                                                                                | What happens                                                                                                                                                 |
@@ -320,11 +286,9 @@ dropped honestly.
 
 ### No SLSA provenance
 
-BuildKit's own `--proxy-network` (used by `explicit`) records every URL it fetched, with a digest, as
-a SLSA provenance material. `universal` and `inspect` don't use that mechanism, so there is no way to
-attach one without modifying BuildKit itself. The traffic artifact (see
-[Report action](../README.md#report-action)) carries URL, method, status and size as an observation
-record, but no content digest.
+Neither `universal` nor `inspect` produces SLSA provenance: attaching one would mean modifying
+BuildKit itself. The traffic artifact (see [Report action](../README.md#report-action)) carries URL,
+method, status and size as an observation record, but no content digest.
 
 ## Credentials in a URL
 
@@ -344,10 +308,9 @@ replaced, whatever its case:
 ```
 
 Everything else is printed as it was sent, parameter names included, so most of what a refused
-request tried to send is still there. Three things this does not cover: a credential in the path,
-which `allowed_url_rules` is written against and so cannot be hidden; one in a parameter the list
-does not name; and the [`explicit` engine](./explicit-engine.md), which is deprecated and prints its
-own URLs unchanged. It also replaces an exfiltration payload the sender happened to name `code` or
+request tried to send is still there. Two things this does not cover: a credential in the path,
+which `allowed_url_rules` is written against and so cannot be hidden; and one in a parameter the list
+does not name. It also replaces an exfiltration payload the sender happened to name `code` or
 `key`, so **read a suspected attempt out of the
 [traffic artifact](./reference.md#traffic-artifact)**, which keeps every value verbatim, rather than
 out of the summary.
@@ -364,8 +327,8 @@ it widens two.
 
 - **`SYS_ADMIN`, `NET_ADMIN` and `SYS_PTRACE`, on top of Docker's default set.** The BuildKit OCI
   worker mounts, creates namespaces and manages a cgroup for each `RUN` step. `NET_ADMIN` covers
-  iptables and the CNI bridge under `universal` and `inspect`, and the proxy-network veth and netns
-  under `explicit`. runc reads `/proc/PID/ns/mnt` to set a step's mount namespace up.
+  iptables and the CNI bridge under `universal` and `inspect`. runc reads `/proc/PID/ns/mnt` to set a
+  step's mount namespace up.
 - **Seccomp is Docker's own default profile**, where `privileged` switches filtering off entirely.
   The only additions are the two things that profile refuses at every capability and runc still
   needs: `pivot_root`, and the three `keyctl` operations runc performs per step. Everything outside

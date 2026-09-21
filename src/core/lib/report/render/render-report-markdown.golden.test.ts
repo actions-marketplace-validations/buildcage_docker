@@ -15,7 +15,6 @@ import type {
   GenReportParameters,
   ReportData,
   UniversalReportData,
-  ExplicitReportData,
   InspectReportData,
 } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
@@ -55,29 +54,6 @@ const universal: UniversalReportData = {
   failed,
   blockedCount: 2,
   logLooksPlausible: true,
-};
-
-const explicit: ExplicitReportData = {
-  engine: "explicit",
-  parameters: params(),
-  passed,
-  blocked,
-  failed: [],
-  blockedCount: 1,
-  logLooksPlausible: true,
-  proxyLogs: {
-    builds: [
-      [
-        {
-          command: "[2/3] RUN curl https://a.example.com/",
-          started: "2026-01-01T00:00:00Z",
-          completed: "2026-01-01T00:00:01Z",
-          entries: [{ method: "GET", url: "https://a.example.com/", status: 200 }],
-        },
-      ],
-    ],
-    denied: [{ url: "https://bad.example.com/", timestamp: "2026-01-01T00:00:02Z" }],
-  },
 };
 
 const timeline: TrafficEvent[] = [
@@ -167,8 +143,6 @@ const CASES: Record<string, ReportData> = {
     blocked: [...blocked, ...expectedRows],
     blockedCount: 4,
   },
-  "explicit-restrict": explicit,
-  "explicit-audit": audit(explicit),
   "inspect-restrict": inspect,
   "inspect-audit": audit(inspect),
 };

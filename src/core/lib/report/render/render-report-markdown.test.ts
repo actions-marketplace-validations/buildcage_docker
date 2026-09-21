@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderReportMarkdown } from "./render-report-markdown.ts";
-import type { UniversalReportData, ExplicitReportData, InspectReportData } from "../types.ts";
+import type { UniversalReportData, InspectReportData } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { reportParams, expectedRows } from "#core/lib/test/report-data.node.ts";
 
@@ -149,56 +149,6 @@ describe("renderReportMarkdown: universal", () => {
     expect(md).toMatch(/\| a\.sury\.org:443 \|/);
     expect(md).toMatch(/\| b\.sury\.org:443 \|/);
     expect(md).not.toMatch(/hosts\)/);
-  });
-});
-
-describe("renderReportMarkdown: explicit", () => {
-  const base: ExplicitReportData = {
-    engine: "explicit",
-    parameters: reportParams(),
-    passed: [allowedRow],
-    blocked: [blockedRow],
-    failed: [],
-    blockedCount: 1,
-    logLooksPlausible: true,
-    proxyLogs: {
-      builds: [
-        [
-          {
-            command: "[2/3] RUN curl https://good.com/",
-            started: "2026-01-01T00:00:00Z",
-            completed: "2026-01-01T00:00:01Z",
-            entries: [{ method: "GET", url: "https://good.com/", status: 200 }],
-          },
-        ],
-      ],
-      denied: [{ url: "https://bad.com/", timestamp: "2026-01-01T00:00:02Z" }],
-    },
-  };
-
-  it("renders Communication details instead of the SNI footnote", () => {
-    const md = renderReportMarkdown(base, "buildcage/docker", "v2");
-    expect(md).toMatch(/Communication details/);
-    expect(md).toMatch(/Allowed Urls/);
-    expect(md).toMatch(/Blocked Urls/);
-    expect(md).not.toMatch(/based on the Host header/);
-  });
-
-  it("folds known_blocked_rules matches into one row naming the rule", () => {
-    const md = renderReportMarkdown(
-      {
-        ...base,
-        parameters: reportParams({ knownBlockedRules: ["*.sury.org:*"] }),
-        blocked: [blockedRow, ...expectedRows],
-      },
-      "buildcage/docker",
-      "v2",
-    );
-    expect(md).toMatch(
-      /\| \\\*\.sury\.org:\\\* \(2 hosts\) \| HTTPS \| https-not-allowed \| 2 \| ✅ \|/,
-    );
-    expect(md).not.toMatch(/a\.sury\.org/);
-    expect(md).toMatch(/\| bad\.com:80 \|/);
   });
 });
 

@@ -44,7 +44,6 @@ jobs:
               - *docker
               - *workflow
               - 'compose.test-universal.yaml'
-              - 'compose.test-explicit.yaml'
               - 'compose.test-inspect.yaml'
               - 'test/**'
               - 'report/src/**'
@@ -80,12 +79,6 @@ jobs:
           - mode: universal-known-blocked
             target: test_integration_buildkit_universal_known_blocked
             test_compose_file: compose.test-universal.yaml
-          - mode: explicit-audit
-            target: test_integration_buildkit_explicit_audit
-            test_compose_file: compose.test-explicit.yaml
-          - mode: explicit-restrict
-            target: test_integration_buildkit_explicit_restrict
-            test_compose_file: compose.test-explicit.yaml
           - mode: inspect-restrict
             target: test_integration_buildkit_inspect_restrict
             test_compose_file: compose.test-inspect.yaml
@@ -246,7 +239,7 @@ jobs:
 
   # Single, stably-named required status check for branch protection: the
   # `test` job's own name varies per matrix entry (test (universal-audit),
-  # test (explicit-restrict), etc.), so branch protection can't target it
+  # test (inspect-restrict), etc.), so branch protection can't target it
   # directly without listing every combination and having to update that list
   # whenever the matrix changes.
   integration-tests-passed:

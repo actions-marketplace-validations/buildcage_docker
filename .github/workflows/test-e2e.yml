@@ -66,8 +66,6 @@ jobs:
         include:
           - proxy_engine: universal
             build_engine: universal
-          - proxy_engine: explicit
-            build_engine: explicit
           - proxy_engine: inspect
             build_engine: inspect
           # `transparent` is a permanently supported alias for `universal`
@@ -155,15 +153,14 @@ jobs:
           cat <<'EOF' > /tmp/build-context/Dockerfile
           FROM node:24-alpine
           WORKDIR /app
-          # NODE_USE_SYSTEM_CA=1: required for the explicit engine (always
-          # MITMs TLS); harmless for universal. inspect also terminates TLS
-          # but needs nothing here, because its runc wrapper points
-          # NODE_EXTRA_CA_CERTS at a store carrying the CA.
-          RUN npm init -y && NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts --no-audit @hono/node-server@2.1.1
+          # universal does not MITM TLS; inspect terminates it but needs nothing
+          # here, because its runc wrapper points NODE_EXTRA_CA_CERTS at a store
+          # carrying the CA.
+          RUN npm init -y && npm install --ignore-scripts --no-audit @hono/node-server@2.1.1
           # Refused by the rules above, so the report shows the full URL, not
           # just the host. Engines differ in exactly how the refusal shows up
           # (a proxy-level HTTP error under inspect, a rejected connection
-          # under universal/explicit), so only success here is unexpected.
+          # under universal), so only success here is unexpected.
           RUN if wget -q -O /dev/null --timeout=5 https://example.com/some/path; then \
                 echo "FAILED: example.com should have been refused" && exit 1; \
               fi

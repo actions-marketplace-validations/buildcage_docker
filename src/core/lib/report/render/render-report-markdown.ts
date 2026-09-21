@@ -1,7 +1,6 @@
 import { renderHostTable } from "./host-table.ts";
 import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import { buildRestrictExample } from "./build-example.ts";
-import { renderCommunicationDetails } from "./communication-details.ts";
 import { renderInspectDetails } from "./inspect-details.ts";
 import { buildInspectRestrictExample } from "./inspect-example.ts";
 import type { ReportData } from "../types.ts";
@@ -82,13 +81,10 @@ export function renderReportMarkdown(
     markdown += "_(no communication)_\n\n";
   }
 
-  if (report.engine === "explicit") {
-    markdown += renderCommunicationDetails(report.proxyLogs.builds, report.proxyLogs.denied);
-  } else if (report.engine === "inspect") {
+  if (report.engine === "inspect") {
     markdown += renderInspectDetails(report.timeline, report.startedAt);
   } else {
-    // Only the universal engine identifies a host this way; the explicit
-    // engine terminates TLS itself and gets renderCommunicationDetails above.
+    // Only the universal engine identifies a host this way.
     markdown +=
       "\n<sub>*Note: HTTP rules are based on the Host header, HTTPS rules on SNI, and IP rules on the destination IP address.*</sub>\n";
   }

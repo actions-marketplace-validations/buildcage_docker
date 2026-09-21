@@ -73,24 +73,15 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
-          # setup-go looks for go.mod at the workspace root by default and
-          # warns that it found none. buildcage-runc and covfilter have no
-          # dependencies at all, so buildkit-proxy's go.sum is the whole cache key.
-          cache-dependency-path: docker/explicit/buildkit-proxy/go.sum
+          # buildcage-runc and covfilter have no external dependencies, so there
+          # is no go.sum to key a module cache on.
+          cache: false
 
       - name: Test buildcage-runc (inspect engine)
         run: make test_unit_go_coverage
 
       - name: Test covfilter
         working-directory: test/covfilter
-        run: go test ./...
-
-      # No -cover here: vet rejects the cover tool's rewrite of the two
-      # //go:build-constrained files in this package ("possible malformed
-      # +build comment"), and -vet=off would cost more than the number is
-      # worth for a deprecated engine.
-      - name: Test buildkit-proxy (explicit engine)
-        working-directory: docker/explicit/buildkit-proxy
         run: go test ./...
 
       - name: Typecheck
