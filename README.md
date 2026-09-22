@@ -435,6 +435,17 @@ generated allowlist already has them.
 `inspect`, unless something in the build carries its own trust store. It is the only engine that can
 tell a fetch from a publish on the same host. See [Engines](#engines).
 
+**Why not use BuildKit's built-in `--proxy-network`?**
+
+BuildKit's exec network proxy injects `HTTP_PROXY`/`HTTPS_PROXY` into each `RUN` step and can record
+what it fetched as SLSA provenance, which Buildcage does not do. Two limits kept it from being the
+enforcement mechanism. Its source policy matches a request's host, port and URL path but has no
+notion of an HTTP method, so it cannot allow a fetch from a registry while refusing a publish to the
+same host, which `inspect` does by terminating TLS. And because it is an explicit proxy, what it
+enforces and records reaches only tools that honor the proxy variables; a tool that ignores them is
+not covered. Buildcage enforces at the network level instead, so it also covers those tools and can
+act on the method and URL.
+
 ## GitHub's native egress firewall
 
 GitHub is building an egress firewall directly into Actions runners
