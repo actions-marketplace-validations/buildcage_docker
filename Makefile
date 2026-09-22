@@ -325,7 +325,7 @@ test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests agains
 	    --build-arg BASE=$$base \
 	    --progress=plain -f test/Dockerfile.inspect-java test/ \
 	    --load -t $(TEST_IMAGE) || exit 1; \
-	  ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE) || exit 1; \
+	  NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE) || exit 1; \
 	done
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 

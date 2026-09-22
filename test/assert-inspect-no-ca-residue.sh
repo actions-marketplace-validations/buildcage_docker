@@ -123,11 +123,16 @@ fi
 # its whole base64. The pattern below still finds it, because base64 encodes in
 # three-byte groups and the certificate comes first, so the two share this line.
 #
-# The fixtures fail the build if they cannot make these, so finding none here
-# means the fixture has gone stale rather than that there is nothing to check.
+# The store-copying fixtures fail the build if they cannot make these, so
+# finding none there means the fixture has gone stale rather than that there is
+# nothing to check. A fixture with no system CA store to copy (the Java base
+# images) sets NO_APP_STORE_COPIES to say so, since for it an empty /app is
+# expected rather than a stale fixture.
 COPIES=$(docker run --rm "$IMAGE" sh -c 'ls /app/*.pem 2>/dev/null' || true)
 if [ -z "$CA_LINE" ]; then
   : # already reported above; an empty pattern would match every file
+elif [ -z "$COPIES" ] && [ -n "${NO_APP_STORE_COPIES:-}" ]; then
+  pass "no store copies under /app to check, as this fixture makes none"
 elif [ -z "$COPIES" ]; then
   fail "the fixture left no copy of the store under /app, so this cannot be checked"
 elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '
