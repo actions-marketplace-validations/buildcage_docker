@@ -25,6 +25,26 @@ RUN echo "=== [apt bootstrap: ca-certificates over plain HTTP] ===" && \
     apt-get install -y --no-install-recommends ca-certificates && \
     echo "OK"
 
+# The JVM keeps its trusted roots in a keystore of its own, a JKS at a path that
+# holds the JDK's vendor and version, so no list of paths would name it and no
+# PEM removal reaches it: this is the case the layer sweep's keystore rewrite
+# exists for. A JRE brings keytool, and the anchor the wrapper placed this step
+# is imported into that keystore the way ca-certificates-java would, so the
+# keystore ends the step trusting the CA. The in-step grep proves it does,
+# before the sweep runs; assert-inspect-no-ca-residue.sh proves the committed
+# image's keystore no longer does. A build that could not take it out would have
+# failed rather than reached here.
+#
+# Installed here, while the apt sources are still only the plain-HTTP archive,
+# before the later steps add a blocked one.
+RUN echo "=== [JRE keystore over the injected CA] ===" && \
+    apt-get install -y --no-install-recommends default-jre-headless && \
+    keytool -importcert -noprompt -alias buildcage \
+      -file /usr/local/share/ca-certificates/buildcage.crt \
+      -keystore /etc/ssl/certs/java/cacerts -storepass changeit && \
+    keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit | grep -qi buildcage && \
+    echo "OK: the JVM keystore trusts the anchor in-step"
+
 # A new layer starts with the ca-certificates.crt the previous step just
 # created, so this step gets the wrapper's CA the normal way. Reusing
 # /public/** as a fake index only exercises the TLS leg: a signature error

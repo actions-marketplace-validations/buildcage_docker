@@ -32,16 +32,46 @@ CA_LINE=$(docker exec "$BUILDER" cat /opt/buildcage/ca.pem 2>/dev/null \
   | awk '/-----BEGIN CERTIFICATE-----/{getline; print; exit}' || true)
 if [ -z "$CA_LINE" ]; then
   fail "could not read the injected CA out of $BUILDER, so this cannot be checked"
+# The anchor paths are checked alongside the bundles: the CA is written into
+# each distribution's anchor directory too, and taken back out by the same
+# layer sweep.
 elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '
   for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt \
-           /etc/ssl/ca-bundle.pem /etc/pki/tls/cacert.pem /etc/ssl/cert.pem; do
+           /etc/ssl/ca-bundle.pem /etc/pki/tls/cacert.pem /etc/ssl/cert.pem \
+           /usr/local/share/ca-certificates/buildcage.crt \
+           /etc/pki/ca-trust/source/anchors/buildcage.crt \
+           /etc/pki/trust/anchors/buildcage.crt; do
     [ -f "$f" ] && grep -qF "$CA_LINE" "$f" && exit 0
   done
   exit 1
 '; then
-  fail "the buildcage CA is still present in a system CA bundle"
+  fail "the buildcage CA is still present in a CA bundle or anchor directory"
 else
-  pass "no buildcage CA in any system CA bundle"
+  pass "no buildcage CA in any CA bundle or anchor directory"
+fi
+
+# An anchor directory the injection created goes with the anchor. Neither test
+# fixture's base image ships /etc/pki at all, so anything left there is the
+# injection's, empty directory included.
+if docker run --rm "$IMAGE" sh -c 'test -d /etc/pki'; then
+  fail "an anchor directory the injection created is still in the built image"
+else
+  pass "no anchor directory left in the built image"
+fi
+
+# The JVM's own keystore, built from the trust store while a JRE was installed
+# (the Debian fixture). keytool is in the image because the JRE is, so the
+# committed keystore is read back through it; a binary JKS holds the DER, not
+# the base64 line the bundles are grepped for. The Alpine fixture ships no JRE
+# and skips this. A build that could not take the certificate out of the
+# keystore would have failed, so reaching here already means it did.
+if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
+  if docker run --rm "$IMAGE" sh -c \
+    'keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit 2>/dev/null | grep -qi buildcage'; then
+    fail "the buildcage CA is still trusted in the JVM keystore"
+  else
+    pass "no buildcage CA in the JVM keystore"
+  fi
 fi
 
 # A copy of the store the step made outside it (see the fixture Dockerfiles).

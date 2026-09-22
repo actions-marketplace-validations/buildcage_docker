@@ -543,14 +543,14 @@ If a variable is already set, by the base image or by the Dockerfile, Buildcage 
 whatever file it already points at rather than redirecting the variable elsewhere. Otherwise, where
 it points depends on whether the step has a system CA store:
 
-| Variable              | Read by                                                                         | If unset, with a store                           | If unset, with no store     |
-| --------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------- |
-| `NODE_EXTRA_CA_CERTS` | Node.js                                                                         | Additive: pointed at a file holding only this CA | same, store or no store     |
-| `DENO_CERT`           | Deno                                                                            | Additive: pointed at a file holding only this CA | same, store or no store     |
-| `CURL_CA_BUNDLE`      | curl                                                                            | Left unset; curl already reads the system store  | proxy-CA-only fallback file |
-| `REQUESTS_CA_BUNDLE`  | Python `requests`                                                               | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
-| `PIP_CERT`            | pip                                                                             | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
-| `SSL_CERT_FILE`       | OpenSSL, and anything reading it (Go, Ruby, wget, Rust's `rustls-native-certs`) | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
+| Variable              | Read by                                                                   | If unset, with a store                           | If unset, with no store     |
+| --------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------- |
+| `NODE_EXTRA_CA_CERTS` | Node.js                                                                   | Additive: pointed at a file holding only this CA | same, store or no store     |
+| `DENO_CERT`           | Deno                                                                      | Additive: pointed at a file holding only this CA | same, store or no store     |
+| `CURL_CA_BUNDLE`      | curl                                                                      | Left unset; curl already reads the system store  | proxy-CA-only fallback file |
+| `REQUESTS_CA_BUNDLE`  | Python `requests`                                                         | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
+| `PIP_CERT`            | pip                                                                       | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
+| `SSL_CERT_FILE`       | OpenSSL, and anything reading it (Go, Ruby, Rust's `rustls-native-certs`) | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
 
 Neither the CA nor these variables are left in the image layers, and injection happens at exec time,
 so it cannot affect a cache key. [Limitations](../README.md#limitations) covers what this can't

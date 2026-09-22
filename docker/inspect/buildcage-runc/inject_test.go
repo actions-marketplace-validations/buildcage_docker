@@ -186,6 +186,30 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	}
 }
 
+// A variable pointing at a bundle under a directory that is not there is the
+// step's own: nothing can be appended to a file whose directory does not
+// exist, so it is left alone rather than mirrored. (resolveInRoot resolves such
+// a path now, for the anchors' sake, so this is guarded separately.)
+func TestInjectLeavesAVariableUnderAMissingDirectoryAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"DENO_CERT=/not-there/roots.pem"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/not-there" {
+			t.Fatal("a bind was set up for a directory that is not there")
+		}
+	}
+	if env := loadEnv(t, bundle)["DENO_CERT"]; env != "/not-there/roots.pem" {
+		t.Fatalf("DENO_CERT was disturbed: %q", env)
+	}
+}
+
 // A step that never touches the store leaves the real rootfs file alone:
 // finish() finds the scratch mirror unchanged from its post-injection
 // baseline and never writes back.
@@ -630,5 +654,59 @@ func TestInjectReportsASpecItCannotSave(t *testing.T) {
 	dumpOwnLog(&out)
 	if !strings.Contains(out.String(), "cannot update the process spec") {
 		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// With the step's layer readable, inject places the anchors, and finish takes
+// them back out once the layer has been swept: an image with no store leaves
+// nothing of them behind, /etc/pki included.
+func TestInjectPlacesAnchorsAndFinishTakesThemBack(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	// The overlay's upper directory is the rootfs itself here, so a sweep of it
+	// reaches the anchors the same way it would reach a real layer.
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchorDirs {
+		if _, err := os.Stat(resolvedAnchor(rootfs, anchor.dir)); err != nil {
+			t.Fatalf("anchor %s was not placed: %v", anchor.dir, err)
+		}
+	}
+
+	if err := in.finish(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchorDirs {
+		if _, err := os.Lstat(filepath.Join(rootfs, anchor.dir)); !os.IsNotExist(err) {
+			t.Fatalf("anchor directory %s was left behind", anchor.dir)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "etc", "pki")); !os.IsNotExist(err) {
+		t.Fatal("/etc/pki was left behind")
+	}
+}
+
+// A sweep that fails stops finish before it takes the created directories back,
+// because the build is failing and the snapshot will be released anyway.
+func TestFinishReportsAFailedLayerSweep(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A container the sweep cannot rewrite, left in the layer by the step.
+	mustWriteFile(t, filepath.Join(rootfs, "cacerts.bin"), "EFI-VAR\x00"+string(testDER))
+
+	if err := in.finish(true); err == nil {
+		t.Fatal("expected the failed sweep to fail the step")
 	}
 }

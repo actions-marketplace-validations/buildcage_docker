@@ -46,8 +46,9 @@ var caVariables = []struct {
 	{"REQUESTS_CA_BUNDLE", pointAtSystemStore},
 	{"PIP_CERT", pointAtSystemStore},
 	// OpenSSL's own override, replacing rather than adding to the default
-	// search path: also read by Go's crypto/x509 on Unix, Ruby, wget, and
-	// Rust's rustls-native-certs.
+	// search path: also read by Go's crypto/x509 on Unix, Ruby, and Rust's
+	// rustls-native-certs. Not by GnuTLS, so Debian's wget and git go by the
+	// store at their own compiled-in path instead.
 	{"SSL_CERT_FILE", pointAtSystemStore},
 }
 
@@ -107,6 +108,14 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 					variable.name, value, err)
 				continue
 			}
+			// resolveInRoot now resolves a path whose directories do not exist
+			// yet, which the anchors need but this does not: a bundle cannot be
+			// under a directory that is not there, so a variable pointing at one
+			// is the step's own and is left alone rather than mirrored.
+			if _, err := os.Stat(filepath.Dir(resolved)); err != nil {
+				logf("%s=%s names a directory that is not there; leaving it alone", variable.name, value)
+				continue
+			}
 			plan.targets[resolved] = true
 			continue
 		}
@@ -130,13 +139,14 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 
 // injection is what a completed inject leaves to be undone once the step has
 // exited: the mirrored directories to reconcile, the proxy-CA-only file to
-// remove if one was written, and what the step's own layer is read back
-// through.
+// remove if one was written, the anchor directories the injection created, and
+// what the step's own layer is read back through.
 type injection struct {
 	rootfs       string
 	ca           []byte
 	binds        []*dirBind
 	createdOwnCA string
+	created      createdDirs
 }
 
 // finish diffs each mirrored directory against its pre-step state, writes back
@@ -170,7 +180,13 @@ func (in *injection) finish(committing bool) error {
 		return firstErr
 	}
 	// After the write-back, whose own result lands in the layer.
-	return stripLayer(in.rootfs, in.ca)
+	if err := stripLayer(in.rootfs, in.ca); err != nil {
+		return err
+	}
+	// After the sweep, which has by now emptied and removed the anchor files,
+	// so a directory the injection created is empty and can go.
+	removeCreatedDirs(in.rootfs, in.created)
+	return nil
 }
 
 // inject makes the step trust the proxy's CA, returning what finishes the
@@ -187,6 +203,17 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	store, storeErr := findSystemStore(s.rootfs)
 	if !store.found {
 		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
+	}
+
+	// Only when the step's layer can be read back afterwards: stripLayer is what
+	// takes the copies a rebuild scatters back out, and without it the anchor is
+	// not placed, leaving the engine the behaviour it had before (see
+	// README.md#limitations).
+	var created createdDirs
+	if upperDirOf(s.rootfs) != "" {
+		created = placeAnchors(s.rootfs, ca)
+	} else {
+		logf("the step's layer is not an overlay upper directory; not placing anchors")
 	}
 
 	plan := planCATrust(s, ca, store)
@@ -234,5 +261,5 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("cannot update the process spec: %v", err)
 	}
 
-	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA}, nil
+	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created}, nil
 }

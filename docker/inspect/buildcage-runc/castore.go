@@ -88,9 +88,13 @@ func resolveInRoot(rootfs, path string) (string, error) {
 
 		info, err := os.Lstat(next)
 		if err != nil {
-			if os.IsNotExist(err) && len(remaining) == 0 {
-				// The final component may legitimately not exist yet.
-				return next, nil
+			if os.IsNotExist(err) {
+				// A component that is not there cannot be a symlink, so the
+				// rest of the path resolves to itself. Whole directories can be
+				// missing at once: an anchor path names several of them in an
+				// image that ships no CA store.
+				current = next
+				continue
 			}
 			return "", err
 		}

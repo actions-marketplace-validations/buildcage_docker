@@ -176,6 +176,8 @@ func fileHoldsCA(path string, ders [][]byte) (bool, error) {
 // keeps there. For a mirror they are the same directory.
 func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
 	var unstrippable []string
+	// The paths the sweep took away, so a link left pointing at one can go too.
+	removed := map[string]bool{}
 	files, err := eachFileHoldingCA(listing, ders, func(rel string) error {
 		target, err := resolveInRoot(root, rel)
 		if err != nil {
@@ -187,6 +189,16 @@ func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
 		}
 		if left {
 			unstrippable = append(unstrippable, rel)
+			return nil
+		}
+		// A file the strip emptied held nothing but the certificate, which is
+		// generated per build, so the file is one the injection put there: it
+		// goes, rather than staying behind as an empty trace.
+		if info, err := os.Stat(target); err == nil && info.Size() == 0 {
+			if err := os.Remove(target); err != nil {
+				return err
+			}
+			removed[target] = true
 		}
 		return nil
 	})
@@ -196,7 +208,73 @@ func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
 	if len(unstrippable) > 0 {
 		return files, fmt.Errorf("%w: %s", errUnstrippableCA, strings.Join(unstrippable, " "))
 	}
-	return files, nil
+	return files, dropRemovedLinks(listing, root, removed)
+}
+
+// dropRemovedLinks takes out the symlinks left pointing at something the sweep
+// removed. A rebuild leaves two per anchor, one named after the file and one
+// after its hash, and the second points at the first, so this runs to a
+// fixpoint. A link the image itself shipped broken points at nothing removed
+// and is left alone.
+func dropRemovedLinks(listing, root string, removed map[string]bool) error {
+	// Nothing was taken away, so no link can be pointing at anything gone, and
+	// the tree does not have to be walked for symlinks at all.
+	if len(removed) == 0 {
+		return nil
+	}
+	type link struct{ at, target string }
+	var links []link
+	clean := filepath.Clean(listing)
+	err := walkDir(clean, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.Type()&os.ModeSymlink == 0 {
+			return err
+		}
+		raw, err := os.Readlink(path)
+		if err != nil {
+			// Gone between the listing and here; nothing to take out.
+			return nil
+		}
+		// The link's own directory in the rootfs, resolving the path down to
+		// but not through the link itself, which resolveInRoot would follow.
+		containerDir := filepath.Dir(path[len(clean):])
+		dir, err := resolveInRoot(root, containerDir)
+		if err != nil {
+			return err
+		}
+		// The target, resolved the same way the removed set's keys were, so a
+		// symlinked component in the path cannot make an equal path compare
+		// unequal. Absolute inside the container is absolute inside the rootfs.
+		container := filepath.Join(containerDir, raw)
+		if filepath.IsAbs(raw) {
+			container = raw
+		}
+		target, err := resolveInRoot(root, container)
+		if err != nil {
+			// It points somewhere that will not resolve inside the rootfs, so
+			// it is not pointing at anything the sweep removed. Left alone.
+			return nil
+		}
+		links = append(links, link{at: filepath.Join(dir, filepath.Base(path)), target: target})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range links {
+			if links[i].at == "" || !removed[links[i].target] {
+				continue
+			}
+			if err := os.Remove(links[i].at); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			removed[links[i].at] = true
+			links[i].at = ""
+			changed = true
+		}
+	}
+	return nil
 }
 
 // stripCA takes the certificate out of one file, in whichever shape it is in
