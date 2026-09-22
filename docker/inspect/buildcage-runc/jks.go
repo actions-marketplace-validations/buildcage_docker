@@ -123,13 +123,12 @@ func keystoreWithout(content []byte, ders [][]byte) ([]byte, error) {
 // keystoreDigest is what seals a keystore: the password in UTF-16BE, the JDK's
 // own salt, then the keystore up to where the digest goes.
 //
-// SHA-1 is the format's and not a choice. This reproduces the integrity check
-// the JDK itself writes, and a keystore the JVM will still open leaves no other
-// option. Nothing here is stored, transmitted or compared as a credential: the
-// password is the one the JDK ships the system keystore with, and all this
-// establishes is whether the file in front of it is that keystore. Code
-// scanning reads a password reaching a SHA-1 as password hashing, which is why
-// this says so.
+// SHA-1 is the format, not a choice: it reproduces the integrity check the JDK
+// writes, so a keystore the JVM will still open leaves no other option. It is
+// not password hashing either, whatever a scan reads into it: nothing is stored
+// or compared as a credential, the password is the fixed one the system
+// keystore ships with, and the digest only says whether this file is that
+// keystore.
 func keystoreDigest(body []byte) []byte {
 	h := sha1.New()
 	// The password is ASCII, so each character is its own UTF-16 code unit.

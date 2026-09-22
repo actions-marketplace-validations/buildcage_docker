@@ -146,8 +146,8 @@ type injection struct {
 //
 // committing says whether there is a layer to read back at all. A step that
 // exited non-zero has already failed the build, and BuildKit releases its
-// mutable snapshot rather than committing it, so reading that snapshot twice
-// would only make an failing build slower and report a layer nothing will see.
+// mutable snapshot rather than committing it, so sweeping that snapshot would
+// only slow a failed build down over a layer nothing will see.
 func (in *injection) finish(committing bool) error {
 	var firstErr error
 	for _, b := range in.binds {

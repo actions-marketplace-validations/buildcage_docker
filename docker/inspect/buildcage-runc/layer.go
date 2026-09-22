@@ -151,7 +151,6 @@ func eachFileHoldingCA(dir string, ders [][]byte, hit func(rel string) error) (i
 // into the layer, which would put a file the image shipped there for nothing.
 //
 // A path that is not there holds nothing, the same way removeCA treats one.
-// What is in the layer is settled by reading the layer back, not here.
 func fileHoldsCA(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -204,9 +203,9 @@ func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
 // there, and reports whether a copy is still in it afterwards.
 func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
 	// Read-only first, even though the listing already said this file carries
-	// the certificate: the listing named it under a different directory, and
-	// on an overlay, opening a file for writing copies it up into the layer.
-	// Nothing that does not carry the certificate is opened for writing.
+	// the certificate: the listing named it under a different directory, and on
+	// an overlay, opening a file for writing copies it up into the layer. Only
+	// a file that carries the certificate is ever opened for writing.
 	carries, err := fileHoldsCA(path, ders)
 	if err != nil || !carries {
 		return false, err
@@ -254,7 +253,7 @@ func stripLayer(rootfs string, ca []byte) error {
 	left, err := verifyLayer(upper, ders)
 	// Paths only, never what is in them: the sweep reads every byte the step
 	// wrote, tokens and credentials among them.
-	logf("swept %s of the step's layer at %s in %s", plural(files, "file"), upper, time.Since(started).Round(time.Millisecond))
+	logf("swept the step's layer at %s: %d files in %s", upper, files, time.Since(started).Round(time.Millisecond))
 	if err != nil {
 		return err
 	}
@@ -262,16 +261,6 @@ func stripLayer(rootfs string, ca []byte) error {
 		return fmt.Errorf("the certificate is still in the step's layer: %s", strings.Join(left, " "))
 	}
 	return nil
-}
-
-// plural writes a count with the word it counts, agreeing with it. The log
-// line it goes in is what a build is read back through, so a step that wrote
-// one file should not report "1 files".
-func plural(n int, word string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, word)
-	}
-	return fmt.Sprintf("%d %ss", n, word)
 }
 
 // verifyLayer lists what still carries the certificate after a sweep.
