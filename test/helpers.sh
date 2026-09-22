@@ -36,8 +36,8 @@ assert_results() {
   echo ""
 }
 
-# One of the builder's s6 service logs: haproxy (universal/inspect), buildkitd
-# (explicit) or coredns (inspect's resolver).
+# One of the builder's s6 service logs: haproxy (universal/inspect) or coredns
+# (inspect's resolver).
 builder_log() {
   docker compose exec builder cat "/var/log/$1/current" 2>/dev/null
 }

@@ -161,34 +161,6 @@ setup_buildkit_universal_restrict: ## Start universal engine in restrict mode
 		--name $(BUILDER_NAME) \
 		--driver remote docker-container://$(BUILDER_NAME)
 
-.PHONY: setup_buildkit_explicit_audit
-setup_buildkit_explicit_audit: ## Start explicit proxy engine in audit mode
-	@echo "Starting buildcage (explicit proxy engine) in AUDIT mode..."
-	@COMPOSE_FILE=$(COMPOSE_FILE) \
-	  PROXY_ENGINE=explicit \
-	  PROXY_MODE=audit \
-	  docker compose -p $(COMPOSE_PROJECT_NAME) up -d --wait --build
-	@docker buildx rm $(BUILDER_NAME) 2>/dev/null || true
-	@echo "Creating buildx builder..."
-	@docker buildx create --bootstrap \
-		--name $(BUILDER_NAME) \
-		--driver remote docker-container://$(BUILDER_NAME)
-
-.PHONY: setup_buildkit_explicit_restrict
-setup_buildkit_explicit_restrict: ## Start explicit proxy engine in restrict mode
-	@echo "Starting buildcage (explicit proxy engine) in RESTRICT mode..."
-	@COMPOSE_FILE=$(COMPOSE_FILE) \
-	  PROXY_ENGINE=explicit \
-	  PROXY_MODE=restrict \
-	  ALLOWED_HTTP_RULES="$${ALLOWED_HTTP_RULES:-}" \
-	  ALLOWED_HTTPS_RULES="$${ALLOWED_HTTPS_RULES:-github.com:443 registry.npmjs.org:443 api.github.com:443 objects.githubusercontent.com:443 httpbin.org:443 deb.debian.org:80 *.githubusercontent.com:443}" \
-	  docker compose -p $(COMPOSE_PROJECT_NAME) up -d --wait --build
-	@docker buildx rm $(BUILDER_NAME) 2>/dev/null || true
-	@echo "Creating buildx builder..."
-	@docker buildx create --bootstrap \
-		--name $(BUILDER_NAME) \
-		--driver remote docker-container://$(BUILDER_NAME)
-
 .PHONY: setup_buildkit_inspect_audit
 setup_buildkit_inspect_audit: ## Start inspect proxy engine in audit mode
 	@echo "Starting buildcage (inspect proxy engine) in AUDIT mode..."
@@ -231,7 +203,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
 # The target that verifies post.ts removed the builder. The targets below run
 # post.ts as part of their own teardown where they have one, but the removal
@@ -281,37 +253,6 @@ test_integration_buildkit_universal_restrict_no_traffic: ## Run universal-engine
 	@./test/assert-universal-restrict-no-traffic.sh
 	@node src/post.ts
 	@$(MAKE) clean_buildkit
-
-.PHONY: test_integration_buildkit_explicit_audit
-test_integration_buildkit_explicit_audit: ## Run explicit-engine audit mode tests
-	@echo "Running explicit-engine audit mode tests..."
-	@COMPOSE_FILE=compose.yaml:compose.test-explicit.yaml \
-	  $(MAKE) setup_buildkit_explicit_audit
-	@docker buildx build --no-cache \
-	  --builder $(BUILDER_NAME) \
-	  --platform $(TEST_PLATFORM) \
-	  --progress=plain -f test/Dockerfile.explicit-audit test/ \
-	  --load -t $(TEST_IMAGE)
-	@node report/src/main.ts || true
-	@./test/assert-explicit-audit.sh
-	@node src/post.ts
-	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
-
-.PHONY: test_integration_buildkit_explicit_restrict
-test_integration_buildkit_explicit_restrict: ## Run explicit-engine restrict mode tests
-	@echo "Running explicit-engine restrict mode tests..."
-	@COMPOSE_FILE=compose.yaml:compose.test-explicit.yaml \
-	  $(MAKE) setup_buildkit_explicit_restrict
-	@docker buildx build --no-cache \
-	  --builder $(BUILDER_NAME) \
-	  --platform $(TEST_PLATFORM) \
-	  --progress=plain -f test/Dockerfile.explicit-restrict test/ \
-	  --load -t $(TEST_IMAGE)
-	@node report/src/main.ts || true
-	@./test/assert-explicit-restrict.sh
-	@./test/assert-explicit-source-policy-conflict.sh
-	@node src/post.ts
-	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
 
 # The Alpine build the CA-residue and layer-bloat guards run against. Every
 # inspect build injects the same CA the same way, so the other Alpine image

@@ -87,7 +87,7 @@ jobs:
             git push origin "$MAJOR" --force
           fi
 
-          for ENGINE in universal explicit inspect; do
+          for ENGINE in universal inspect; do
             SUFFIX=""
             if [ "$ENGINE" != "universal" ]; then
               SUFFIX="-${ENGINE}"

@@ -31,19 +31,16 @@ jobs:
         include:
           - engine: universal
             dockerfile: docker/universal/Dockerfile
-          - engine: explicit
-            dockerfile: docker/explicit/Dockerfile
           - engine: inspect
             dockerfile: docker/inspect/Dockerfile
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       # Matrix legs sharing one output name would clobber each other (last
       # completed leg wins), so each leg instead writes to a step-output key
-      # suffixed with its own matrix.engine value, which keeps the three from
+      # suffixed with its own matrix.engine value, which keeps the two from
       # colliding and carries each one into this job's own (statically-declared)
       # outputs.
       digest-universal: ${{ steps.digest.outputs['universal'] }}
-      digest-explicit: ${{ steps.digest.outputs['explicit'] }}
       digest-inspect: ${{ steps.digest.outputs['inspect'] }}
 
     steps:
@@ -132,9 +129,7 @@ jobs:
   # the setup action refuses an unsigned one.
   #
   # Real hosts, not the fixtures: trusting their self-signed certificate takes a
-  # BUILDCAGE_TEST_HOOKS or BUILDKIT_PROXY_BUILD_TAGS build, which a released
-  # image deliberately is not. explicit, deprecated, is covered by neither and so
-  # goes unexercised, though signing it still waits on the engines that are.
+  # BUILDCAGE_TEST_HOOKS build, which a released image deliberately is not.
   verify-image:
     needs: build-and-push
     permissions:
@@ -275,12 +270,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [universal, explicit, inspect]
+        engine: [universal, inspect]
     name: "sign (${{ matrix.engine }})"
     outputs:
       # Same reason as build-and-push's own per-engine output keys above.
       bundle-content-universal: ${{ steps.bundle.outputs['content-universal'] }}
-      bundle-content-explicit: ${{ steps.bundle.outputs['content-explicit'] }}
       bundle-content-inspect: ${{ steps.bundle.outputs['content-inspect'] }}
 
     steps:
@@ -357,14 +351,11 @@ jobs:
         env:
           TAG: ${{ needs.build-and-push.outputs.tag }}
           BUNDLE_UNIVERSAL: ${{ needs.sign-and-attest.outputs['bundle-content-universal'] }}
-          BUNDLE_EXPLICIT: ${{ needs.sign-and-attest.outputs['bundle-content-explicit'] }}
           BUNDLE_INSPECT: ${{ needs.sign-and-attest.outputs['bundle-content-inspect'] }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$BUNDLE_UNIVERSAL" > buildcage-container.sigstore.json
-          echo "$BUNDLE_EXPLICIT" > buildcage-container-explicit.sigstore.json
           echo "$BUNDLE_INSPECT" > buildcage-container-inspect.sigstore.json
           gh release upload --repo "$GITHUB_REPOSITORY" "$TAG" \
             buildcage-container.sigstore.json \
-            buildcage-container-explicit.sigstore.json \
             buildcage-container-inspect.sigstore.json

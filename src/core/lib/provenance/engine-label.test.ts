@@ -25,7 +25,6 @@ function expectRejected(version: string | undefined, proxyEngine: string): Verif
 describe("checkImageEngine", () => {
   it("accepts a label whose suffix names the requested engine", () => {
     expect(() => check("3.1.0-inspect", "inspect")).not.toThrow();
-    expect(() => check("3.1.0-explicit", "explicit")).not.toThrow();
     expect(() => check("3.1.0", "universal")).not.toThrow();
   });
 
@@ -41,7 +40,6 @@ describe("checkImageEngine", () => {
   it("rejects the universal image served for an inspect tag", () => {
     const err = expectRejected("3.1.0", "inspect");
     expect(err.message).toContain("not published for proxy engine inspect");
-    expectRejected("3.1.0-explicit", "inspect");
   });
 
   it("rejects an engine image served for a universal tag", () => {

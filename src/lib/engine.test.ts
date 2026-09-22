@@ -12,13 +12,18 @@ describe("resolveProxyEngine", () => {
 
   it("accepts each engine that has an image of its own", () => {
     expect(resolveProxyEngine("universal", silent)).toBe("universal");
-    expect(resolveProxyEngine("explicit", silent)).toBe("explicit");
     expect(resolveProxyEngine("inspect", silent)).toBe("inspect");
   });
 
   it("throws SetupError for a value that is not an engine, casing included", () => {
     expect(() => resolveProxyEngine("restrict", silent)).toThrow();
     expect(() => resolveProxyEngine("Explicit", silent)).toThrow();
+  });
+
+  it("rejects the removed explicit engine, naming the supported replacements", () => {
+    expect(() => resolveProxyEngine("explicit", silent)).toThrowError(
+      /explicit has been removed.*universal.*inspect/s,
+    );
   });
 
   // `transparent` is universal's old name, kept working permanently as an
@@ -45,16 +50,13 @@ describe("resolveProxyEngine", () => {
       const notice = vi.fn();
 
       resolveProxyEngine("universal", notice);
-      resolveProxyEngine("explicit", notice);
       resolveProxyEngine("inspect", notice);
 
       expect(notice).not.toHaveBeenCalled();
     });
 
     it("no longer appears in the invalid-value error's accepted list", () => {
-      expect(() => resolveProxyEngine("restrict", silent)).toThrowError(
-        /universal, explicit, inspect/,
-      );
+      expect(() => resolveProxyEngine("restrict", silent)).toThrowError(/universal, inspect/);
     });
   });
 });

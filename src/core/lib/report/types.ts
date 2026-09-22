@@ -1,6 +1,5 @@
 import type { AggregatedEntry } from "../log/aggregate.ts";
 import type { AnnotatedBlockedRow } from "./build/aggregate.ts";
-import type { VertexAllowedEntry } from "../log/vertex.ts";
 import type { TrafficEvent } from "../log/traffic-event.ts";
 
 /** Echoed back verbatim rather than re-derived: only the container's own
@@ -29,22 +28,19 @@ export interface ReportDataCommon {
 
   /** Connections the rules allowed that then did not complete: the origin
    *  broke off, or the upstream resolver could not answer the name. Tabulated
-   *  apart from `blocked` and left out of `blockedCount`; see TrafficAction.
-   *  Always empty for explicit, whose denial log records only what buildkitd
-   *  refused. */
+   *  apart from `blocked` and left out of `blockedCount`; see TrafficAction. */
   failed: AggregatedEntry[];
 
-  /** Raw blocked-event count. Larger than blocked.length wherever the engine
-   *  counts log lines rather than aggregated rows (universal and inspect);
-   *  equal to it for explicit, whose denial log has no finer granularity. */
+  /** Raw blocked-event count: both engines count log lines rather than
+   *  aggregated rows, so it can be larger than blocked.length. */
   blockedCount: number;
 
   /** False iff the log is not a complete record of the run: its beginning is
    *  gone, a decision line could not be read, or it never carried a trace of a
-   *  real one (haproxy.ts's headIntact and unparsed, buildkitd.ts's
-   *  hasNonDenialContent). Anything written from this flag has to name every
-   *  one of them, since the flag itself does not say which applied. The report
-   *  fails closed rather than passing off what survived as everything. */
+   *  real one (haproxy.ts's headIntact and unparsed). Anything written from
+   *  this flag has to name every one of them, since the flag itself does not say
+   *  which applied. The report fails closed rather than passing off what
+   *  survived as everything. */
   logLooksPlausible: boolean;
 }
 
@@ -52,25 +48,11 @@ export interface UniversalReportData extends ReportDataCommon {
   engine: "universal";
 }
 
-/** Discriminated union (keyed on `engine`) rather than an optional field,
- *  so `report.engine === "explicit"` narrows `proxyLogs` to present. */
-export interface ExplicitReportData extends ReportDataCommon {
-  engine: "explicit";
-  proxyLogs: {
-    /** Per-build, per-RUN-step allowed request breakdown. */
-    builds: VertexAllowedEntry[][];
-    /** Denied requests aren't attributable to a RUN step and come from a
-     *  different source (buildkitd's log, not buildctl), hence separate. */
-    denied: DeniedEntry[];
-  };
-}
-
 /** The inspect engine decrypts, so it has the method and full URL of every
  *  request, refused ones included. Nothing is attributable to a RUN step: the
- *  proxy log carries no vertex identifier, unlike the explicit engine's
- *  buildkitd log. One timeline is therefore the only structure available, and
- *  the more useful one: a refusal reads in the context of what the build was
- *  doing when it happened. */
+ *  proxy log carries no vertex identifier. One timeline is therefore the only
+ *  structure available, and the more useful one: a refusal reads in the context
+ *  of what the build was doing when it happened. */
 export interface InspectReportData extends ReportDataCommon {
   engine: "inspect";
   /** Every request, passthrough and refused name, oldest first. */
@@ -81,9 +63,4 @@ export interface InspectReportData extends ReportDataCommon {
   startedAt: number | undefined;
 }
 
-export type ReportData = UniversalReportData | ExplicitReportData | InspectReportData;
-
-export interface DeniedEntry {
-  url: string;
-  timestamp: string;
-}
+export type ReportData = UniversalReportData | InspectReportData;

@@ -3,12 +3,12 @@
  * inside a label: `abc*.amazonaws.com`.
  *
  * The shared compiler in wildcard-rules.ts rejects that, requiring a label
- * containing `*` to be exactly `*` or `**`. For the other engines that is only
+ * containing `*` to be exactly `*` or `**`. For `universal` that is only
  * a restriction on how a rule can be phrased. For `inspect` it would be a
  * hazard, because the resolver's scope is generated from these same patterns:
  * a rule unable to say "only names beginning with abc" forces the author to
- * write `*.amazonaws.com` instead, widening what the build is allowed to
- * resolve and therefore what it can leak through a DNS query alone.
+ * write `*.amazonaws.com` instead, widening what is allowed to resolve and
+ * therefore what can leak through a DNS query alone.
  *
  * The wildcard vocabulary is otherwise unchanged, and keeps the same meaning
  * wherever it appears in a label:
@@ -18,8 +18,7 @@
  *   `?` : a single character, dots excluded
  *
  * Kept separate from wildcard-rules.ts rather than added to it, so widening
- * this grammar cannot change what the `universal` and `explicit` engines
- * accept.
+ * this grammar cannot change what the `universal` engine accepts.
  */
 
 /** Characters that must be escaped to appear literally in a regex. */

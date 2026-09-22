@@ -47,11 +47,11 @@ describe("checkUrlAndTlsRuleSupport", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("throws in the explicit engine too, mentioning only the rule inputs actually set", () => {
+  it("mentions only the rule inputs actually set", () => {
     expect(() =>
       checkUrlAndTlsRuleSupport(
         {
-          proxyEngine: "explicit",
+          proxyEngine: "universal",
           proxyMode: "restrict",
           urlRules: [],
           tlsRules: ["example.com:443"],

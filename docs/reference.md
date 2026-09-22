@@ -35,8 +35,6 @@ and links here for the details.
 ```
 
 `transparent` is accepted as an alias for `universal`, the name it had before `inspect` existed.
-`explicit` selects BuildKit's own native `--proxy-network`, which is deprecated; see
-[Explicit Proxy Engine](./explicit-engine.md).
 
 On a self-hosted runner that runs several jobs at once, give each job its own `builder_name`. The
 name is what identifies the builder's containers, so two concurrent jobs sharing it tear down each
@@ -304,7 +302,7 @@ with `fail_on_blocked: true`, and a `::notice::` is emitted instead of `::error:
 blocked connection still fails the step. Once `known_blocked_rules` is set, the Blocked Hosts table
 gains an **Expected** column (✅) on the matched rows.
 
-Under `inspect` and `explicit` the matched rows are also folded into one row per rule, named after
+Under `inspect` the matched rows are also folded into one row per rule, named after
 the rule and counting the hosts behind it (`*.example.com:* (12 hosts)`), below the rows nothing
 matched. A rule covering noisy traffic then costs the table one line however many hosts it names,
 which matters most when the noise puts its payload in the name itself and every request brings a new

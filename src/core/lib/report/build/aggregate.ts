@@ -1,7 +1,5 @@
 import { completeRulePort, convertRule } from "#core/lib/acl/wildcard-rules.ts";
-import { parseIdentifier } from "#core/lib/log/parse-identifier.ts";
-import { aggregate, type AggregatedEntry, type LogEntry } from "#core/lib/log/aggregate.ts";
-import type { VertexAllowedEntry } from "#core/lib/log/vertex.ts";
+import type { AggregatedEntry } from "#core/lib/log/aggregate.ts";
 
 export interface AnnotatedBlockedRow extends AggregatedEntry {
   expected: boolean;
@@ -51,34 +49,4 @@ export function annotateKnownBlocked(
  */
 function targetOf(row: AggregatedEntry): string {
   return `${row.host}:${row.port === "-" ? "0" : row.port}`;
-}
-
-/**
- * Build the host-aggregated allowed/audited table from the same per-build
- * vertex data vertex.ts's parseVertexAllowedLog() produces for the
- * per-command breakdown.
- *
- * Which decision the rows came from is not carried: the table shows the hosts
- * a build reached, and the heading above it says whether they were allowed or
- * merely audited (see render-report-markdown.ts).
- */
-export function aggregateAllowedHosts(
-  builds: Pick<VertexAllowedEntry, "entries">[][],
-): AggregatedEntry[] {
-  const entries: LogEntry[] = [];
-  for (const vertices of builds) {
-    for (const { entries: vertexEntries } of vertices) {
-      for (const { url } of vertexEntries) {
-        const parsed = parseIdentifier(url);
-        if (!parsed) continue;
-        entries.push({
-          ruleType: parsed.scheme === "https" ? "HTTPS" : "HTTP",
-          host: parsed.host,
-          port: parsed.port,
-          reason: "-",
-        });
-      }
-    }
-  }
-  return aggregate(entries);
 }

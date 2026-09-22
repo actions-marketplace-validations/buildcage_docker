@@ -145,11 +145,6 @@ Both intercept at the network level, so a tool that ignores `HTTP_PROXY` is cove
 both apply to `RUN` steps. What buildkitd fetches for itself stays outside: see
 [Limitations](#limitations).
 
-`proxy_engine: explicit` is BuildKit's own native `--proxy-network`. It still works but is
-deprecated and receives no further development; see
-[Explicit Proxy Engine](./docs/explicit-engine.md) if you already depend on it, most commonly for
-its BuildKit-native SLSA provenance integration.
-
 ## Inputs
 
 Every input is optional, and the ones below are the rules you write by hand. The full list, with
@@ -397,9 +392,8 @@ reported as blocked; see
 
 - A custom CA path that is unexpectedly large (more than 20 MiB or 512 files) has injection skipped
   for that variable only, the same degradation as when no CA bundle is found at all.
-- Neither engine produces SLSA provenance. The deprecated `explicit` engine records what it fetched
-  as a provenance material through BuildKit's own mechanism; the traffic artifact is an observation
-  record with no content digest.
+- Neither engine produces SLSA provenance. The traffic artifact is an observation record with no
+  content digest.
 
 ### On the runner itself
 
@@ -461,12 +455,11 @@ firewall-enabled runner image.
 
 ## Documentation
 
-| Doc                                                | What's in it                                                      |
-| -------------------------------------------------- | ----------------------------------------------------------------- |
-| [Reference](./docs/reference.md)                   | Every input, the rule syntax in full, and the report's own output |
-| [Security Details](./docs/security.md)             | Architecture and threat model for every engine, attack resistance |
-| [Development Guide](./docs/development.md)         | Local usage, testing, logs, and the repository layout             |
-| [Explicit Proxy Engine](./docs/explicit-engine.md) | The deprecated `proxy_engine: explicit` in full                   |
+| Doc                                        | What's in it                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------- |
+| [Reference](./docs/reference.md)           | Every input, the rule syntax in full, and the report's own output |
+| [Security Details](./docs/security.md)     | Architecture and threat model for every engine, attack resistance |
+| [Development Guide](./docs/development.md) | Local usage, testing, logs, and the repository layout             |
 
 ## Contributing
 
