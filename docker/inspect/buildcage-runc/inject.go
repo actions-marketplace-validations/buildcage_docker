@@ -205,11 +205,10 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
 	}
 
-	// Only when the step's layer can be read back afterwards. The anchor makes
-	// a rebuild scatter copies of the certificate, and stripLayer is what takes
-	// those out again; without a layer to sweep there would be no way to show
-	// they had gone, so the anchor is not placed and the engine keeps the
-	// behaviour it had before (see README.md#limitations).
+	// Only when the step's layer can be read back afterwards: stripLayer is what
+	// takes the copies a rebuild scatters back out, and without it the anchor is
+	// not placed, leaving the engine the behaviour it had before (see
+	// README.md#limitations).
 	var created createdDirs
 	if upperDirOf(s.rootfs) != "" {
 		created = placeAnchors(s.rootfs, ca)

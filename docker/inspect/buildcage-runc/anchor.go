@@ -95,8 +95,8 @@ func createCA(rootfs, path string, ca []byte) ([]string, error) {
 }
 
 // mkdirAllTracking is MkdirAll that reports which directories it created,
-// deepest first, so the undo takes back exactly what the injection added.
-// Walking up ends at a directory that is there, at worst the filesystem root.
+// deepest first. Walking up ends at a directory that is there, at worst the
+// filesystem root.
 func mkdirAllTracking(dir string) ([]string, error) {
 	var created []string
 	for d := dir; ; d = filepath.Dir(d) {
