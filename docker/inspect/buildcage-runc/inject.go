@@ -108,6 +108,14 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 					variable.name, value, err)
 				continue
 			}
+			// resolveInRoot now resolves a path whose directories do not exist
+			// yet, which the anchors need but this does not: a bundle cannot be
+			// under a directory that is not there, so a variable pointing at one
+			// is the step's own and is left alone rather than mirrored.
+			if _, err := os.Stat(filepath.Dir(resolved)); err != nil {
+				logf("%s=%s names a directory that is not there; leaving it alone", variable.name, value)
+				continue
+			}
 			plan.targets[resolved] = true
 			continue
 		}

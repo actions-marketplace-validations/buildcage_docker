@@ -186,6 +186,30 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	}
 }
 
+// A variable pointing at a bundle under a directory that is not there is the
+// step's own: nothing can be appended to a file whose directory does not
+// exist, so it is left alone rather than mirrored. (resolveInRoot resolves such
+// a path now, for the anchors' sake, so this is guarded separately.)
+func TestInjectLeavesAVariableUnderAMissingDirectoryAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"DENO_CERT=/not-there/roots.pem"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/not-there" {
+			t.Fatal("a bind was set up for a directory that is not there")
+		}
+	}
+	if env := loadEnv(t, bundle)["DENO_CERT"]; env != "/not-there/roots.pem" {
+		t.Fatalf("DENO_CERT was disturbed: %q", env)
+	}
+}
+
 // A step that never touches the store leaves the real rootfs file alone:
 // finish() finds the scratch mirror unchanged from its post-injection
 // baseline and never writes back.

@@ -236,17 +236,25 @@ func dropRemovedLinks(listing, root string, removed map[string]bool) error {
 		}
 		// The link's own directory in the rootfs, resolving the path down to
 		// but not through the link itself, which resolveInRoot would follow.
-		dir, err := resolveInRoot(root, filepath.Dir(path[len(clean):]))
+		containerDir := filepath.Dir(path[len(clean):])
+		dir, err := resolveInRoot(root, containerDir)
 		if err != nil {
 			return err
 		}
-		at := filepath.Join(dir, filepath.Base(path))
-		target := filepath.Join(dir, raw)
+		// The target, resolved the same way the removed set's keys were, so a
+		// symlinked component in the path cannot make an equal path compare
+		// unequal. Absolute inside the container is absolute inside the rootfs.
+		container := filepath.Join(containerDir, raw)
 		if filepath.IsAbs(raw) {
-			// Absolute inside the container means absolute inside the rootfs.
-			target = filepath.Join(root, raw)
+			container = raw
 		}
-		links = append(links, link{at: at, target: target})
+		target, err := resolveInRoot(root, container)
+		if err != nil {
+			// It points somewhere that will not resolve inside the rootfs, so
+			// it is not pointing at anything the sweep removed. Left alone.
+			return nil
+		}
+		links = append(links, link{at: filepath.Join(dir, filepath.Base(path)), target: target})
 		return nil
 	})
 	if err != nil {

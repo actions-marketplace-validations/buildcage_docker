@@ -520,6 +520,26 @@ func TestSweepDirReportsALinkWhoseDirectoryEscapes(t *testing.T) {
 	}
 }
 
+// A link pointing out of the rootfs resolves to nothing inside it, so it is
+// not pointing at anything the sweep removed and is left alone rather than
+// failing the build.
+func TestSweepDirLeavesALinkPointingOutOfTheRoot(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	// A directory in the target's path is itself a symlink climbing out of the
+	// root, so resolving the target escapes. The link's own directory still
+	// resolves, so only its target is out of bounds.
+	mustSymlink(t, "../../../../../../outside", filepath.Join(dir, "out"))
+	mustSymlink(t, "out/bundle.pem", filepath.Join(dir, "escape.0"))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatalf("an out-of-root link should be left alone, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "escape.0")); err != nil {
+		t.Fatalf("the out-of-root link was taken away: %v", err)
+	}
+}
+
 // A link that went away between the listing and the readlink reads as empty,
 // matches nothing removed, and is left alone rather than failing the sweep.
 func TestSweepDirSkipsALinkThatVanished(t *testing.T) {
