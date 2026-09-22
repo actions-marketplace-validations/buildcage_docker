@@ -321,7 +321,7 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   │                         # image ref), distinct from the top-level compose.yaml below
 │   ├── seccomp/              # The builder container's seccomp profile and gen-profile.mjs,
 │   │                         # read by the Docker client on the runner, not copied into an image
-│   ├── universal/            # proxy_engine: universal — BuildKit, HAProxy, dnsmasq, s6-overlay
+│   ├── universal/            # proxy_engine: universal — BuildKit, HAProxy, CoreDNS, s6-overlay
 │   └── inspect/              # proxy_engine: inspect — HAProxy, CoreDNS, s6-overlay, and
 │                             # buildcage-runc/ (Go module: CA trust at exec time)
 ├── test/                     # Dockerfile.*/assert-*.sh per {engine}-{mode}, plus the fixture

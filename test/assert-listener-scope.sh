@@ -1,6 +1,6 @@
 #!/bin/bash
-# HAProxy binds *:10024 (universal's dnsmasq and inspect's CoreDNS also bind
-# *:53), but only buildcage0, the CNI bridge BuildKit wires up once a build
+# HAProxy binds *:10024 (both engines' CoreDNS also binds *:53), but only
+# buildcage0, the CNI bridge BuildKit wires up once a build
 # starts, may reach them (see docker/{universal,inspect}/files/s6-scripts/
 # init-iptables). This starts each engine's builder on its own, with no build
 # running, so buildcage0 never exists: :10024/:53 must be unreachable both from
@@ -17,8 +17,8 @@ source "$(dirname "$0")/helpers.sh"
 
 cd "$(dirname "$0")/.."
 
-# Both engines run in audit mode so that their resolvers answer every name
-# (dnsmasq always does; CoreDNS only outside restrict, see coredns-config.ts).
+# Both engines run in audit mode so that CoreDNS answers every name (it refuses
+# an unlisted name only in restrict mode, see coredns-config.ts).
 # An answer then proves the port was reachable rather than that a rule matched.
 # The INPUT rules under test are the same in either mode.
 dns_answered() {
