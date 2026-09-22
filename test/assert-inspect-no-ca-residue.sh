@@ -73,7 +73,7 @@ fi
 # catches the other end: a rewrite that dropped more than the one entry. Debian
 # bookworm's ca-certificates seeds ~150 roots, so 100 is well clear of a
 # healthy store and well above a gutted one.
-if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
+if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1 && test -f /etc/ssl/certs/java/cacerts'; then
   if listing=$(docker run --rm "$IMAGE" \
     keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit 2>/dev/null); then
     roots=$(grep -c trustedCertEntry <<<"$listing" || true)
@@ -86,6 +86,32 @@ if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
     fi
   else
     fail "the JVM keystore is unreadable after the sweep; the rewrite corrupted it"
+  fi
+fi
+
+# The base image's own JVM keystore, at $JAVA_HOME/lib/security/cacerts: the
+# case the keystore injection exists for (docker/inspect/buildcage-runc/
+# jvmstore.go), as opposed to the ca-certificates-java one above. The path is
+# read from the image's own JAVA_HOME so this covers both shapes a JDK ships it
+# in, PKCS#12 (eclipse-temurin:21) and JKS (eclipse-temurin:17). The injection
+# lands only in the scratch mirror bound over the step, so a committed keystore
+# that still trusted the CA would mean the undo let the mirror through; the
+# kept-root floor catches a rewrite that dropped more than the CA, the same way
+# the ca-certificates-java check above does.
+JVM_CACERTS=$(docker run --rm "$IMAGE" sh -c 'printf %s "$JAVA_HOME/lib/security/cacerts"' 2>/dev/null || true)
+if [ -n "$JVM_CACERTS" ] && docker run --rm "$IMAGE" sh -c "test -f \"$JVM_CACERTS\""; then
+  if listing=$(docker run --rm "$IMAGE" \
+    keytool -list -keystore "$JVM_CACERTS" -storepass changeit 2>/dev/null); then
+    roots=$(grep -c trustedCertEntry <<<"$listing" || true)
+    if grep -qi buildcage <<<"$listing"; then
+      fail "the buildcage CA is still trusted in the base image JVM keystore ($JVM_CACERTS)"
+    elif [ "${roots:-0}" -lt 100 ]; then
+      fail "the base image JVM keystore has only $roots roots; it dropped more than the CA"
+    else
+      pass "the base image JVM keystore is readable, keeps its $roots roots, and no longer trusts the CA"
+    fi
+  else
+    fail "the base image JVM keystore is unreadable after the step; the undo corrupted it"
   fi
 fi
 
