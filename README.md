@@ -9,8 +9,9 @@
 ![test](https://img.shields.io/github/actions/workflow/status/buildcage/docker/test-e2e.yml?label=test)
 ![license](https://img.shields.io/github/license/buildcage/docker)
 
-GitHub Action that restricts where `docker build` can connect. Every `RUN` step runs behind an
-allowlist you write, and a destination that isn't on it is refused and reported.
+A `docker build` runs your `RUN` steps, and every dependency they fetch, with unrestricted network
+access. Buildcage puts that behind an allowlist: each `RUN` step can reach only the destinations you
+name, and anything else is refused and reported.
 
 - Your Dockerfile doesn't change, BuildKit isn't patched, and nothing Buildcage does is left in the
   image layers.
