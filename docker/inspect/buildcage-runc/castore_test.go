@@ -71,23 +71,33 @@ func TestResolveInRootAllowsAMissingFinalComponent(t *testing.T) {
 	}
 }
 
-// testCA is PEM-shaped rather than a real certificate: removal matches on the
-// base64 between the two lines and never decodes it.
-var testCA = []byte("-----BEGIN CERTIFICATE-----\nQlVJTERDQUdFLUNB\n-----END CERTIFICATE-----\n")
+// The lines a certificate is armoured between, spelled out here because the
+// code itself only knows the shape of them and not the label.
+const (
+	beginTestBlock = "-----BEGIN CERTIFICATE-----"
+	endTestBlock   = "-----END CERTIFICATE-----"
+)
+
+// testCA is PEM-shaped rather than a real certificate: removal matches on what
+// the base64 between the two lines decodes to, not on its meaning.
+var testCA = []byte(beginTestBlock + "\nQlVJTERDQUdFLUNB\n" + endTestBlock + "\n")
 
 // otherCA stands for a certificate the bundle already carried, which removal
 // has to walk past.
-var otherCA = []byte("-----BEGIN CERTIFICATE-----\nU09NRU9ORS1FTFNF\n-----END CERTIFICATE-----\n")
+var otherCA = []byte(beginTestBlock + "\nU09NRU9ORS1FTFNF\n" + endTestBlock + "\n")
 
 // caOfSize is a PEM block of exactly n bytes, so a test can place a
-// certificate at a chosen offset relative to a read window.
+// certificate at a chosen offset relative to a read window. The body has to
+// decode, so the bytes that do not make up a whole base64 quantum are line
+// breaks, which a decoder skips.
 func caOfSize(t *testing.T, n int) []byte {
 	t.Helper()
-	body := n - len(beginCertificate) - len(endCertificate) - 3
-	if body < 1 {
+	body := n - len(beginTestBlock) - len(endTestBlock) - 3
+	if body < 4 {
 		t.Fatalf("%d bytes is too small for a PEM block", n)
 	}
-	return fmt.Appendf(nil, "%s\n%s\n%s\n", beginCertificate, strings.Repeat("Q", body), endCertificate)
+	blob := strings.Repeat("\n", body%4) + strings.Repeat("Q", body-body%4)
+	return fmt.Appendf(nil, "%s\n%s\n%s\n", beginTestBlock, blob, endTestBlock)
 }
 
 // Removal has to be exact rather than length-based: a step may append its own
@@ -177,7 +187,7 @@ func TestRemoveCAMatchesAReEncodedCertificate(t *testing.T) {
 // leave that certificate in the image.
 func TestRemoveCAStripsACertificateBehindAnUnterminatedBlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.pem")
-	truncated := string(beginCertificate) + "\nVFJVTkNBVEVE\n"
+	truncated := beginTestBlock + "\nVFJVTkNBVEVE\n"
 	mustWriteFile(t, path, truncated+string(testCA))
 
 	if err := removeCA(path, testCA); err != nil {
@@ -215,7 +225,7 @@ func TestRemoveCALeavesAnOversizedBlockAlone(t *testing.T) {
 func TestRemoveCAIsANoOpWithoutACertificateToMatch(t *testing.T) {
 	cases := map[string]string{
 		"no certificate at all": "not a certificate",
-		"an unterminated one":   string(beginCertificate) + "\nQlVJTERDQUdFLUNB\n",
+		"an unterminated one":   beginTestBlock + "\nQlVJTERDQUdFLUNB\n",
 	}
 	for name, ca := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -277,9 +287,9 @@ func filler(n int) string {
 func TestRemoveCAStripsACertificateAcrossWindowBoundaries(t *testing.T) {
 	cases := map[string]struct{ beginAt, caSize, after int }{
 		"well inside one window":            {17, 64, 0},
-		"opening line ending a window":      {scanChunk - len(beginCertificate), 64, scanChunk},
+		"opening line ending a window":      {scanChunk - len(beginTestBlock), 64, scanChunk},
 		"opening line starting a window":    {scanChunk, 64, scanChunk},
-		"opening line over a read boundary": {scanChunk + len(beginCertificate)/2, 64, 2 * scanChunk},
+		"opening line over a read boundary": {scanChunk + len(beginTestBlock)/2, 64, 2 * scanChunk},
 		"straddling a window boundary":      {scanChunk - 100, 4096, scanChunk},
 		"spanning several windows":          {3 * scanChunk, 64, 3 * scanChunk},
 	}
@@ -519,7 +529,7 @@ func TestRemoveCAIsANoOpOnAnEmptyFile(t *testing.T) {
 // step wrote with it, so nothing is removed.
 func TestRemoveCALeavesAnUnterminatedBlockAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.pem")
-	content := "ORIGINAL\n" + string(beginCertificate) + "\nQlVJTERDQUdFLUNB\n"
+	content := "ORIGINAL\n" + beginTestBlock + "\nQlVJTERDQUdFLUNB\n"
 	mustWriteFile(t, path, content)
 
 	if err := removeCA(path, testCA); err != nil {
@@ -633,7 +643,7 @@ func TestFindInFileIsANoOpOnAnEmptyRange(t *testing.T) {
 	}
 	defer f.Close()
 
-	at, err := findInFile(f, beginCertificate, 0, 0)
+	at, err := findInFile(f, beginPEM, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +667,7 @@ func TestFindInFileReportsAFailedRead(t *testing.T) {
 	}
 
 	broken := &brokenFile{bundleFile: f, failReadAt: 1}
-	if _, err := findInFile(broken, beginCertificate, 0, info.Size()); !errors.Is(err, errBrokenFile) {
+	if _, err := findInFile(broken, beginPEM, 0, info.Size()); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want it to name the I/O failure", err)
 	}
 	broken = &brokenFile{bundleFile: f, failReadAt: 1}
@@ -687,6 +697,39 @@ func TestCloseGapsReportsAFailedReadOrWrite(t *testing.T) {
 			cuts := []span{{0, scanChunk}, {2 * scanChunk, 3 * scanChunk}}
 			if _, err := closeGaps(broken, cuts, 4*scanChunk); !errors.Is(err, errBrokenFile) {
 				t.Fatalf("got %v, want it to name the I/O failure", err)
+			}
+		})
+	}
+}
+
+// An opening line the step cut short is not a block: the closing line the scan
+// would otherwise pair it with belongs to whatever came after it.
+func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
+	cases := map[string]struct{ content, want string }{
+		"nothing after it": {string(beginPEM), string(beginPEM)},
+		"no label to close it": {
+			"-----BEGIN CERTIFICATE\n" + string(testCA),
+			"-----BEGIN CERTIFICATE\n",
+		},
+		"a label of no length": {
+			"-----BEGIN -----\nQlVJTERDQUdFLUNB\n-----END -----\n",
+			"-----BEGIN -----\nQlVJTERDQUdFLUNB\n-----END -----\n",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.pem")
+			mustWriteFile(t, path, c.content)
+
+			if err := removeCA(path, testCA); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
 	}

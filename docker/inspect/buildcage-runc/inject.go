@@ -129,17 +129,26 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 }
 
 // injection is what a completed inject leaves to be undone once the step has
-// exited: the mirrored directories to reconcile, and the proxy-CA-only file to
-// remove if one was written.
+// exited: the mirrored directories to reconcile, the proxy-CA-only file to
+// remove if one was written, and what the step's own layer is read back
+// through.
 type injection struct {
+	rootfs       string
+	ca           []byte
 	binds        []*dirBind
 	createdOwnCA string
 }
 
-// finish diffs each mirrored directory against its pre-step state and writes
-// back only what changed. A non-nil error means the write-back itself failed
-// and the build must not proceed with a possibly half-written layer.
-func (in *injection) finish() error {
+// finish diffs each mirrored directory against its pre-step state, writes back
+// only what changed, and then takes the certificate out of whatever else of
+// the step's layer holds a copy. A non-nil error means the layer may still
+// carry one, and the build must not proceed with it.
+//
+// committing says whether there is a layer to read back at all. A step that
+// exited non-zero has already failed the build, and BuildKit releases its
+// mutable snapshot rather than committing it, so sweeping that snapshot would
+// only slow a failed build down over a layer nothing will see.
+func (in *injection) finish(committing bool) error {
 	var firstErr error
 	for _, b := range in.binds {
 		if err := b.finish(); err != nil {
@@ -155,7 +164,13 @@ func (in *injection) finish() error {
 			logf("cannot remove %s: %v", in.createdOwnCA, err)
 		}
 	}
-	return firstErr
+	if firstErr != nil || !committing {
+		// Either way the snapshot is about to be released rather than
+		// committed, so there is nothing for a sweep of it to establish.
+		return firstErr
+	}
+	// After the write-back, whose own result lands in the layer.
+	return stripLayer(in.rootfs, in.ca)
 }
 
 // inject makes the step trust the proxy's CA, returning what finishes the
@@ -219,5 +234,5 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("cannot update the process spec: %v", err)
 	}
 
-	return &injection{binds: binds, createdOwnCA: plan.createdOwnCA}, nil
+	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA}, nil
 }

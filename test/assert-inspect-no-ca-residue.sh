@@ -5,9 +5,9 @@ source "$(dirname "$0")/helpers.sh"
 # Regression guard for the inspect engine's per-RUN-step CA injection
 # (docker/inspect/buildcage-runc/inject.go): the environment it sets lives only
 # in the transient OCI process spec, never in what BuildKit commits, and the
-# CA file(s) it writes to the rootfs are undone by its own restore() before
-# the snapshot is taken. This checks that both hold against the real image
-# this test build produced.
+# certificate is taken back out of the step's own layer, by reading that layer
+# rather than a list of paths (layer.go), before the snapshot is taken. This
+# checks that both hold against the real image this test build produced.
 
 IMAGE="${1:-buildcage-test}"
 
@@ -42,6 +42,32 @@ elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '
   fail "the buildcage CA is still present in a system CA bundle"
 else
   pass "no buildcage CA in any system CA bundle"
+fi
+
+# A copy of the store the step made outside it (see the fixture Dockerfiles).
+# Nothing lists those paths, so they are reached only by reading the step's own
+# layer back before BuildKit commits it. The Debian fixture also re-armours the
+# certificate as a TRUSTED CERTIFICATE carrying trust settings, the shape a RHEL
+# trust rebuild leaves behind, whose body matches neither the original block nor
+# its whole base64. The pattern below still finds it, because base64 encodes in
+# three-byte groups and the certificate comes first, so the two share this line.
+#
+# The fixtures fail the build if they cannot make these, so finding none here
+# means the fixture has gone stale rather than that there is nothing to check.
+COPIES=$(docker run --rm "$IMAGE" sh -c 'ls /app/*.pem 2>/dev/null' || true)
+if [ -z "$CA_LINE" ]; then
+  : # already reported above; an empty pattern would match every file
+elif [ -z "$COPIES" ]; then
+  fail "the fixture left no copy of the store under /app, so this cannot be checked"
+elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '
+  for f in /app/*.pem; do
+    grep -qF "$CA_LINE" "$f" && exit 0
+  done
+  exit 1
+'; then
+  fail "the buildcage CA is still present in a copy of the store: $(tr "\n" " " <<< "$COPIES")"
+else
+  pass "no buildcage CA in the step's own copies of the store: $(tr "\n" " " <<< "$COPIES")"
 fi
 
 # The CA-trust variables inject.go sets only ever reach the transient RUN-step

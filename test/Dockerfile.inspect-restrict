@@ -440,4 +440,13 @@ RUN echo "=== [Package manager - apk over the injected CA] ===" && \
       *) echo "OK: reached the origin over TLS" ;; \
     esac
 
+# The CA reaches the layer without the wrapper writing it there: a step that
+# copies the store carries it out of the one directory the undo knows about.
+# Only reading the step's own layer back finds this.
+# assert-inspect-no-ca-residue.sh checks the copy in the built image.
+RUN echo "=== [A copy of the store outside it] ===" && \
+    mkdir -p /app && \
+    cp /etc/ssl/certs/ca-certificates.crt /app/bundle.pem && \
+    echo "OK: copied"
+
 RUN echo "=== End of test ==="

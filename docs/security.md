@@ -207,7 +207,13 @@ Three mechanisms make that enforceable:
 - **`buildcage-runc`**, a wrapper around BuildKit's own `buildkit-runc`, makes each step trust the
   proxy's CA by bind-mounting a scratch copy of the CA store over the step's own view of it, writing
   back to the real one only if the step actually changed it. Injection happens at exec time, never
-  touches LLB, and so cannot affect a cache key or leave a trace in the image layers.
+  touches LLB, and so cannot affect a cache key. Before the step's layer is committed, the wrapper
+  reads that layer back and takes the certificate out of every file carrying it, in whatever shape;
+  a copy it cannot take out fails the build rather than reaching the image. Reading the layer back
+  needs BuildKit's `overlayfs` snapshotter, which the builder started by this action gets. On a
+  builder whose data root cannot hold an overlay upper directory, BuildKit falls back to another
+  snapshotter, the wrapper logs that it is leaving the layer unread, and only the store directory's
+  own undo applies — which is what the engine did before it read layers back at all.
 
 A wide host rule paired with a narrow path or method does not narrow the DNS side. DNS has no notion
 of a path, so a name under an allowed `*.example.com` is logged as allowed the moment it is looked

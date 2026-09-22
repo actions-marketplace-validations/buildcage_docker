@@ -699,10 +699,11 @@ func TestPrepareRefusesABundleFileItCannotStat(t *testing.T) {
 
 // finish reads the directory twice as well, and the same rule applies: without
 // both manifests there is no way to tell what the step changed, so nothing is
-// written back.
+// written back. The sweep between them reads it a third time, which is why the
+// second manifest is the third walk.
 func TestFinishWritesNothingBackWhenItCannotRecordTheDirectory(t *testing.T) {
-	for _, nth := range []int{1, 2} {
-		t.Run(fmt.Sprintf("the %s manifest", map[int]string{1: "first", 2: "second"}[nth]), func(t *testing.T) {
+	for _, nth := range []int{1, 3} {
+		t.Run(fmt.Sprintf("the %s manifest", map[int]string{1: "first", 3: "second"}[nth]), func(t *testing.T) {
 			useFakeRsync(t)
 			b, rootfs := newCAStoreBind(t)
 			mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
@@ -750,7 +751,7 @@ func TestFinishWritesNothingBackWhenItCannotResetAnMtime(t *testing.T) {
 	// recorded and the reset is attempted rather than skipped.
 	elsewhere := t.TempDir()
 	mustMkdirAll(t, filepath.Join(elsewhere, "sub"))
-	useStubWalk(t, b.scratchDir, 2, walkStep{
+	useStubWalk(t, b.scratchDir, 3, walkStep{
 		path: filepath.Join(b.scratchDir, "sub"),
 		d:    realEntry(t, elsewhere, "sub"),
 	})
