@@ -13,6 +13,7 @@ const mocks = {
   readLocalImageOverride: vi.fn(),
   verifyImageDigestOrThrow: vi.fn(),
   checkUrlAndTlsRuleSupport: vi.fn(),
+  checkKnownBlockedUrlRuleSupport: vi.fn(),
   logRules: vi.fn(),
   withLogGroup: vi.fn(),
   builderStartError: vi.fn(),
@@ -125,6 +126,28 @@ describe("runSetupStep", () => {
       tlsRules: [],
     });
     expect(orderOf(mocks.checkUrlAndTlsRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
+  });
+
+  it("checks known_blocked_rules URL lines against the engine, host lines excluded", async () => {
+    mocks.readRuleInputs.mockReturnValue({
+      proxyMode: "restrict",
+      httpsRules: [],
+      httpRules: [],
+      ipRules: [],
+      urlRules: [],
+      tlsRules: [],
+      knownBlockedRules: ["telemetry.example.com:*", "POST https://api.example.com/telemetry"],
+    });
+
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.checkKnownBlockedUrlRuleSupport.mock.calls[0]![0]).toStrictEqual({
+      proxyEngine: "universal",
+      proxyMode: "restrict",
+      knownBlockedUrlRules: ["POST https://api.example.com/telemetry"],
+    });
+    expect(mocks.checkKnownBlockedUrlRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
+    expect(orderOf(mocks.checkKnownBlockedUrlRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
   });
 
   it("pulls the image by verified digest, under the action's own repository", async () => {
