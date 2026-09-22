@@ -419,8 +419,8 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-# The client ended it and no rule ever saw it, so buildcage keeps it out of the
-# report entirely; only the raw traffic artifact below still carries it.
+# The client ended it, so buildcage keeps it out of the report; only the raw
+# traffic artifact below still carries it.
 if grep -qE "HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)" <<< "$REPORT_MARKDOWN"; then
   fail "a connection the client left was shown in the report"
 else
