@@ -29,7 +29,9 @@ TEST_PLATFORM="${TEST_PLATFORM:-linux/arm64}"
 export BUILDER_NAME
 
 COMPOSE="compose.yaml:compose.test-universal.yaml"
-BOTH_HOSTS="blocked.example.com:443 deep.sub.wildcard.example.com:443"
+# One rule per line: known_blocked_rules is newline-separated.
+BOTH_HOSTS="blocked.example.com:443
+deep.sub.wildcard.example.com:443"
 ONE_HOST="blocked.example.com:443"
 
 REPORT_EXIT=0
