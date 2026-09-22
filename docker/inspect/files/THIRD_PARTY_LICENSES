@@ -57,6 +57,20 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
+go-pkcs12 (linked into /opt/buildcage/bin/buildcage-runc)
+  Website : https://github.com/SSLMate/go-pkcs12
+  License : BSD 3-Clause License (BSD-3-Clause)
+  Source  : https://github.com/SSLMate/go-pkcs12
+
+------------------------------------------------------------------------------
+
+golang.org/x/crypto (linked into /opt/buildcage/bin/buildcage-runc)
+  Website : https://pkg.go.dev/golang.org/x/crypto
+  License : BSD 3-Clause License (BSD-3-Clause)
+  Source  : https://cs.opensource.google/go/x/crypto
+
+------------------------------------------------------------------------------
+
 Note on GPL components (HAProxy):
 
 This component is installed from the Alpine Linux official package

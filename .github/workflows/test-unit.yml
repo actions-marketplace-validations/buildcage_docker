@@ -73,8 +73,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
-          # buildcage-runc and covfilter have no external dependencies, so there
-          # is no go.sum to key a module cache on.
+          # buildcage-runc vendors its dependencies and covfilter has none, so
+          # nothing is downloaded and there is no module cache to key.
           cache: false
 
       - name: Test buildcage-runc (inspect engine)

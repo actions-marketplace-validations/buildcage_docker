@@ -296,11 +296,17 @@ func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
 		return false, err
 	}
 	// Armoured copies are gone, so what is left is a container holding the DER
-	// among its own bytes. A Java keystore is the one that can be rewritten;
-	// any other is reported rather than left in.
+	// among its own bytes. A Java keystore is the one that can be rewritten, in
+	// either of the two shapes it ships as; any other container is reported
+	// rather than left in.
 	rewritten, err := removeFromKeystore(path, ders)
 	if err != nil {
 		return false, err
+	}
+	if !rewritten {
+		if rewritten, err = removeFromPKCS12(path, ders); err != nil {
+			return false, err
+		}
 	}
 	if !rewritten {
 		return true, nil
