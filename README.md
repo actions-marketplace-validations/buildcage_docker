@@ -128,19 +128,22 @@ Each pair builds the same Dockerfile with and without rules:
 
 ## Engines
 
-`proxy_engine` selects how closely the build's traffic is examined.
+`proxy_engine` sets how closely a build's traffic is read. `inspect` is the default; `universal` has
+to be set explicitly.
 
-|                                             | `inspect`<br>terminates TLS, checks method and URL          | `universal`<br>reads the SNI only, checks host and port |
-| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
-| A rule can say                              | `GET\|HEAD https://registry.npmjs.org/**`                   | `registry.npmjs.org:443`                                |
-| Allow a fetch, refuse a publish, same host  | ✅                                                          | -                                                       |
-| The report shows                            | Every request with its URL                                  | Host and port                                           |
-| The build's TLS                             | Terminated and re-signed with a CA generated for that build | Untouched                                               |
-| Certificate pinning, or the JVM's own store | -                                                           | ✅                                                      |
+`inspect` terminates TLS and re-signs it with a CA generated for that build. Rules match on method
+and URL, so `GET|HEAD https://registry.npmjs.org/**` allows a fetch while refusing a publish on the
+same host, and the report names every request with its URL. The build has to trust that CA:
+Buildcage adds it to the system store, to the CA-trust variables, and to a JVM already in the base
+image, so most toolchains need nothing extra (see
+[CA trust and compatibility](#ca-trust-and-compatibility)).
 
-Start with `inspect`, and fall back to `universal` when something in the build won't accept the
-injected CA. `inspect` is the default value of `proxy_engine`, so `universal` has to be set
-explicitly.
+`universal` reads only the SNI. Rules match on host and port, so `registry.npmjs.org:443` is the
+most one can say, the report shows host and port, and the build's own TLS is left untouched.
+
+Start with `inspect`. Reach for `universal` when a host's certificate cannot be re-signed, such as a
+tool that pins one or ships a trust store Buildcage cannot inject into: either for the whole build,
+or for that host alone with an `allowed_tls_rules` passthrough.
 
 Both intercept at the network level, so a tool that ignores `HTTP_PROXY` is covered either way, and
 both apply to `RUN` steps. What buildkitd fetches for itself stays outside: see
