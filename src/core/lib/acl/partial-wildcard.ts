@@ -3,7 +3,7 @@
  * inside a label: `abc*.amazonaws.com`.
  *
  * The shared compiler in wildcard-rules.ts rejects that, requiring a label
- * containing `*` to be exactly `*` or `**`. For the other engines that is only
+ * containing `*` to be exactly `*` or `**`. For `universal` that is only
  * a restriction on how a rule can be phrased. For `inspect` it would be a
  * hazard, because the resolver's scope is generated from these same patterns:
  * a rule unable to say "only names beginning with abc" forces the author to

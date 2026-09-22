@@ -31,16 +31,16 @@ export interface ReportDataCommon {
    *  apart from `blocked` and left out of `blockedCount`; see TrafficAction. */
   failed: AggregatedEntry[];
 
-  /** Raw blocked-event count. Larger than blocked.length because the engine
-   *  counts log lines rather than aggregated rows. */
+  /** Raw blocked-event count: both engines count log lines rather than
+   *  aggregated rows, so it can be larger than blocked.length. */
   blockedCount: number;
 
   /** False iff the log is not a complete record of the run: its beginning is
    *  gone, a decision line could not be read, or it never carried a trace of a
-   *  real one (haproxy.ts's headIntact and unparsed, buildkitd.ts's
-   *  hasNonDenialContent). Anything written from this flag has to name every
-   *  one of them, since the flag itself does not say which applied. The report
-   *  fails closed rather than passing off what survived as everything. */
+   *  real one (haproxy.ts's headIntact and unparsed). Anything written from
+   *  this flag has to name every one of them, since the flag itself does not say
+   *  which applied. The report fails closed rather than passing off what
+   *  survived as everything. */
   logLooksPlausible: boolean;
 }
 
