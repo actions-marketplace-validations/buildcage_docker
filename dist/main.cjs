@@ -213,10 +213,8 @@ function getInput(name, options) {
 function stripLineComment(line) {
 	return line.replace(/(^|\s)#.*$/, "$1");
 }
-function stripRuleComment(line) {
-	let content = stripLineComment(line);
-	if (content.includes("#")) throw Error(`Invalid rule ${JSON.stringify(line.trim())}: a "#" starts a comment only with a space before it, and "#" is never part of a host or URL, so a rule cannot contain one.`);
-	return content;
+function rejectGluedHash(rule) {
+	if (rule.includes("#")) throw Error(`Invalid rule ${JSON.stringify(rule)}: a "#" starts a comment only with a space before it, and "#" is never part of a host or URL, so a rule cannot contain one.`);
 }
 //#endregion
 //#region src/core/lib/acl/partial-wildcard.ts
@@ -318,7 +316,8 @@ function splitRawRegexHost(pattern) {
 //#endregion
 //#region src/core/lib/acl/wildcard-rules.ts
 function splitRuleTokens(rulesInput) {
-	return rulesInput?.split(/\r?\n/).map(stripRuleComment).join(" ").trim().split(/\s+/).filter(Boolean) ?? [];
+	let tokens = rulesInput?.split(/\r?\n/).map(stripLineComment).join(" ").trim().split(/\s+/).filter(Boolean) ?? [];
+	return tokens.forEach(rejectGluedHash), tokens;
 }
 function parseAndValidateRules(rulesInput) {
 	let rules = splitRuleTokens(rulesInput);
@@ -469,7 +468,8 @@ function convertUrlRule(rule) {
 	};
 }
 function splitUrlRuleLines(rulesInput) {
-	return rulesInput?.split(/\r?\n/).map((line) => stripRuleComment(line).trim()).filter((line) => line !== "") ?? [];
+	let lines = rulesInput?.split(/\r?\n/).map((line) => stripLineComment(line).trim()).filter((line) => line !== "") ?? [];
+	return lines.forEach(rejectGluedHash), lines;
 }
 function buildUrlRules(rulesInput) {
 	return splitUrlRuleLines(rulesInput).map(convertUrlRule);
