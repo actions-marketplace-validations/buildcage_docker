@@ -23,6 +23,8 @@ describe("renderReportMarkdown: universal", () => {
     failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
+    timeline: [],
+    startedAt: undefined,
   };
 
   it("renders a bare restrict-mode title, since that is the day-to-day mode", () => {
@@ -136,7 +138,7 @@ describe("renderReportMarkdown: universal", () => {
     expect(md).not.toMatch(/Expected/);
   });
 
-  it("keeps each matched row, having no Communication details to name its host in", () => {
+  it("folds the rows one known_blocked_rule matched into a single row naming the rule", () => {
     const md = renderReportMarkdown(
       {
         ...base,
@@ -146,9 +148,8 @@ describe("renderReportMarkdown: universal", () => {
       "buildcage/docker",
       "v2",
     );
-    expect(md).toMatch(/\| a\.sury\.org:443 \|/);
-    expect(md).toMatch(/\| b\.sury\.org:443 \|/);
-    expect(md).not.toMatch(/hosts\)/);
+    expect(md).toMatch(/\(2 hosts\)/);
+    expect(md).not.toMatch(/\| a\.sury\.org:443 \|/);
   });
 });
 

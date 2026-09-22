@@ -25,6 +25,8 @@ function report(overrides: Partial<UniversalReportData> = {}): UniversalReportDa
     failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
+    timeline: [],
+    startedAt: undefined,
     ...overrides,
   };
 }

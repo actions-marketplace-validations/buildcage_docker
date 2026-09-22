@@ -27,6 +27,8 @@ runReportAction({
       readRotatedLog(docker, containerId, RESOLVER_LOG_DIR),
       parameters,
     ),
+  // Now that universal builds a timeline, it can write the traffic artifact too.
+  writesTrafficFile: true,
 }).catch((e) => {
   console.log(`::error::Unexpected error in report-action: ${errorMessage(e)}`);
   process.exit(1);
