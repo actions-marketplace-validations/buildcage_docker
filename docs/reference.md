@@ -91,8 +91,11 @@ either engine.
 ### URL rules: `allowed_url_rules`
 
 A rule is a method list, a space, then a URL pattern. Because a rule contains a space, this input is
-newline-separated. The method is required, so a rule always states what it permits. A blank line, or
-a line starting with `#`, is ignored, which helps once the list gets long.
+newline-separated. The method is required, so a rule always states what it permits. A `#` at the
+start of a line, or after whitespace, begins a comment that runs to the end of the line, and a blank
+line is ignored, which helps once the list gets long. A `#` with no space before it is not a
+comment: since `#` never legitimately appears in a rule (it is part of no host or URL, and a
+fragment never travels with a request), it is reported as a mistake rather than silently trimmed.
 
 ```yaml
 allowed_url_rules: |
@@ -226,9 +229,11 @@ allowed_tls_rules: |
   repo.maven.apache.org:443
 ```
 
-A host rule input is split on whitespace and has no comment syntax, so `#` cannot be used inside one
-the way [`allowed_url_rules`](#url-rules-allowed_url_rules) allows. The second rule above is the
-shape to use for a JVM build, which won't trust the injected CA.
+A host rule input is split on whitespace, so a rule per line and a group of rules on one line both
+work. Comments follow the same rule as [`allowed_url_rules`](#url-rules-allowed_url_rules): a `#` at
+the start of a line, or after whitespace, runs to the end of the line, and a `#` with no space
+before it is reported as a mistake rather than silently trimmed, since `#` is part of no host. The
+second rule above is the shape to use for a JVM build, which won't trust the injected CA.
 
 ### Regular expressions
 
