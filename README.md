@@ -298,7 +298,10 @@ of its own, since curl reads that store already. A variable the base image or th
 set is appended to rather than redirected, and neither the CA nor the variables are left in the
 image layers. The CA is also left in the distribution's own anchor directory, so a step that
 installs `ca-certificates` partway through keeps trusting it once `update-ca-certificates` has
-rebuilt the bundle from scratch.
+rebuilt the bundle from scratch. A JVM already in the base image reads none of those variables and
+only its own keystore, so the CA is added there too, to `$JAVA_HOME/lib/security/cacerts` in
+whichever shape it ships (JKS or PKCS#12), for the step and taken back out before the layer is
+committed, letting `mvn`, `gradle` and `java` reach the proxy without `proxy_engine: universal`.
 
 The full table, with what each variable points at when the step has a system CA store and when it
 has none, is in [Reference](./docs/reference.md#ca-trust-variables). What this cannot cover is in
@@ -368,10 +371,16 @@ reported as blocked; see
 
 ### Under the `inspect` engine
 
-- A tool that pins a certificate, or ships its own trust store instead of reading the CA-trust
-  variables, will not work. The JVM (Java, Kotlin, Scala) is the common case, since it only reads
-  its own `cacerts` file. Use `proxy_engine: universal` for those, or pass the host through
-  undecrypted with `allowed_tls_rules`.
+- A tool that pins a specific certificate, or ships a bundled trust store it never lets the system
+  update, still needs `proxy_engine: universal` or an `allowed_tls_rules` passthrough: `inspect`
+  re-signs the connection, and a pinned or bundled store will not accept the new certificate.
+- The JVM (Java, Kotlin, Scala) reads only its own keystore rather than the CA-trust variables, and
+  a JVM already in the base image is handled: the CA is added to its `$JAVA_HOME/lib/security/cacerts`
+  for the step and removed before the layer is committed. Two cases still fall back to
+  `proxy_engine: universal`: a keystore sealed with a password other than the JDK default, which
+  Buildcage will not rewrite, and a step that itself rewrites a PKCS#12 `cacerts` with `keytool`,
+  which re-seals it with a MAC Buildcage cannot reopen to take the CA back out, so the build fails
+  closed rather than shipping the CA.
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
 - An image with no system CA store (`scratch`, distroless, or `debian:*-slim` before
