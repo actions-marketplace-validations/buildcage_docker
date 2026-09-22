@@ -43,7 +43,7 @@ gh attestation verify oci://ghcr.io/buildcage/docker:<tag> --owner buildcage
 ```
 
 The Sigstore bundle for each release is also attached as a downloadable asset
-(`buildcage-container.sigstore.json` and `buildcage-container-inspect.sigstore.json`) on the
+(`buildcage-container-universal.sigstore.json` and `buildcage-container-inspect.sigstore.json`) on the
 corresponding [GitHub Release](https://github.com/buildcage/docker/releases).
 
 ## Dependency Management

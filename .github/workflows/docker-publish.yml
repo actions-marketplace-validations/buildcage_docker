@@ -353,8 +353,8 @@ jobs:
           BUNDLE_INSPECT: ${{ needs.sign-and-attest.outputs['bundle-content-inspect'] }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$BUNDLE_UNIVERSAL" > buildcage-container.sigstore.json
+          echo "$BUNDLE_UNIVERSAL" > buildcage-container-universal.sigstore.json
           echo "$BUNDLE_INSPECT" > buildcage-container-inspect.sigstore.json
           gh release upload --repo "$GITHUB_REPOSITORY" "$TAG" \
-            buildcage-container.sigstore.json \
+            buildcage-container-universal.sigstore.json \
             buildcage-container-inspect.sigstore.json
