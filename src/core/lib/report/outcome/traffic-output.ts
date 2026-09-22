@@ -1,10 +1,10 @@
 /**
- * Writes the observed traffic to a file the report action can upload as an
- * artifact, so whoever wants it later can act on what a build reached
+ * Writes the observed traffic to a file this action can upload as an
+ * artifact, so whoever wants it later can act on what a step reached
  * instead of reading it out of a summary.
  *
- * Only the inspect engine can produce this; the other engines see host and
- * port only.
+ * Both engines produce this now: inspect records each request whole, universal
+ * a coarser connection-level view (host, port and bytes, no method or URL).
  */
 
 import { writeFileSync } from "node:fs";
@@ -60,8 +60,8 @@ export function buildTrafficRecords(
     });
 }
 
-/** Write the same records to a file, indented, for the report action to upload
- *  as an artifact (fetchable after the run, unlike a job output). */
+/** Write the same records to a file, indented, for this action to upload as
+ *  an artifact (fetchable after the run, unlike a job output). */
 export function writeTrafficFile(path: string, records: TrafficRecord[]): void {
   writeFileSync(path, JSON.stringify(records, null, 2) + "\n");
 }

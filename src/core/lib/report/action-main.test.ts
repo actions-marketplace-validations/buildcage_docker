@@ -29,6 +29,8 @@ const universal: UniversalReportData = {
   failed: [],
   blockedCount: 0,
   logLooksPlausible: true,
+  timeline: [],
+  startedAt: undefined,
 };
 
 function spec(overrides: Partial<ReportActionSpec> = {}): ReportActionSpec {

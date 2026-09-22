@@ -46,7 +46,7 @@ export interface ReportActionSpec {
 
   /**
    * Whether this engine writes BUILDCAGE_TRAFFIC_FILE when the report action
-   * asks for it. Only inspect produces a per-request timeline to write.
+   * asks for it. Set once an engine produces a timeline to write.
    */
   writesTrafficFile?: boolean;
 }
@@ -113,7 +113,7 @@ export async function runReportAction(
     env.GITHUB_STEP_SUMMARY,
   );
 
-  if (trafficFile && report.engine === "inspect") {
+  if (trafficFile) {
     writeTrafficFile(trafficFile, buildTrafficRecords(report.timeline, report.startedAt));
   }
 

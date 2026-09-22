@@ -42,25 +42,28 @@ export interface ReportDataCommon {
    *  which applied. The report fails closed rather than passing off what
    *  survived as everything. */
   logLooksPlausible: boolean;
+
+  /** Every connection and refused name, oldest first. Nothing is attributable
+   *  to a RUN step: the proxy log carries no vertex identifier, so one timeline
+   *  is the only structure available, and the more useful one: a refusal reads
+   *  in the context of what the build was doing when it happened. */
+  timeline: TrafficEvent[];
+
+  /** Seconds since the epoch the proxy itself started, so the report can show
+   *  every event's time relative to it. Undefined when the proxy log carried no
+   *  startup marker to read it from. */
+  startedAt: number | undefined;
 }
 
 export interface UniversalReportData extends ReportDataCommon {
   engine: "universal";
 }
 
-/** The inspect engine decrypts, so it has the method and full URL of every
- *  request, refused ones included. Nothing is attributable to a RUN step: the
- *  proxy log carries no vertex identifier. One timeline is therefore the only
- *  structure available, and the more useful one: a refusal reads in the context
- *  of what the build was doing when it happened. */
+/** The inspect engine decrypts, so its timeline carries the method and full URL
+ *  of every request, refused ones included; universal's carries only host,
+ *  port and bytes. */
 export interface InspectReportData extends ReportDataCommon {
   engine: "inspect";
-  /** Every request, passthrough and refused name, oldest first. */
-  timeline: TrafficEvent[];
-  /** Seconds since the epoch the proxy itself started, so the report can
-   *  show every event's time relative to it. Undefined when the proxy log
-   *  carried no startup marker to read it from. */
-  startedAt: number | undefined;
 }
 
 export type ReportData = UniversalReportData | InspectReportData;

@@ -234,12 +234,14 @@ docker compose logs -f builder
 **Log format (`universal`):**
 
 ```
-[28/Feb/2026:10:15:30 +0000] buildcage [ALLOWED] "github.com:443" -
-[28/Feb/2026:10:15:31 +0000] buildcage [BLOCKED] "malicious.com:443" not-allowed
-[28/Feb/2026:10:15:32 +0000] buildcage [AUDIT] "npmjs.org:80" -
+buildcage 1787471970500 [ALLOWED] (HTTPS) "github.com:443" - 1024
+buildcage 1787471971200 [BLOCKED] (HTTPS) "malicious.com:443" not-allowed 0
+buildcage 1787471972000 [AUDIT] (HTTP) "npmjs.org:80" - 812
 ```
 
-Fields: `[timestamp] buildcage [status] "domain:port" reason`
+Fields: `buildcage <epoch-ms> [status] (rule) "domain:port" reason bytes`. The
+millisecond epoch orders the timeline and times each line against the startup
+marker; `bytes` is `%B`, the only per-connection detail a passthrough sees.
 
 `universal` also reads the resolver's log (`/var/log/coredns`), since a name CoreDNS refused never
 reaches HAProxy at all: it is the only trace of a name looked up but never connected to.
