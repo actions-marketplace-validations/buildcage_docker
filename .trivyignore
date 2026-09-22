@@ -1,5 +1,6 @@
 # Go stdlib html/template: XSS via escaping bugs in meta content URL and script type attribute.
 # No component in this product generates or serves HTML.
+CVE-2026-27142
 CVE-2026-39823
 CVE-2026-39826
 
@@ -172,3 +173,34 @@ CVE-2026-17106
 # github.com/cilium/ebpf: integer overflow parsing a crafted BTF blob.
 # buildkit-runc only loads its own bundled cgroup-device BPF programs.
 CVE-2026-10722
+
+# Go stdlib net/url: incorrect parsing of IPv6 host literals.
+# CNI plugins do not parse user-supplied URLs.
+CVE-2026-25679
+
+# Go stdlib os: FileInfo can escape from a Root in ReadDir.
+# Same rationale as CVE-2026-32282/CVE-2026-39822 above: no component in
+# this product uses the os.Root sandboxed filesystem API.
+CVE-2026-27139
+
+# containerd CRI ExecSync goroutine leak leading to node-level DoS. buildkitd
+# embeds containerd only as a client/worker library for its own build execution
+# and never runs the CRI plugin, so the ExecSync path is unreachable (same
+# rationale as the other containerd CRI entries).
+CVE-2026-53495
+
+# util-linux (libblkid): local privilege-escalation and sandbox-bypass bugs in
+# the SUID mount(8) helper and nsenter(1) -- TOCTOU on post-mount ownership,
+# nosuid/noexec bypass via LIBMOUNT_FORCE_MOUNT2, privileged X-mount post-hooks,
+# and cgroup/bind-mount source redirection. All require an unprivileged local
+# user able to invoke these binaries. buildcage runs no untrusted code in the
+# proxy image itself: a RUN step executes in buildkit's own OCI worker with its
+# own rootfs, not these binaries, which are driven only by the trusted buildkitd
+# control plane. Fixed in util-linux 2.41.6; the image is already on the latest
+# moby/buildkit (v0.33.0), so no base bump is available yet.
+CVE-2026-53612
+CVE-2026-53613
+CVE-2026-53614
+CVE-2026-76642
+CVE-2026-78408
+CVE-2026-78410
