@@ -109,8 +109,7 @@ COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.templa
 
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
 
-# Writes the Corefile at startup from the same host rules the HAProxy allowlist
-# is built from (see init-haproxy-cfg).
+# Writes the Corefile at startup (see init-haproxy-cfg).
 COPY --from=scripts-build /build/dist/qjs/docker/universal/scripts/gen-coredns.js /opt/buildcage/scripts/gen-coredns.js
 
 # Never run inside the image: the report action `docker cp`s it out and runs
