@@ -59,20 +59,23 @@ var encodePKCS12 = func(certs []*x509.Certificate) ([]byte, error) {
 // last certificate is fine: the emptied store re-encodes and decodes cleanly,
 // carrying no DER.
 // pkcs12With returns a passwordless PKCS#12 trust store holding everything in
-// content plus a trusted certificate for der. content is already known to begin
-// with the PKCS#12 magic. A store the empty password will not open is one this
-// cannot rewrite, so injection is skipped for it and the step's JVM is left not
-// trusting the CA.
-func pkcs12With(content []byte, der []byte) ([]byte, error) {
+// content plus a trusted certificate for each der. content is already known to
+// begin with the PKCS#12 magic. A store the empty password will not open is one
+// this cannot rewrite, so injection is skipped for it and the step's JVM is left
+// not trusting the CA.
+func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
 	certs, err := decodePKCS12(content)
 	if err != nil {
 		return nil, err
 	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, err
+	for _, der := range ders {
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, cert)
 	}
-	return encodePKCS12(append(certs, cert))
+	return encodePKCS12(certs)
 }
 
 func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {

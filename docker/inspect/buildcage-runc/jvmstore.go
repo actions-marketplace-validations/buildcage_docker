@@ -52,7 +52,12 @@ var knownJVMKeystores = []string{
 func findJVMKeystore(s *spec) (string, bool) {
 	var candidates []string
 	if home := s.env["JAVA_HOME"]; home != "" {
-		candidates = append(candidates, filepath.Join(home, "lib", "security", "cacerts"))
+		// lib/security is the layout from JDK 9 on; jre/lib/security is where a
+		// JDK 8's JAVA_HOME (the JDK root, with the JRE under jre/) keeps it.
+		candidates = append(candidates,
+			filepath.Join(home, "lib", "security", "cacerts"),
+			filepath.Join(home, "jre", "lib", "security", "cacerts"),
+		)
 	}
 	candidates = append(candidates, knownJVMKeystores...)
 
@@ -97,12 +102,15 @@ func insertIntoKeystore(path string, ca []byte) error {
 		return err
 	}
 
+	// Every certificate in the CA file, the same as appendCA trusts the whole
+	// bundle for the PEM stores, so a multi-certificate CA does not leave the
+	// JVM trusting only the first while everything else trusts all of it.
 	var injected []byte
 	switch {
 	case bytes.HasPrefix(content, keystoreMagic):
-		injected, err = keystoreWith(content, ders[0])
+		injected, err = keystoreWith(content, ders)
 	case looksLikePKCS12(content):
-		injected, err = pkcs12With(content, ders[0])
+		injected, err = pkcs12With(content, ders)
 	default:
 		return errNotAKeystore
 	}

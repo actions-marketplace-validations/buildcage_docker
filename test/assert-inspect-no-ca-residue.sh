@@ -89,17 +89,22 @@ if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1 && test -f
   fi
 fi
 
-# The base image's own JVM keystore, at $JAVA_HOME/lib/security/cacerts: the
-# case the keystore injection exists for (docker/inspect/buildcage-runc/
-# jvmstore.go), as opposed to the ca-certificates-java one above. The path is
-# read from the image's own JAVA_HOME so this covers both shapes a JDK ships it
-# in, PKCS#12 (eclipse-temurin:21) and JKS (eclipse-temurin:17). The injection
-# lands only in the scratch mirror bound over the step, so a committed keystore
-# that still trusted the CA would mean the undo let the mirror through; the
-# kept-root floor catches a rewrite that dropped more than the CA, the same way
-# the ca-certificates-java check above does.
-JVM_CACERTS=$(docker run --rm "$IMAGE" sh -c 'printf %s "$JAVA_HOME/lib/security/cacerts"' 2>/dev/null || true)
-if [ -n "$JVM_CACERTS" ] && docker run --rm "$IMAGE" sh -c "test -f \"$JVM_CACERTS\""; then
+# The base image's own JVM keystore: the case the keystore injection exists for
+# (docker/inspect/buildcage-runc/jvmstore.go), as opposed to the
+# ca-certificates-java one above. The path is discovered from the image's own
+# JAVA_HOME, over the same candidates the injection looks at ($JAVA_HOME/lib and
+# a JDK 8's jre/lib), so this covers both shapes a JDK ships cacerts in, PKCS#12
+# (eclipse-temurin:21) and JKS (eclipse-temurin:17); a keystore found only via
+# the /etc/ssl/certs/java/cacerts fallback is the one the check above already
+# covers. The injection lands only in the scratch mirror bound over the step, so
+# a committed keystore that still trusted the CA would mean the undo let the
+# mirror through; the kept-root floor catches a rewrite that dropped more than
+# the CA, the same way the ca-certificates-java check above does.
+JVM_CACERTS=$(docker run --rm "$IMAGE" sh -c '
+  for p in "$JAVA_HOME/lib/security/cacerts" "$JAVA_HOME/jre/lib/security/cacerts"; do
+    [ -f "$p" ] && { printf %s "$p"; break; }
+  done' 2>/dev/null || true)
+if [ -n "$JVM_CACERTS" ]; then
   if listing=$(docker run --rm "$IMAGE" \
     keytool -list -keystore "$JVM_CACERTS" -storepass changeit 2>/dev/null); then
     roots=$(grep -c trustedCertEntry <<<"$listing" || true)

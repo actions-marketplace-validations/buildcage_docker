@@ -326,6 +326,25 @@ func (b *dirBind) finish() error {
 	return writeBack(b.scratchDir, b.hostDir)
 }
 
+// coverKeystore adds the CA to a keystore at rel inside this bind's already-
+// mirrored directory (a Debian JDK's cacerts symlinked into the CA store),
+// rather than binding it separately, which the store mount would shadow. The
+// baseline is re-captured so the gatekeeper counts the injection as part of the
+// mirror's post-injection state; the sweep at finish takes the CA back out of
+// this keystore the same as any other file the mirror carries.
+func (b *dirBind) coverKeystore(rel string, ca []byte) {
+	if err := insertIntoKeystore(filepath.Join(b.scratchDir, rel), ca); err != nil {
+		logf("cannot inject the CA into keystore %s: %v; leaving it untouched", rel, err)
+		return
+	}
+	baseline, err := captureManifest(b.scratchDir)
+	if err != nil {
+		logf("cannot re-capture the baseline after keystore injection in %s: %v", b.containerDir, err)
+		return
+	}
+	b.baseline = baseline
+}
+
 func (b *dirBind) cleanup() {
 	if err := os.RemoveAll(b.scratchDir); err != nil {
 		logf("cannot remove %s: %v", b.scratchDir, err)

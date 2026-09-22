@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // File the container is pointed at when a variable was not already set and the
@@ -232,10 +233,16 @@ func inject(bundle string, ca []byte) (*injection, error) {
 
 	// A JVM already in the base image reads only its own keystore, neither the
 	// system store nor the CA-trust variables, so the CA goes in there too,
-	// mirrored and bound the same way (see jvmstore.go).
+	// mirrored and bound the same way (see jvmstore.go). A Debian JDK's cacerts
+	// is a symlink into the CA store directory, which the store's own bind
+	// already mirrors and would shadow a second bind under; there the CA goes
+	// into that mirror's copy of the keystore instead of a bind of its own.
 	if keystore, ok := findJVMKeystore(s); ok {
-		names := []string{filepath.Base(keystore)}
-		if b := prepareBind(s, bundle, filepath.Dir(keystore), names, ca, true, true); b != nil {
+		containerDir := containerPathOf(s.rootfs, filepath.Dir(keystore))
+		if covering := bindCovering(binds, containerDir); covering != nil {
+			rel := filepath.Join(strings.TrimPrefix(containerDir, covering.containerDir), filepath.Base(keystore))
+			covering.coverKeystore(rel, ca)
+		} else if b := prepareBind(s, bundle, filepath.Dir(keystore), []string{filepath.Base(keystore)}, ca, true, true); b != nil {
 			binds = append(binds, b)
 		}
 	}
@@ -246,6 +253,19 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	}
 
 	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created}, nil
+}
+
+// bindCovering returns the bind whose mirrored directory contains containerDir,
+// or nil. A JVM keystore that resolves inside a directory a store bind already
+// mirrors is folded into that bind rather than bound separately, which the
+// store's mount would otherwise shadow.
+func bindCovering(binds []*dirBind, containerDir string) *dirBind {
+	for _, b := range binds {
+		if containerDir == b.containerDir || strings.HasPrefix(containerDir, b.containerDir+"/") {
+			return b
+		}
+	}
+	return nil
 }
 
 // prepareBind mirrors hostDir, injects the CA into each named file (a PEM

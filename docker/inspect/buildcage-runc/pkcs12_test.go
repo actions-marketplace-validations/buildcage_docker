@@ -281,7 +281,7 @@ func TestStripCAPropagatesPKCS12Error(t *testing.T) {
 func TestPKCS12With(t *testing.T) {
 	root := testCert(t, "digicert")
 	ca := testCert(t, "buildcage")
-	out, err := pkcs12With(passwordlessStore(t, root), ca.Raw)
+	out, err := pkcs12With(passwordlessStore(t, root), [][]byte{ca.Raw})
 	if err != nil {
 		t.Fatalf("pkcs12With: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestPKCS12With(t *testing.T) {
 // A store the empty password will not open cannot be injected into.
 func TestPKCS12WithUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
-	if _, err := pkcs12With(encryptedStore(t, ca), ca.Raw); err == nil {
+	if _, err := pkcs12With(encryptedStore(t, ca), [][]byte{ca.Raw}); err == nil {
 		t.Fatal("want a decode error for an encrypted store")
 	}
 }
@@ -310,7 +310,7 @@ func TestPKCS12WithUndecodable(t *testing.T) {
 // than written into the store.
 func TestPKCS12WithRejectsBadDER(t *testing.T) {
 	root := testCert(t, "digicert")
-	if _, err := pkcs12With(passwordlessStore(t, root), []byte("not a certificate")); err == nil {
+	if _, err := pkcs12With(passwordlessStore(t, root), [][]byte{[]byte("not a certificate")}); err == nil {
 		t.Fatal("want a parse error for a non-certificate DER")
 	}
 }

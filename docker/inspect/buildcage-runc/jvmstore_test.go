@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"errors"
 	"os"
 	"path/filepath"
@@ -293,5 +294,100 @@ func TestInjectSkipsAnUninjectableKeystore(t *testing.T) {
 	}
 	if bytes.Contains(mirrored, testDER) {
 		t.Fatal("something was injected into a keystore that cannot take it")
+	}
+}
+
+// A JDK 8 keeps cacerts under jre/lib/security, its JAVA_HOME being the JDK root.
+func TestFindJVMKeystoreFromJavaHomeJre(t *testing.T) {
+	rootfs := t.TempDir()
+	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/jdk8"}}
+	cacerts := filepath.Join(rootfs, "opt/jdk8/jre/lib/security/cacerts")
+	mustMkdirAll(t, filepath.Dir(cacerts))
+	mustWriteFile(t, cacerts, "x")
+
+	got, ok := findJVMKeystore(s)
+	if !ok || got != cacerts {
+		t.Fatalf("findJVMKeystore = %q, %v; want %q, true", got, ok, cacerts)
+	}
+}
+
+// Every certificate in the CA is inserted, not only the first, so a multi-cert
+// CA leaves the JVM trusting all of it the way the PEM stores do.
+func TestKeystoreWithInsertsEveryCert(t *testing.T) {
+	out, err := keystoreWith(keystore(2, trustedEntry(2, "digicert", otherDER)),
+		[][]byte{testDER, []byte("SECOND-CA")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, testDER) || !bytes.Contains(out, []byte("SECOND-CA")) {
+		t.Error("not every certificate was inserted")
+	}
+	_, entries, err := parseKeystore(out[:len(out)-sha1.Size])
+	if err != nil {
+		t.Fatalf("the result does not parse: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want the original plus two", len(entries))
+	}
+}
+
+func TestPKCS12WithInsertsEveryCert(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca1 := testCert(t, "buildcage-1")
+	ca2 := testCert(t, "buildcage-2")
+	out, err := pkcs12With(passwordlessStore(t, root), [][]byte{ca1.Raw, ca2.Raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	certs, err := decodePKCS12(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 3 {
+		t.Fatalf("got %d certificates, want the original plus two", len(certs))
+	}
+}
+
+// A Debian JDK's cacerts is a symlink into the CA store directory, which the
+// store's own bind already mirrors; the CA goes into that mirror's copy of the
+// keystore rather than a second bind the store mount would shadow.
+func TestInjectCoversAKeystoreInsideTheStoreDir(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
+	writeRootfsKeystore(t, rootfs, "/etc/ssl/certs/java/cacerts",
+		keystore(2, trustedEntry(2, "digicert", otherDER)))
+	mustMkdirAll(t, filepath.Join(rootfs, "opt/java/lib/security"))
+	mustSymlink(t, "/etc/ssl/certs/java/cacerts",
+		filepath.Join(rootfs, "opt/java/lib/security/cacerts"))
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	// One bind covers the store directory; the keystore is not bound separately.
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/etc/ssl/certs/java" {
+			t.Fatal("the keystore was bound separately, which the store mount shadows")
+		}
+	}
+
+	mount := findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
+	scratch, _ := mount["source"].(string)
+	mirrored, err := os.ReadFile(filepath.Join(scratch, "java", "cacerts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(mirrored, []byte(injectedAlias)) || !bytes.Contains(mirrored, testDER) {
+		t.Fatal("the CA was not inserted into the keystore inside the store mirror")
+	}
+
+	real, err := os.ReadFile(filepath.Join(rootfs, "etc/ssl/certs/java/cacerts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(real, []byte(injectedAlias)) {
+		t.Fatal("the real keystore was modified before the step touched it")
 	}
 }

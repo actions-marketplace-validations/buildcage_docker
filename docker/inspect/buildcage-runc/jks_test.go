@@ -317,7 +317,7 @@ func TestKeystoreWith(t *testing.T) {
 	for _, version := range []uint32{1, 2} {
 		t.Run("version "+string(rune('0'+version)), func(t *testing.T) {
 			orig := keystore(version, trustedEntry(version, "digicert", otherDER))
-			out, err := keystoreWith(orig, testDER)
+			out, err := keystoreWith(orig, [][]byte{testDER})
 			if err != nil {
 				t.Fatalf("keystoreWith: %v", err)
 			}
@@ -338,20 +338,20 @@ func TestKeystoreWith(t *testing.T) {
 func TestKeystoreWithRejectsForeignPassword(t *testing.T) {
 	bad := keystore(2, trustedEntry(2, "digicert", otherDER))
 	bad[len(bad)-1] ^= 0xff // break the seal
-	if _, err := keystoreWith(bad, testDER); err == nil {
+	if _, err := keystoreWith(bad, [][]byte{testDER}); err == nil {
 		t.Fatal("want a foreign-password rejection")
 	}
 }
 
 func TestKeystoreWithRejectsTooShort(t *testing.T) {
-	if _, err := keystoreWith(keystoreMagic, testDER); err == nil {
+	if _, err := keystoreWith(keystoreMagic, [][]byte{testDER}); err == nil {
 		t.Fatal("want a too-short rejection")
 	}
 }
 
 func TestKeystoreWithReportsAParseError(t *testing.T) {
 	// A sealed keystore whose version the parser does not accept.
-	if _, err := keystoreWith(keystore(3, trustedEntry(3, "digicert", otherDER)), testDER); err == nil {
+	if _, err := keystoreWith(keystore(3, trustedEntry(3, "digicert", otherDER)), [][]byte{testDER}); err == nil {
 		t.Fatal("want the parse error to be reported")
 	}
 }

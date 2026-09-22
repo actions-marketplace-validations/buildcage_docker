@@ -133,11 +133,11 @@ func keystoreWithout(content []byte, ders [][]byte) ([]byte, error) {
 	return append(out, keystoreDigest(out)...), nil
 }
 
-// keystoreWith returns the keystore with a trusted-certificate entry for the
+// keystoreWith returns the keystore with a trusted-certificate entry for each
 // certificate added at the end, resealed. Symmetric with keystoreWithout: the
 // existing entries are copied byte for byte, so the only differences from what
-// came in are the added entry, the count, and the digest.
-func keystoreWith(content []byte, der []byte) ([]byte, error) {
+// came in are the added entries, the count, and the digest.
+func keystoreWith(content []byte, ders [][]byte) ([]byte, error) {
 	if len(content) < len(keystoreMagic)+8+sha1.Size {
 		return nil, errors.New("too short to be a keystore")
 	}
@@ -154,8 +154,17 @@ func keystoreWith(content []byte, der []byte) ([]byte, error) {
 	}
 
 	out := slices.Clone(content[:body])
-	out = append(out, buildTrustedEntry(version, injectedAlias, der)...)
-	binary.BigEndian.PutUint32(out[8:], binary.BigEndian.Uint32(out[8:])+1)
+	for i, der := range ders {
+		// One entry keeps the plain alias, so the common single-certificate CA
+		// injects byte for byte the same every build; a bundle's later entries
+		// take a suffix, since a JKS drops all but one entry under a given alias.
+		alias := injectedAlias
+		if i > 0 {
+			alias = fmt.Sprintf("%s-%d", injectedAlias, i)
+		}
+		out = append(out, buildTrustedEntry(version, alias, der)...)
+	}
+	binary.BigEndian.PutUint32(out[8:], binary.BigEndian.Uint32(out[8:])+uint32(len(ders)))
 	return append(out, keystoreDigest(out)...), nil
 }
 
