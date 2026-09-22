@@ -58,8 +58,8 @@ A runner that falls short fails while the builder starts, before any `RUN` step 
 
 Buildcage starts a BuildKit builder in your job. Point Docker Buildx at it as a remote driver and
 build as usual. Run once in [`audit`](#operation-modes) mode to collect what the build reaches, then
-switch to `restrict`. The examples below use the `inspect` engine; [Engines](#engines) covers the
-choice between the two.
+switch to `restrict`. The examples below use the default `inspect` engine; [Engines](#engines)
+covers the choice between the two.
 
 ### 1. Find out what the build reaches
 
@@ -138,7 +138,7 @@ Each pair builds the same Dockerfile with and without rules:
 | Certificate pinning, or the JVM's own store | -                                                           | ✅                                                      |
 
 Start with `inspect`, and fall back to `universal` when something in the build won't accept the
-injected CA. `universal` is the default value of `proxy_engine`, so `inspect` has to be set
+injected CA. `inspect` is the default value of `proxy_engine`, so `universal` has to be set
 explicitly.
 
 Both intercept at the network level, so a tool that ignores `HTTP_PROXY` is covered either way, and

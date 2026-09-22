@@ -65,10 +65,8 @@ export interface SetupStepDeps {
    *  what the job log wants to show. */
   runDocker: (args: string[], env: NodeJS.ProcessEnv) => void;
   log: (message: string) => void;
-  /** A renamed input's migration message and the rule-support warning. Both
-   *  go to the always-on emitter: this action has no report of its own to
-   *  suppress them alongside. */
-  notice: (message: string) => void;
+  /** The rule-support warning goes to the always-on emitter: this action has no
+   *  report of its own to suppress it alongside. */
   warn: (message: string) => void;
 }
 
@@ -93,7 +91,6 @@ const realDeps: SetupStepDeps = {
   builderStartError,
   runDocker: runDockerViaExec,
   log: console.log,
-  notice: annotate.notice,
   warn: annotate.warning,
 };
 
@@ -135,7 +132,6 @@ export async function runSetupStep(
     builderStartError,
     runDocker,
     log,
-    notice,
     warn,
   } = { ...realDeps, ...overrides };
 
@@ -143,7 +139,7 @@ export async function runSetupStep(
   const actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "";
 
   // Read before the image: each engine has its own image tag.
-  const { proxyEngine } = readEngineInputs(notice);
+  const { proxyEngine } = readEngineInputs();
   log(`Proxy engine: ${proxyEngine}`);
 
   const localOverride = await readLocalImageOverride(env, log);

@@ -19,7 +19,6 @@ const mocks = {
   builderStartError: vi.fn(),
   runDocker: vi.fn(),
   log: vi.fn(),
-  notice: vi.fn(),
   warn: vi.fn(),
 };
 
@@ -171,12 +170,10 @@ describe("runSetupStep", () => {
     expect(mocks.runDocker.mock.calls[1]![1]).toMatchObject({ BUILDCAGE_IMAGE_REF: "local:dev" });
   });
 
-  // A renamed input still works, so its migration message is the only warning
-  // the run gets; it goes to the emitter nothing can suppress.
-  it("sends a renamed input's notice and the rule-support warning to the always-on emitter", async () => {
+  // The rule-support warning goes to the emitter nothing can suppress.
+  it("sends the rule-support warning to the always-on emitter", async () => {
     await runSetupStep(ENV, deps);
 
-    expect(mocks.readEngineInputs.mock.calls[0]![0]).toBe(mocks.notice);
     expect(mocks.checkUrlAndTlsRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
   });
 

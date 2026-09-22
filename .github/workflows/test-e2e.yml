@@ -68,14 +68,6 @@ jobs:
             build_engine: universal
           - proxy_engine: inspect
             build_engine: inspect
-          # `transparent` is a permanently supported alias for `universal`
-          # (see resolveProxyEngine's ENGINE_ALIASES). No image is published
-          # under that name, so build_engine still resolves to the real
-          # universal Dockerfile: what this proves is that the action's own
-          # proxy_engine input accepts and normalizes the alias, not that
-          # compose.yaml does.
-          - proxy_engine: transparent
-            build_engine: universal
 
     name: "e2e: test (action, ${{ matrix.proxy_engine }})"
 
