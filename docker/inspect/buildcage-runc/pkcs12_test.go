@@ -12,7 +12,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -124,7 +123,7 @@ func TestPKCS12WithoutUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	for name, content := range map[string][]byte{
 		"a Modern encrypted store": encryptedStore(t, ca),
-		"pkcs12-shaped garbage":    append(slices.Clone(pkcs12Magic), ca.Raw...),
+		"pkcs12-shaped garbage":    append([]byte{0x30, 0x82}, ca.Raw...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, removed, err := pkcs12Without(content, [][]byte{ca.Raw})
@@ -253,7 +252,7 @@ func TestStripCARewritesPKCS12(t *testing.T) {
 func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	caPEM := certPEM(ca)
-	path := mustWritePKCS12(t, append(slices.Clone(pkcs12Magic), ca.Raw...))
+	path := mustWritePKCS12(t, append([]byte{0x30, 0x82}, ca.Raw...))
 	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
@@ -274,5 +273,44 @@ func TestStripCAPropagatesPKCS12Error(t *testing.T) {
 	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
 	if _, err := stripCA(path, caPEM, certificateDERs(caPEM)); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the write failure propagated, got %v", err)
+	}
+}
+
+// pkcs12With adds a trusted certificate to a passwordless store, leaving it
+// decodable and holding the added cert alongside the ones it had.
+func TestPKCS12With(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca := testCert(t, "buildcage")
+	out, err := pkcs12With(passwordlessStore(t, root), ca.Raw)
+	if err != nil {
+		t.Fatalf("pkcs12With: %v", err)
+	}
+	certs, err := decodePKCS12(out)
+	if err != nil {
+		t.Fatalf("the injected store no longer decodes: %v", err)
+	}
+	names := map[string]bool{}
+	for _, c := range certs {
+		names[c.Subject.CommonName] = true
+	}
+	if !names["digicert"] || !names["buildcage"] {
+		t.Errorf("injected store holds %v, want both digicert and buildcage", names)
+	}
+}
+
+// A store the empty password will not open cannot be injected into.
+func TestPKCS12WithUndecodable(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	if _, err := pkcs12With(encryptedStore(t, ca), ca.Raw); err == nil {
+		t.Fatal("want a decode error for an encrypted store")
+	}
+}
+
+// The DER handed in has to be a certificate; anything else is reported rather
+// than written into the store.
+func TestPKCS12WithRejectsBadDER(t *testing.T) {
+	root := testCert(t, "digicert")
+	if _, err := pkcs12With(passwordlessStore(t, root), []byte("not a certificate")); err == nil {
+		t.Fatal("want a parse error for a non-certificate DER")
 	}
 }

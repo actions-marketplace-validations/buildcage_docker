@@ -48,6 +48,7 @@ type dirBind struct {
 	scratchDir   string
 	bundleFiles  []string
 	custom       bool
+	keystore     bool   // bundleFiles are JVM keystores, not PEM bundles
 	ca           []byte // kept so finish can find it again by content
 
 	original []fileEntry // hostDir's state before mirroring
@@ -250,7 +251,18 @@ func (b *dirBind) prepare(ca []byte) error {
 	b.original = original
 
 	for _, name := range b.bundleFiles {
-		if err := appendCA(filepath.Join(b.scratchDir, name), ca); err != nil {
+		target := filepath.Join(b.scratchDir, name)
+		if b.keystore {
+			// A keystore that cannot be injected into (an unusual format, or a
+			// PKCS#12 the empty password will not open) leaves the step's JVM not
+			// trusting the CA, the behaviour before this existed, rather than
+			// failing the build.
+			if err := insertIntoKeystore(target, ca); err != nil {
+				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
+			}
+			continue
+		}
+		if err := appendCA(target, ca); err != nil {
 			if errors.Is(err, errNotRegular) {
 				logf("cannot inject the CA into %s: %v; leaving it untouched", name, err)
 				continue

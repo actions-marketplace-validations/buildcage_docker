@@ -220,40 +220,24 @@ func inject(bundle string, ca []byte) (*injection, error) {
 
 	var binds []*dirBind
 	for hostDir, files := range groupTargetsByDir(plan.targets) {
-		containerDir := containerPathOf(s.rootfs, hostDir)
-		if containerDir == "/" {
-			logf("refusing to bind the container root; skipping CA injection for %v", files)
-			continue
-		}
-		if s.mountConflicts(containerDir) {
-			logf("a mount already covers %s; skipping CA injection there", containerDir)
-			continue
-		}
-
-		scratch, err := newScratchDir(bundle)
-		if err != nil {
-			logf("cannot create a scratch directory for %s: %v", containerDir, err)
-			continue
-		}
 		names := make([]string, len(files))
 		for i, f := range files {
 			names[i] = filepath.Base(f)
 		}
-		b := &dirBind{
-			rootfs:       s.rootfs,
-			hostDir:      hostDir,
-			containerDir: containerDir,
-			scratchDir:   scratch,
-			bundleFiles:  names,
-			custom:       !(store.found && hostDir == store.dir()),
+		custom := !(store.found && hostDir == store.dir())
+		if b := prepareBind(s, bundle, hostDir, names, ca, custom, false); b != nil {
+			binds = append(binds, b)
 		}
-		if err := b.prepare(ca); err != nil {
-			logf("cannot prepare CA injection for %s: %v", containerDir, err)
-			b.cleanup()
-			continue
+	}
+
+	// A JVM already in the base image reads only its own keystore, neither the
+	// system store nor the CA-trust variables, so the CA goes in there too,
+	// mirrored and bound the same way (see jvmstore.go).
+	if keystore, ok := findJVMKeystore(s); ok {
+		names := []string{filepath.Base(keystore)}
+		if b := prepareBind(s, bundle, filepath.Dir(keystore), names, ca, true, true); b != nil {
+			binds = append(binds, b)
 		}
-		s.addBindMount(containerDir, scratch)
-		binds = append(binds, b)
 	}
 
 	s.setEnv(plan.env)
@@ -262,4 +246,41 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	}
 
 	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created}, nil
+}
+
+// prepareBind mirrors hostDir, injects the CA into each named file (a PEM
+// bundle, or a JVM keystore when keystore is set), binds the mirror over the
+// step's view of the directory, and returns what finish reconciles. It returns
+// nil, having logged why, when the directory cannot be bound.
+func prepareBind(s *spec, bundle, hostDir string, names []string, ca []byte, custom, keystore bool) *dirBind {
+	containerDir := containerPathOf(s.rootfs, hostDir)
+	if containerDir == "/" {
+		logf("refusing to bind the container root; skipping CA injection for %v", names)
+		return nil
+	}
+	if s.mountConflicts(containerDir) {
+		logf("a mount already covers %s; skipping CA injection there", containerDir)
+		return nil
+	}
+	scratch, err := newScratchDir(bundle)
+	if err != nil {
+		logf("cannot create a scratch directory for %s: %v", containerDir, err)
+		return nil
+	}
+	b := &dirBind{
+		rootfs:       s.rootfs,
+		hostDir:      hostDir,
+		containerDir: containerDir,
+		scratchDir:   scratch,
+		bundleFiles:  names,
+		custom:       custom,
+		keystore:     keystore,
+	}
+	if err := b.prepare(ca); err != nil {
+		logf("cannot prepare CA injection for %s: %v", containerDir, err)
+		b.cleanup()
+		return nil
+	}
+	s.addBindMount(containerDir, scratch)
+	return b
 }

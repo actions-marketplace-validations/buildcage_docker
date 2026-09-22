@@ -309,3 +309,49 @@ func TestRemoveFromKeystoreRefusesAPathThatIsNotThere(t *testing.T) {
 		t.Fatal("expected a missing keystore to be reported")
 	}
 }
+
+// keystoreWith adds a trusted-certificate entry and reseals. Inject then remove
+// round-trips to the original: the added entry is well-formed and sealed the
+// way removal (which checks the digest and parses) expects.
+func TestKeystoreWith(t *testing.T) {
+	for _, version := range []uint32{1, 2} {
+		t.Run("version "+string(rune('0'+version)), func(t *testing.T) {
+			orig := keystore(version, trustedEntry(version, "digicert", otherDER))
+			out, err := keystoreWith(orig, testDER)
+			if err != nil {
+				t.Fatalf("keystoreWith: %v", err)
+			}
+			if !bytes.Contains(out, []byte(injectedAlias)) || !bytes.Contains(out, testDER) {
+				t.Error("the injected entry is not in the keystore")
+			}
+			back, err := keystoreWithout(out, [][]byte{testDER})
+			if err != nil {
+				t.Fatalf("keystoreWith produced a keystore removal rejects: %v", err)
+			}
+			if !bytes.Equal(back, orig) {
+				t.Error("inject then remove did not round-trip to the original")
+			}
+		})
+	}
+}
+
+func TestKeystoreWithRejectsForeignPassword(t *testing.T) {
+	bad := keystore(2, trustedEntry(2, "digicert", otherDER))
+	bad[len(bad)-1] ^= 0xff // break the seal
+	if _, err := keystoreWith(bad, testDER); err == nil {
+		t.Fatal("want a foreign-password rejection")
+	}
+}
+
+func TestKeystoreWithRejectsTooShort(t *testing.T) {
+	if _, err := keystoreWith(keystoreMagic, testDER); err == nil {
+		t.Fatal("want a too-short rejection")
+	}
+}
+
+func TestKeystoreWithReportsAParseError(t *testing.T) {
+	// A sealed keystore whose version the parser does not accept.
+	if _, err := keystoreWith(keystore(3, trustedEntry(3, "digicert", otherDER)), testDER); err == nil {
+		t.Fatal("want the parse error to be reported")
+	}
+}

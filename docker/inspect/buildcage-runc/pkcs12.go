@@ -25,11 +25,16 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-// A PKCS#12 file is a DER SEQUENCE, so it opens with the tag 0x30 followed by a
-// long-form length (0x82 for the two length bytes a keystore's size needs).
-// This only steers which decoder is tried; the decode itself is what confirms
-// the bytes really are a trust store.
-var pkcs12Magic = []byte{0x30, 0x82}
+// looksLikePKCS12 reports whether content opens the way a PKCS#12 keystore
+// does: the DER SEQUENCE tag 0x30 followed by a long-form length, the 0x80 bit
+// set. Keystores are far larger than the 127 bytes a short-form length reaches,
+// so they always use long form; how many length bytes follow varies with size
+// (0x82 for two, 0x83 for three, which a JDK cacerts is large enough to need).
+// This only steers which decoder is tried; the decode confirms the bytes really
+// are a trust store.
+func looksLikePKCS12(content []byte) bool {
+	return len(content) >= 2 && content[0] == 0x30 && content[1]&0x80 != 0
+}
 
 // decodePKCS12 reads the trusted certificates out of a JDK trust store under
 // the empty password. See the file comment for why that is the right password.
@@ -53,6 +58,23 @@ var encodePKCS12 = func(certs []*x509.Certificate) ([]byte, error) {
 // returns (nil, false, nil) and leaves the caller to report it. Removing the
 // last certificate is fine: the emptied store re-encodes and decodes cleanly,
 // carrying no DER.
+// pkcs12With returns a passwordless PKCS#12 trust store holding everything in
+// content plus a trusted certificate for der. content is already known to begin
+// with the PKCS#12 magic. A store the empty password will not open is one this
+// cannot rewrite, so injection is skipped for it and the step's JVM is left not
+// trusting the CA.
+func pkcs12With(content []byte, der []byte) ([]byte, error) {
+	certs, err := decodePKCS12(content)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, err
+	}
+	return encodePKCS12(append(certs, cert))
+}
+
 func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	certs, err := decodePKCS12(content)
 	if err != nil {
