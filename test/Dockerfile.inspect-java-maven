@@ -1,0 +1,35 @@
+# The real-tool companion to Dockerfile.inspect-java: a Maven base image, with
+# its own JVM (a PKCS#12 cacerts), resolving a dependency over HTTPS -- the
+# package fetch a Java build actually does, rather than the raw handshake the
+# probe fixture makes. Maven's own HTTPS client meets the proxy's re-signed
+# certificate (every repository is mirrored to the allowed origin, see
+# inspect-java-maven-settings.xml), so it gets past the handshake only if the
+# wrapper added the proxy CA to the JVM keystore for the step. A certificate
+# error fails the build; a content error, since the origin is not a real Maven
+# repository, proves the TLS leg passed -- the same split the apt fixture uses.
+#
+# FROM is deliberately not governed by this engine
+# (see docs/security.md#what-buildkitd-fetches-itself), so this pull succeeds
+# whatever the rules say.
+FROM maven:3-eclipse-temurin-21
+
+SHELL ["/bin/sh", "-c"]
+
+COPY inspect-java-maven-settings.xml /settings.xml
+
+# -U forces the metadata fetch even if a prior layer cached it, so an HTTPS
+# request to the origin always happens. The artifact does not exist, so a JVM
+# that trusts the CA gets a content error back over TLS, while one that does not
+# fails the handshake first with a PKIX or SSLHandshakeException error, which the
+# case below tells apart.
+RUN echo "=== [Maven resolves a dependency through the proxy] ===" && \
+    OUT=$(mvn -B -U -s /settings.xml \
+      dependency:get -Dartifact=com.example.buildcage:probe:1.0 2>&1 || true); \
+    echo "$OUT" | tail -30; \
+    case "$OUT" in \
+      *PKIX*|*SSLHandshake*|*"unable to find valid certification path"*|*trustAnchors*) \
+        echo "FAILED: the JVM did not trust the proxy CA" && exit 1 ;; \
+      *) echo "OK: Maven reached the origin over TLS (a content error is expected)" ;; \
+    esac
+
+RUN echo "=== End of test ==="

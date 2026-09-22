@@ -327,6 +327,13 @@ test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests agains
 	    --load -t $(TEST_IMAGE) || exit 1; \
 	  NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE) || exit 1; \
 	done
+	@echo "=== Java real-tool case: Maven resolving a dependency ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --progress=plain -f test/Dockerfile.inspect-java-maven test/ \
+	  --load -t $(TEST_IMAGE)
+	@NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_inspect_byte_exact

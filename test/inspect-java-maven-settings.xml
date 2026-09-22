@@ -1,0 +1,12 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <!-- Every repository is mirrored to the allowed test origin, so Maven's own
+       HTTPS client meets the inspect engine's re-signed certificate on the one
+       host the rules permit, rather than reaching out to the real network. -->
+  <mirrors>
+    <mirror>
+      <id>buildcage-proxy-test</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://allowed.example.com/public/maven</url>
+    </mirror>
+  </mirrors>
+</settings>
