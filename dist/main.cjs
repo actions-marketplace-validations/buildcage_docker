@@ -209,6 +209,11 @@ function getInput(name, options) {
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
 //#endregion
+//#region src/core/lib/line-comments.ts
+function stripLineComment(line) {
+	return line.replace(/(^|\s)#.*$/, "$1");
+}
+//#endregion
 //#region src/core/lib/acl/partial-wildcard.ts
 const REGEX_META = /[.+^$()[\]{}|\\]/g, DOMAIN = {
 	across: ".+",
@@ -308,7 +313,7 @@ function splitRawRegexHost(pattern) {
 //#endregion
 //#region src/core/lib/acl/wildcard-rules.ts
 function splitRuleTokens(rulesInput) {
-	return rulesInput?.trim().split(/\s+/).filter(Boolean) ?? [];
+	return rulesInput?.split(/\r?\n/).map(stripLineComment).join(" ").trim().split(/\s+/).filter(Boolean) ?? [];
 }
 function parseAndValidateRules(rulesInput) {
 	let rules = splitRuleTokens(rulesInput);
@@ -459,7 +464,7 @@ function convertUrlRule(rule) {
 	};
 }
 function splitUrlRuleLines(rulesInput) {
-	return rulesInput?.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#")) ?? [];
+	return rulesInput?.split(/\r?\n/).map((line) => stripLineComment(line).trim()).filter((line) => line !== "") ?? [];
 }
 function buildUrlRules(rulesInput) {
 	return splitUrlRuleLines(rulesInput).map(convertUrlRule);
