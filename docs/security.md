@@ -161,9 +161,9 @@ front of it; `inspect` terminates TLS and reads the request. For choosing betwee
 
 <img src="../assets/diagram-architecture-universal.png" alt="Universal proxy engine architecture" width="611" height="490">
 
-The default engine, and the one to fall back to when something in the build cannot accept the
-`inspect` engine's CA. It decrypts nothing: HAProxy classifies each connection by what it can read
-at the front of it, then checks that against the allowlist.
+The engine to fall back to when something in the build cannot accept the `inspect` engine's CA. It
+decrypts nothing: HAProxy classifies each connection by what it can read at the front of it, then
+checks that against the allowlist.
 
 - **HTTPS**: the SNI from the TLS ClientHello, read without terminating the connection, so the build
   validates the origin's own certificate itself. Checked against `allowed_https_rules`.
@@ -183,10 +183,10 @@ decides it.
 
 <img src="../assets/diagram-architecture-inspect.png" alt="Inspect proxy engine architecture" width="611" height="796">
 
-Same network layout, but the proxy terminates TLS instead of only reading the SNI, so a rule can
-check the method and the full URL rather than only the destination. One listener takes both TLS and
-plaintext, told apart by the first bytes of the connection, so an audit run records everything
-without being configured for it first.
+The default engine. Same network layout as `universal`, but the proxy terminates TLS instead of only
+reading the SNI, so a rule can check the method and the full URL rather than only the destination.
+One listener takes both TLS and plaintext, told apart by the first bytes of the connection, so an
+audit run records everything without being configured for it first.
 
 | Rule                  | What it permits                            | Decided by           | Decrypted |
 | --------------------- | ------------------------------------------ | -------------------- | --------- |

@@ -24,7 +24,7 @@ and links here for the details.
 | -------------- | ----------- | --------------------------------------------------------------------- |
 | `builder_name` | `buildcage` | Name of the builder container. The Buildx `endpoint` has to match it. |
 | `proxy_mode`   | `restrict`  | `audit` or `restrict`. See [Operation modes](#operation-modes).       |
-| `proxy_engine` | `universal` | `inspect` or `universal`. See [Engines](../README.md#engines).        |
+| `proxy_engine` | `inspect`   | `inspect` or `universal`. See [Engines](../README.md#engines).        |
 
 ```yaml
 - uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
@@ -33,8 +33,6 @@ and links here for the details.
     proxy_mode: restrict
     proxy_engine: inspect
 ```
-
-`transparent` is accepted as an alias for `universal`, the name it had before `inspect` existed.
 
 On a self-hosted runner that runs several jobs at once, give each job its own `builder_name`. The
 name is what identifies the builder's containers, so two concurrent jobs sharing it tear down each

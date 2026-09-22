@@ -39,12 +39,8 @@ ALLOWED_HTTPS_RULES="github.com:443 npmjs.org:443 example.com:443" make setup_bu
 ```
 
 Each target sets `PROXY_ENGINE`, which picks the build context at image build time through
-`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile` (see
+`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-inspect}/Dockerfile` (see
 [Engines](../README.md#engines)).
-
-`transparent` is an alias for `universal` in the action's own `proxy_engine` **input** only, resolved
-in TypeScript. `PROXY_ENGINE` here is a raw Compose build-context selector with no alias layer, so
-it does not understand that name.
 
 `EXTERNAL_RESOLVER` is the one variable here with no action input behind it: the action pins it empty
 (`src/lib/compose-env.ts`), and locally it takes a comma-separated list of IPv4 addresses for HAProxy

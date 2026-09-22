@@ -3,7 +3,7 @@ services:
     container_name: ${BUILDER_NAME:-buildcage}
     build:
       context: .
-      dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile
+      dockerfile: docker/${PROXY_ENGINE:-inspect}/Dockerfile
     # Not privileged, unlike docker/setup-buildx-action's own builder: these
     # three are all BuildKit needs, and a writable host /proc and /sys stay out.
     # Devices are refused by the device cgroup, which only a step that has
@@ -41,7 +41,7 @@ services:
       - EXTERNAL_RESOLVER=${EXTERNAL_RESOLVER:-}
       # Runner addresses the engine refuses as a resolved destination.
       - HOST_ADDRESSES=${HOST_ADDRESSES:-}
-      - PROXY_ENGINE=${PROXY_ENGINE:-universal}
+      - PROXY_ENGINE=${PROXY_ENGINE:-inspect}
     # `--wait` would otherwise return on "running" alone, which says nothing
     # about buildkitd. buildctl works in both engines. No restart policy
     # goes with it: a container that stopped itself has to stay stopped for the

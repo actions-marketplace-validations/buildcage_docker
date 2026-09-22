@@ -88,17 +88,14 @@ jobs:
           fi
 
           for ENGINE in universal inspect; do
-            SUFFIX=""
-            if [ "$ENGINE" != "universal" ]; then
-              SUFFIX="-${ENGINE}"
-            fi
+            SUFFIX="-${ENGINE}"
             if [ "$TAG" = "$LATEST_IN_MINOR" ]; then
               docker buildx imagetools create --tag "${REPO}:${MINOR}${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
             if [ "$TAG" = "$LATEST_IN_MAJOR" ]; then
               docker buildx imagetools create --tag "${REPO}:${MAJOR#v}${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
-            if [ "$ENGINE" = "universal" ] && [ "$TAG" = "$LATEST_OVERALL" ]; then
-              docker buildx imagetools create --tag "${REPO}:latest" "${REPO}:${VERSION}"
+            if [ "$TAG" = "$LATEST_OVERALL" ]; then
+              docker buildx imagetools create --tag "${REPO}:latest${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
           done

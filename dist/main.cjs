@@ -486,28 +486,27 @@ function buildACLRules({ httpsRulesInput, httpRulesInput, ipRulesInput }) {
 }
 //#endregion
 //#region src/lib/engine.ts
-const ENGINES = ["universal", "inspect"], ENGINE_ALIASES = { transparent: "universal" };
-function resolveProxyEngine(input, notice) {
-	let trimmed = input?.trim() || "universal", alias = ENGINE_ALIASES[trimmed];
-	if (alias && notice("proxy_engine: transparent is now called universal; transparent still works, but consider updating to proxy_engine: universal."), trimmed === "explicit") throw new SetupError("proxy_engine: explicit has been removed. Use proxy_engine: universal (network-level SNI/Host inspection) or inspect (TLS-terminating URL enforcement).", "INVALID_PROXY_ENGINE");
-	let engine = alias ?? trimmed;
-	if (!ENGINES.includes(engine)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
-	return engine;
+const ENGINES = ["universal", "inspect"];
+function resolveProxyEngine(input) {
+	let trimmed = input?.trim() || "inspect";
+	if (trimmed === "explicit") throw new SetupError("proxy_engine: explicit has been removed. Use proxy_engine: universal (network-level SNI/Host inspection) or inspect (TLS-terminating URL enforcement).", "INVALID_PROXY_ENGINE");
+	if (!ENGINES.includes(trimmed)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
+	return trimmed;
 }
 //#endregion
 //#region src/lib/inputs.ts
 function readBuilderName(getInput$1 = getInput) {
 	return getInput$1("builder_name") || "buildcage";
 }
-function readEngineInputs(notice, getInput$3 = getInput) {
-	return { proxyEngine: resolveProxyEngine(getInput$3("proxy_engine"), notice) };
+function readEngineInputs(getInput$2 = getInput) {
+	return { proxyEngine: resolveProxyEngine(getInput$2("proxy_engine")) };
 }
-function readRuleInputs(getInput$2 = getInput) {
-	let proxyMode = getInput$2("proxy_mode") || "restrict", rules = buildACLRules({
-		httpsRulesInput: getInput$2("allowed_https_rules"),
-		httpRulesInput: getInput$2("allowed_http_rules"),
-		ipRulesInput: getInput$2("allowed_ip_rules")
-	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput$2("known_blocked_rules")), urlRulesInput = getInput$2("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput$2("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
+function readRuleInputs(getInput$3 = getInput) {
+	let proxyMode = getInput$3("proxy_mode") || "restrict", rules = buildACLRules({
+		httpsRulesInput: getInput$3("allowed_https_rules"),
+		httpRulesInput: getInput$3("allowed_http_rules"),
+		ipRulesInput: getInput$3("allowed_ip_rules")
+	}), knownBlockedRules = parseKnownBlockedRulesOrThrow(getInput$3("known_blocked_rules")), urlRulesInput = getInput$3("allowed_url_rules"), tlsRules = parseRulesOrThrow(getInput$3("allowed_tls_rules")), urlRules = buildUrlRules(urlRulesInput).map((r) => r.raw);
 	return {
 		proxyMode,
 		httpsRules: rules.httpsRules,
@@ -7130,9 +7129,9 @@ async function verifyBundle(bundleJson, options, expectedDigest) {
 	assertSignedDigest(bundleJson, expectedDigest);
 }
 function engineTagSuffix(proxyEngine) {
-	return proxyEngine === "universal" || proxyEngine === "" ? "" : `-${proxyEngine}`;
+	return `-${proxyEngine}`;
 }
-function imageTagFromRef(actionRef, proxyEngine = "universal") {
+function imageTagFromRef(actionRef, proxyEngine = "inspect") {
 	if (!actionRef) return "";
 	let base;
 	return base = /^[0-9a-f]{40}$/i.test(actionRef) ? `sha-${actionRef.toLowerCase()}` : actionRef.startsWith("v") ? actionRef.slice(1) : actionRef, `${base}${engineTagSuffix(proxyEngine)}`;
@@ -7167,7 +7166,7 @@ function buildVerifyOptions({ actionRef, actionRepo }) {
 //#endregion
 //#region src/core/lib/provenance/verify-image.ts
 const REGISTRY = "ghcr.io";
-async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "universal" }) {
+async function verifyImageDigest({ actionRef, actionRepo, proxyEngine = "inspect" }) {
 	let repoPath = actionRepo.toLowerCase(), verifyOptions = buildVerifyOptions({
 		actionRef,
 		actionRepo
@@ -7390,7 +7389,6 @@ const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("
 		});
 	},
 	log: console.log,
-	notice: annotate.notice,
 	warn: annotate.warning
 };
 async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }, { verifyImageDigestOrThrow, log }) {
@@ -7408,10 +7406,10 @@ async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }, { ve
 	};
 }
 async function runSetupStep(env, overrides = {}) {
-	let { readEngineInputs, readRuleInputs, readBuilderName, readLocalImageOverride, verifyImageDigestOrThrow, checkUrlAndTlsRuleSupport, checkKnownBlockedUrlRuleSupport, logRules, withLogGroup, builderStartError, runDocker, log, notice, warn } = {
+	let { readEngineInputs, readRuleInputs, readBuilderName, readLocalImageOverride, verifyImageDigestOrThrow, checkUrlAndTlsRuleSupport, checkKnownBlockedUrlRuleSupport, logRules, withLogGroup, builderStartError, runDocker, log, warn } = {
 		...realDeps,
 		...overrides
-	}, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs(notice);
+	}, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs();
 	log(`Proxy engine: ${proxyEngine}`);
 	let { imageRef, pullPolicy } = await readLocalImageOverride(env, log) ?? await resolveVerifiedImage({
 		actionRef,
