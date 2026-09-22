@@ -255,8 +255,7 @@ func (b *dirBind) prepare(ca []byte) error {
 		if b.keystore {
 			// A keystore that cannot be injected into (an unusual format, or a
 			// PKCS#12 the empty password will not open) leaves the step's JVM not
-			// trusting the CA, the behaviour before this existed, rather than
-			// failing the build.
+			// trusting the CA rather than failing the build.
 			if err := insertIntoKeystore(target, ca); err != nil {
 				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
 			}

@@ -88,8 +88,7 @@ func findJVMKeystores(s *spec) []string {
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
 // at path, rewriting it in place. Like removeFromKeystore it reads the file once
 // and dispatches on its magic. An error leaves the keystore untouched for the
-// caller to report; the step's JVM then simply does not trust the CA, the
-// behaviour it had before this existed.
+// caller to report, so the step's JVM does not trust the CA.
 func insertIntoKeystore(path string, ca []byte) error {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
@@ -114,9 +113,8 @@ func insertIntoKeystore(path string, ca []byte) error {
 		return err
 	}
 
-	// Every certificate in the CA file, the same as appendCA trusts the whole
-	// bundle for the PEM stores, so a multi-certificate CA does not leave the
-	// JVM trusting only the first while everything else trusts all of it.
+	// Every certificate in the CA file, as appendCA adds for the PEM stores, so
+	// a multi-certificate CA is trusted whole rather than only its first.
 	var injected []byte
 	switch {
 	case bytes.HasPrefix(content, keystoreMagic):
