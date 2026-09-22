@@ -1,0 +1,278 @@
+package main
+
+import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"math/big"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
+)
+
+// A PKCS#12 trust store holds parsed X.509 certificates, unlike the JKS tests
+// whose "DER" is a stand-in string the parser never decodes. These build real
+// certificates so go-pkcs12 accepts them the way a JDK's cacerts does.
+func testCert(t *testing.T, cn string) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             time.Unix(1700000000, 0),
+		NotAfter:              time.Unix(1900000000, 0),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating a certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing the certificate: %v", err)
+	}
+	return cert
+}
+
+// passwordlessStore is a cacerts written the way the JDK ships one: no MAC, the
+// certificate bags unencrypted, so it opens under the empty password.
+func passwordlessStore(t *testing.T, certs ...*x509.Certificate) []byte {
+	t.Helper()
+	data, err := pkcs12.Passwordless.EncodeTrustStore(certs, "")
+	if err != nil {
+		t.Fatalf("encoding a trust store: %v", err)
+	}
+	return data
+}
+
+// encryptedStore is a Modern trust store: its certificate bags are PBES2
+// encrypted under a real password, so the empty-password decode this uses
+// cannot open it. It stands in for a keystore a step replaced with one of its
+// own that this cannot rewrite.
+func encryptedStore(t *testing.T, certs ...*x509.Certificate) []byte {
+	t.Helper()
+	data, err := pkcs12.Modern.EncodeTrustStore(certs, "a-real-password")
+	if err != nil {
+		t.Fatalf("encoding an encrypted trust store: %v", err)
+	}
+	return data
+}
+
+func certPEM(cert *x509.Certificate) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+}
+
+func mustWritePKCS12(t *testing.T, content []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cacerts")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+	return path
+}
+
+// A JDK's own cacerts carries no MAC, so it decodes under the empty password
+// even though it is nominally "changeit"-sealed. This is the property the whole
+// PKCS#12 path rests on.
+func TestDecodePKCS12EmptyPassword(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	certs, err := decodePKCS12(passwordlessStore(t, root, ca))
+	if err != nil {
+		t.Fatalf("decoding under the empty password: %v", err)
+	}
+	if len(certs) != 2 {
+		t.Fatalf("decoded %d certificates, want 2", len(certs))
+	}
+}
+
+func TestPKCS12Without(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	out, removed, err := pkcs12Without(passwordlessStore(t, root, ca), [][]byte{ca.Raw})
+	if err != nil || !removed {
+		t.Fatalf("removing the CA: removed=%v err=%v", removed, err)
+	}
+	if bytes.Contains(out, ca.Raw) {
+		t.Error("the CA's DER is still in the rewritten keystore")
+	}
+	certs, err := decodePKCS12(out)
+	if err != nil {
+		t.Fatalf("the rewritten keystore no longer decodes: %v", err)
+	}
+	if len(certs) != 1 || certs[0].Subject.CommonName != "digicert" {
+		t.Errorf("the rewrite left %d certificates, want only digicert", len(certs))
+	}
+}
+
+// A store that will not open under the empty password is one this cannot
+// rewrite: it removes nothing and leaves the caller to report it.
+func TestPKCS12WithoutUndecodable(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	for name, content := range map[string][]byte{
+		"a Modern encrypted store": encryptedStore(t, ca),
+		"pkcs12-shaped garbage":    append(slices.Clone(pkcs12Magic), ca.Raw...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, removed, err := pkcs12Without(content, [][]byte{ca.Raw})
+			if err != nil || removed || out != nil {
+				t.Fatalf("want (nil,false,nil), got (%v,%v,%v)", out, removed, err)
+			}
+		})
+	}
+}
+
+// The DER a scan matched is in the file's bytes but not as a decoded trusted
+// certificate: nothing is removed and the caller is left to report it.
+func TestPKCS12WithoutCertNotAmongEntries(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca := testCert(t, "buildcage")
+	out, removed, err := pkcs12Without(passwordlessStore(t, root), [][]byte{ca.Raw})
+	if err != nil || removed || out != nil {
+		t.Fatalf("want (nil,false,nil), got (%v,%v,%v)", out, removed, err)
+	}
+}
+
+// The encode-error branch: valid certificates under the empty password never
+// make Passwordless.EncodeTrustStore fail, so the seam is stubbed to prove the
+// error is handed back rather than a truncated keystore being written.
+func TestPKCS12WithoutEncodeFails(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	old := encodePKCS12
+	encodePKCS12 = func([]*x509.Certificate) ([]byte, error) { return nil, errBrokenFile }
+	t.Cleanup(func() { encodePKCS12 = old })
+	if _, _, err := pkcs12Without(passwordlessStore(t, root, ca), [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("want the encode failure, got %v", err)
+	}
+}
+
+// Removing the last certificate is not an error: the empty store re-encodes and
+// decodes cleanly and carries no DER, so the sweep passes rather than leaving an
+// unreadable keystore behind.
+func TestPKCS12WithoutRemovesLastCert(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	out, removed, err := pkcs12Without(passwordlessStore(t, ca), [][]byte{ca.Raw})
+	if err != nil || !removed {
+		t.Fatalf("removing the only cert: removed=%v err=%v", removed, err)
+	}
+	certs, err := decodePKCS12(out)
+	if err != nil {
+		t.Fatalf("the emptied keystore no longer decodes: %v", err)
+	}
+	if len(certs) != 0 {
+		t.Errorf("the emptied keystore still holds %d certificates", len(certs))
+	}
+}
+
+// removeFromKeystore reads the file once and dispatches on its magic: a PKCS#12
+// keystore holding the CA is rewritten in place, the gap that used to fail the
+// build.
+func TestRemoveFromKeystoreStripsPKCS12(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	rewritten, err := removeFromKeystore(path, [][]byte{ca.Raw})
+	if err != nil || !rewritten {
+		t.Fatalf("rewriting the PKCS#12 keystore: rewritten=%v err=%v", rewritten, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(content, ca.Raw) {
+		t.Error("the CA's DER is still in the file on disk")
+	}
+}
+
+// A PKCS#12 keystore that does not hold the CA is left untouched, reported as no
+// rewrite the same way a non-keystore file is.
+func TestRemoveFromKeystorePKCS12NotHolding(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca := testCert(t, "buildcage")
+	path := mustWritePKCS12(t, passwordlessStore(t, root))
+	before, _ := os.ReadFile(path)
+	rewritten, err := removeFromKeystore(path, [][]byte{ca.Raw})
+	if err != nil || rewritten {
+		t.Fatalf("want no rewrite, got rewritten=%v err=%v", rewritten, err)
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Error("the file was changed")
+	}
+}
+
+// removeFromKeystore hands a PKCS#12 rewrite error back rather than reporting
+// no rewrite, so the caller does not read a failed strip as a clean one.
+func TestRemoveFromKeystorePKCS12Error(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	old := encodePKCS12
+	encodePKCS12 = func([]*x509.Certificate) ([]byte, error) { return nil, errBrokenFile }
+	t.Cleanup(func() { encodePKCS12 = old })
+	if _, err := removeFromKeystore(path, [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("want the encode failure, got %v", err)
+	}
+}
+
+// The sweep reaches the PKCS#12 rewrite through stripCA: a PKCS#12 cacerts
+// holding the CA is stripped rather than failing the build as it did before.
+func TestStripCARewritesPKCS12(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if left {
+		t.Error("stripCA left the CA in a PKCS#12 keystore it can rewrite")
+	}
+}
+
+// A file shaped like a PKCS#12 that carries the CA's DER in the clear but will
+// not decode: the DER is found, the keystore rewrite cannot reach it, and
+// stripCA reports it left rather than passing the build. It fails closed only
+// because the DER is actually present; an encrypted store hides the DER instead,
+// so it is never a strip candidate.
+func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, append(slices.Clone(pkcs12Magic), ca.Raw...))
+	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a keystore it cannot decode though the DER is present")
+	}
+}
+
+// stripCA hands a rewrite error back rather than swallowing it: a write that
+// fails mid-rewrite leaves the layer possibly still carrying the CA, so the
+// build must not proceed.
+func TestStripCAPropagatesPKCS12Error(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
+	if _, err := stripCA(path, caPEM, certificateDERs(caPEM)); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("want the write failure propagated, got %v", err)
+	}
+}
