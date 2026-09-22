@@ -296,20 +296,25 @@ func findCertificates(f bundleFile, ders [][]byte, size int64) ([]span, error) {
 		if begin == -1 {
 			return cuts, nil
 		}
-		// A block that is not cut resumes after its own opening line: one the
-		// step left without an end would otherwise pair with the next block's
-		// closing line, and resuming past that would skip that block.
-		off = begin + int64(len(beginPEM))
-
 		block, end, err := readPEMBlock(f, begin, size)
 		if err != nil {
 			return nil, err
 		}
-		if block == nil || !holdsAnyDER(block.Bytes, ders) {
+		if block == nil {
+			// Nothing here to resume past: an opening line the step left
+			// without an end pairs with the next block's closing line, and
+			// resuming past that would skip the block it belongs to. So the
+			// search starts again just after this opening line.
+			off = begin + int64(len(beginPEM))
+			continue
+		}
+		// A block that was read has no opening line inside it, so resuming at
+		// its end skips nothing and saves reading it all again.
+		off = end
+		if !holdsAnyDER(block.Bytes, ders) {
 			continue
 		}
 		cuts = append(cuts, span{begin, end})
-		off = end
 	}
 	return cuts, nil
 }
@@ -420,12 +425,18 @@ func scanForCA(f bundleFile, size int64, ders [][]byte) (bool, error) {
 		if which < len(ders) {
 			return true, nil
 		}
-		off = at + int64(len(beginPEM))
-		block, _, err := readPEMBlock(f, at, size)
+		block, end, err := readPEMBlock(f, at, size)
 		if err != nil {
 			return false, err
 		}
-		if block != nil && holdsAnyDER(block.Bytes, ders) {
+		// Same resume as findCertificates: past the block when there was one
+		// to read, otherwise only past the opening line.
+		if block == nil {
+			off = at + int64(len(beginPEM))
+			continue
+		}
+		off = end
+		if holdsAnyDER(block.Bytes, ders) {
 			return true, nil
 		}
 	}

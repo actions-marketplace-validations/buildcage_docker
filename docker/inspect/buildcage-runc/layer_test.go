@@ -207,6 +207,27 @@ func TestSweepDirTakesOutEveryShapeOfCopy(t *testing.T) {
 	}
 }
 
+// A block the step cut short is not one to resume past, so the scan starts
+// again just after its opening line. Resuming at the end it appears to have
+// would swallow the copy that block's closing line belongs to.
+func TestSweepDirFindsACopyBehindAnUnfinishedBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.pem")
+	truncated := beginTestBlock + "\nVFJVTkNBVEVE\n"
+	mustWriteFile(t, path, truncated+string(testCA))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != truncated {
+		t.Fatalf("got %q, want the truncated block alone", got)
+	}
+}
+
 // What the sweep is worth without any injection of its own: a step that copies
 // the store puts the certificate somewhere no list of paths would name.
 func TestSweepDirLeavesTheRestOfACopyIntact(t *testing.T) {

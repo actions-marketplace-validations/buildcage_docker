@@ -47,8 +47,10 @@ fi
 # A copy of the store the step made outside it (see the fixture Dockerfiles).
 # Nothing lists those paths, so they are reached only by reading the step's own
 # layer back before BuildKit commits it. The Debian fixture also re-armours the
-# certificate as a TRUSTED CERTIFICATE, the shape a RHEL trust rebuild leaves
-# behind, which matches neither the original block nor its whole base64.
+# certificate as a TRUSTED CERTIFICATE carrying trust settings, the shape a RHEL
+# trust rebuild leaves behind, whose body matches neither the original block nor
+# its whole base64. The pattern below still finds it, because base64 encodes in
+# three-byte groups and the certificate comes first, so the two share this line.
 #
 # The fixtures fail the build if they cannot make these, so finding none here
 # means the fixture has gone stale rather than that there is nothing to check.

@@ -143,7 +143,12 @@ type injection struct {
 // only what changed, and then takes the certificate out of whatever else of
 // the step's layer holds a copy. A non-nil error means the layer may still
 // carry one, and the build must not proceed with it.
-func (in *injection) finish() error {
+//
+// committing says whether there is a layer to read back at all. A step that
+// exited non-zero has already failed the build, and BuildKit releases its
+// mutable snapshot rather than committing it, so reading that snapshot twice
+// would only make an failing build slower and report a layer nothing will see.
+func (in *injection) finish(committing bool) error {
 	var firstErr error
 	for _, b := range in.binds {
 		if err := b.finish(); err != nil {
@@ -159,9 +164,9 @@ func (in *injection) finish() error {
 			logf("cannot remove %s: %v", in.createdOwnCA, err)
 		}
 	}
-	if firstErr != nil {
-		// The layer is half written already and BuildKit is about to throw it
-		// away, so there is nothing for a sweep of it to establish.
+	if firstErr != nil || !committing {
+		// Either way the snapshot is about to be released rather than
+		// committed, so there is nothing for a sweep of it to establish.
 		return firstErr
 	}
 	// After the write-back, whose own result lands in the layer.

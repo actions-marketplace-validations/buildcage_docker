@@ -61,6 +61,11 @@ RUN echo "=== [apt outside the rules] ===" && \
 # therefore matches neither the original block nor its base64. openssl is
 # already here, since ca-certificates depends on it.
 #
+# `-addtrust` is what makes the second one that shape. `-trustout` alone leaves
+# the auxiliary trust info empty, and the body is then byte-identical to the
+# plain block's, so the copy would be found by matching on equality and this
+# would prove nothing about containment.
+#
 # The injected CA is the last block in the bundle, which the subject check
 # confirms: without it a fixture that stopped copying the right certificate
 # would still pass. assert-inspect-no-ca-residue.sh checks the built image.
@@ -70,7 +75,7 @@ RUN echo "=== [A copy of the store outside it] ===" && \
     awk '/-----BEGIN CERTIFICATE-----/{c=""} {c=c $0 "\n"} /-----END CERTIFICATE-----/{last=c} \
          END{printf "%s", last}' /app/bundle.pem > /tmp/last.pem && \
     openssl x509 -in /tmp/last.pem -noout -subject | grep -q "buildcage proxy CA" && \
-    openssl x509 -in /tmp/last.pem -trustout -out /app/trusted.pem && \
+    openssl x509 -in /tmp/last.pem -trustout -addtrust serverAuth -out /app/trusted.pem && \
     echo "OK: copied"
 
 RUN echo "=== End of test ==="
