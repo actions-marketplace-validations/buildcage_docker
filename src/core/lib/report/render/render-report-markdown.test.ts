@@ -113,6 +113,19 @@ describe("renderReportMarkdown: universal", () => {
     expect(blockedMd).not.toMatch(/_\(no communication\)_/);
   });
 
+  it("omits the '(no communication)' note for a build that only looked names up", () => {
+    const discovery: TrafficEvent = {
+      time: 1,
+      action: "discovery",
+      protocol: "dns",
+      host: "_http._tcp.example.com",
+      queryType: "SRV",
+    };
+    const md = renderReportMarkdown({ ...base, timeline: [discovery] }, "buildcage/docker", "v2");
+    expect(md).not.toMatch(/_\(no communication\)_/);
+    expect(md).toMatch(/Communication details/);
+  });
+
   it("uses the title option verbatim, e.g. a run step's em-dash label", () => {
     const md = renderReportMarkdown(base, "buildcage/docker", "v2", {
       title: "Outbound Traffic Report — npm install",
