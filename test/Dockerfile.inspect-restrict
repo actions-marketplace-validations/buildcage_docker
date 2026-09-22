@@ -275,8 +275,11 @@ RUN echo "=== [Client leaves before sending a request] ===" && \
 # allowed_tls_rules entry covers: anything that is not a TLS handshake reaches
 # the plain stage, which reads it as a request and refuses it. nc rather than
 # curl, which can only speak protocols it knows.
+#
+# Keep the sleep: it holds stdin open so the FIN does not race the parse and
+# flip the logged ts=PR to ts=CR under load, breaking the report assertion.
 RUN echo "=== [Not an HTTP request at all] ===" && \
-    printf 'NOT-HTTP\r\n\r\n' | nc -w 5 10.200.0.100 5432; \
+    { printf 'NOT-HTTP\r\n\r\n'; sleep 1; } | nc -w 5 10.200.0.100 5432; \
     echo "nc exit=$?"
 
 # A request that parsed and named no host. `-H 'Host:'` drops the header, and
