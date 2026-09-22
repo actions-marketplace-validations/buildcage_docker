@@ -27,7 +27,7 @@ and links here for the details.
 | `proxy_engine` | `inspect`   | `inspect` or `universal`. See [Engines](../README.md#engines).        |
 
 ```yaml
-- uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+- uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     builder_name: buildcage
     proxy_mode: restrict

@@ -66,7 +66,7 @@ covers the choice between the two.
 
 ```yaml
 - name: Start Buildcage in audit mode
-  uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: audit # Log every destination, block nothing
     proxy_engine: inspect # Record the method and URL of every request
@@ -84,7 +84,7 @@ covers the choice between the two.
 
 - name: Show Buildcage report
   if: always()
-  uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker/report@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
 ```
 
 The [report action](#report-action) writes every destination the build contacted to the Job Summary:
@@ -100,7 +100,7 @@ Paste that allowlist into the setup step and switch the mode:
 
 ```yaml
 - name: Start Buildcage in restrict mode
-  uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: restrict
     proxy_engine: inspect
@@ -266,7 +266,7 @@ with `if: always()` so a failing build still reports:
 ```yaml
 - name: Show Buildcage report
   if: always()
-  uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker/report@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
 ```
 
 Whatever was refused is listed under **Blocked Hosts** with the reason, and, under `inspect`,
