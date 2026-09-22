@@ -71,6 +71,31 @@ func TestResolveInRootAllowsAMissingFinalComponent(t *testing.T) {
 	}
 }
 
+// A whole run of missing directories resolves to itself, which is what an
+// anchor path needs in an image that ships no CA store.
+func TestResolveInRootAllowsMissingIntermediateDirectories(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc"))
+	resolved, err := resolveInRoot(root, "/etc/pki/ca-trust/source/anchors/buildcage.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(root, "etc", "pki", "ca-trust", "source", "anchors", "buildcage.crt") {
+		t.Fatalf("unexpected path %s", resolved)
+	}
+}
+
+// An error that is not "not there" is the wrapper's to report: a component the
+// image left as a file, so the path cannot continue through it.
+func TestResolveInRootReportsANonMissingError(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc"))
+	mustWriteFile(t, filepath.Join(root, "etc", "notdir"), "x")
+	if _, err := resolveInRoot(root, "/etc/notdir/child"); err == nil {
+		t.Fatal("expected a component that is a file to be reported")
+	}
+}
+
 // The lines a certificate is armoured between, spelled out here because the
 // code itself only knows the shape of them and not the label.
 const (

@@ -247,6 +247,102 @@ func TestSweepDirLeavesTheRestOfACopyIntact(t *testing.T) {
 	}
 }
 
+// A file the strip empties held nothing but the certificate, so it is one the
+// injection put there and goes, rather than staying as an empty trace. A
+// rebuild leaves such a copy under the store directory beside the bundle.
+func TestSweepDirRemovesAFileTheStripEmpties(t *testing.T) {
+	dir := t.TempDir()
+	anchor := filepath.Join(dir, "buildcage.pem")
+	bundle := filepath.Join(dir, "ca-certificates.crt")
+	mustWriteFile(t, anchor, string(testCA))
+	mustWriteFile(t, bundle, string(otherCA)+string(testCA))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(anchor); !os.IsNotExist(err) {
+		t.Fatalf("the emptied file was left behind: %v", err)
+	}
+	// The bundle carried a real certificate too, so it is emptied of nothing
+	// and stays.
+	if got, _ := os.ReadFile(bundle); string(got) != string(otherCA) {
+		t.Fatalf("the bundle was disturbed: %q", got)
+	}
+}
+
+// A rebuild links to each copy it makes, one after the file and one after its
+// hash, and the hash link points at the first. Both go once what they point at
+// is gone.
+func TestSweepDirDropsLinksLeftDangling(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	mustSymlink(t, "buildcage.pem", filepath.Join(dir, "buildcage.0"))
+	// The hash link points at the named link, not the file, so it only goes on
+	// a second pass once the named link has.
+	mustSymlink(t, "buildcage.0", filepath.Join(dir, "deadbeef.0"))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"buildcage.pem", "buildcage.0", "deadbeef.0"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s was left behind", name)
+		}
+	}
+}
+
+// Only a link to something the sweep removed goes. One the image shipped
+// pointing at a file that was never ours is the image's own, dangling or not.
+func TestSweepDirKeepsLinksToWhatItDidNotRemove(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	mustSymlink(t, "buildcage.pem", filepath.Join(dir, "ours.0"))
+	// A link the image shipped, pointing at its own roots and at a file that
+	// never existed. Neither target is anything the sweep took away.
+	mustWriteFile(t, filepath.Join(dir, "theirs.pem"), string(otherCA))
+	mustSymlink(t, "theirs.pem", filepath.Join(dir, "theirs.0"))
+	mustSymlink(t, "gone.pem", filepath.Join(dir, "broken.0"))
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "ours.0")); !os.IsNotExist(err) {
+		t.Fatal("the link to a removed file was left behind")
+	}
+	for _, name := range []string{"theirs.0", "broken.0"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s, none of the sweep's business, was taken away", name)
+		}
+	}
+}
+
+// The layer's listing and the rootfs its links resolve against are two
+// directories, and an absolute link inside the container is absolute inside the
+// rootfs. A hash link written that way still goes with what it points at.
+func TestSweepDirDropsAnAbsoluteLinkThroughTheRoot(t *testing.T) {
+	root := t.TempDir()
+	upper := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc", "ssl", "certs"))
+	mustMkdirAll(t, filepath.Join(upper, "etc", "ssl", "certs"))
+	// The same file under both names, which is what an overlay's upper
+	// directory and its merged view are.
+	pem := filepath.Join("etc", "ssl", "certs", "buildcage.pem")
+	mustWriteFile(t, filepath.Join(upper, pem), string(testCA))
+	mustHardLink(t, filepath.Join(upper, pem), filepath.Join(root, pem))
+	// The link is read from the layer's listing and removed through the rootfs,
+	// so it stands at both, pointing at the same place.
+	link := filepath.Join("etc", "ssl", "certs", "hash.0")
+	mustSymlink(t, "/etc/ssl/certs/buildcage.pem", filepath.Join(upper, link))
+	mustSymlink(t, "/etc/ssl/certs/buildcage.pem", filepath.Join(root, link))
+
+	if _, err := sweepDir(upper, root, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, link)); !os.IsNotExist(err) {
+		t.Fatal("the absolute link was left pointing at a removed file")
+	}
+}
+
 // Detection covers every container; removal does not. A format this cannot
 // rewrite is named and fails the build rather than being left in the layer.
 func TestSweepDirFailsOnAContainerItCannotRewrite(t *testing.T) {
@@ -358,6 +454,88 @@ func TestSweepDirReportsAFileItCannotStat(t *testing.T) {
 
 	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the stat failure to be reported", err)
+	}
+}
+
+// A file the strip emptied but that cannot then be removed is the wrapper's
+// own failure, not the step's to keep.
+func TestSweepDirReportsAFileItCannotRemove(t *testing.T) {
+	skipIfRoot(t)
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	mustMakeReadOnly(t, dir)
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err == nil {
+		t.Fatal("expected the failed removal to be reported")
+	}
+}
+
+// The link pass reads the tree once, and a directory it cannot read there is
+// reported the same as anywhere else. It only runs once the file pass has
+// removed something, so a copy is emptied first to reach it.
+func TestSweepDirReportsADirectoryTheLinkPassCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	// Walk 1 is the file pass, walk 2 the link pass; fail the second.
+	failWalkOn(t, dir, 2)
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); !errors.Is(err, errBrokenWalk) {
+		t.Fatalf("got %v, want the failed link listing to be reported", err)
+	}
+}
+
+// A link whose removal fails for a reason other than being gone already is the
+// wrapper's failure. The link is put in a read-only directory of its own, away
+// from the emptied file that made the sweep reach it.
+func TestSweepDirReportsALinkItCannotRemove(t *testing.T) {
+	skipIfRoot(t)
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "a"))
+	mustMkdirAll(t, filepath.Join(root, "b"))
+	mustWriteFile(t, filepath.Join(root, "a", "buildcage.pem"), string(testCA))
+	mustSymlink(t, "/a/buildcage.pem", filepath.Join(root, "b", "hash.0"))
+	mustMakeReadOnly(t, filepath.Join(root, "b"))
+
+	if _, err := sweepDir(root, root, testCA, certificateDERs(testCA)); err == nil {
+		t.Fatal("expected the failed link removal to be reported")
+	}
+}
+
+// The link's own directory is resolved inside the rootfs, and a rootfs where
+// that directory is a symlink climbing out is refused rather than followed.
+func TestSweepDirReportsALinkWhoseDirectoryEscapes(t *testing.T) {
+	root, upper := t.TempDir(), t.TempDir()
+	// A copy the file pass empties and removes, so the link pass is reached.
+	mustWriteFile(t, filepath.Join(upper, "buildcage.pem"), string(testCA))
+	mustHardLink(t, filepath.Join(upper, "buildcage.pem"), filepath.Join(root, "buildcage.pem"))
+	// The listing has a real subdirectory with a link in it, so the walk
+	// reaches the link and its readlink succeeds.
+	mustMkdirAll(t, filepath.Join(upper, "sub"))
+	mustSymlink(t, "x", filepath.Join(upper, "sub", "hash.0"))
+	// The rootfs resolves that subdirectory to a symlink climbing out of it.
+	mustSymlink(t, "../../../../../../outside", filepath.Join(root, "sub"))
+
+	if _, err := sweepDir(upper, root, testCA, certificateDERs(testCA)); !errors.Is(err, errEscapesRoot) {
+		t.Fatalf("got %v, want the escaping link directory to be refused", err)
+	}
+}
+
+// A link that went away between the listing and the readlink reads as empty,
+// matches nothing removed, and is left alone rather than failing the sweep.
+func TestSweepDirSkipsALinkThatVanished(t *testing.T) {
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
+	mustSymlink(t, "elsewhere", filepath.Join(dir, "real.0"))
+	// A stubbed second walk hands a symlink entry at a path that is not there,
+	// so the readlink fails and it is skipped. The first walk (the file pass)
+	// runs for real, emptying buildcage.pem so the link pass is reached.
+	useStubWalk(t, filepath.Clean(dir), 2, walkStep{
+		path: filepath.Join(dir, "gone.0"),
+		d:    realEntry(t, dir, "real.0"),
+	})
+
+	if _, err := sweepDir(dir, dir, testCA, certificateDERs(testCA)); err != nil {
+		t.Fatalf("a vanished link should be skipped, got %v", err)
 	}
 }
 
