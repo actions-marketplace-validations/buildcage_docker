@@ -14,14 +14,17 @@ package main
 // which carries no MAC, is the one shape the JVM's default loader trusts as a
 // cacerts. The Modern encoders encrypt the bags with PBES2, which that loader
 // does not decrypt, leaving it trusting nothing.
+//
+// A keytool- or Modern-written PKCS#12 seals a MAC keyed on its own password, so
+// the empty-password decode below will not open it. That is intentional: this
+// rewrites the passwordless shape the wrapper's own injection produces, and any
+// other keystore that still holds the certificate stays fail-closed
+// (errUnstrippableCA) rather than being passed silently. removeFromKeystore is
+// where the file is read and dispatched on its magic.
 
 import (
-	"bytes"
 	"crypto/x509"
-	"io"
-	"os"
 	"slices"
-	"syscall"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
@@ -46,60 +49,36 @@ var encodePKCS12 = func(certs []*x509.Certificate) ([]byte, error) {
 	return pkcs12.Passwordless.EncodeTrustStore(certs, "")
 }
 
-// removeFromPKCS12 takes the certificate out of a PKCS#12 keystore, rewriting
-// it in place, and reports whether it rewrote anything. It mirrors
-// removeFromKeystore's contract: a file that is not a PKCS#12 trust store, or
-// one that will not open under the empty password, is left alone with
-// (false, nil) for the caller to report as unstrippable; the sweep only reaches
-// here when the certificate is already known to be in the file, so leaving one
-// it cannot open fails the build rather than passing it silently.
-func removeFromPKCS12(path string, ders [][]byte) (bool, error) {
-	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return false, asNotRegular(path, err)
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return false, err
-	}
-	size := info.Size()
-	if size < int64(len(pkcs12Magic)) || size > maxKeystoreBytes {
-		return false, nil
-	}
-	content := make([]byte, size)
-	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
-		return false, err
-	}
-	if !bytes.HasPrefix(content, pkcs12Magic) {
-		return false, nil
-	}
-
+// pkcs12Without returns a passwordless PKCS#12 trust store holding everything in
+// content but the certificate, and reports whether it removed anything. content
+// is already known to begin with the PKCS#12 magic.
+//
+// A store that will not open under the empty password, or that holds the DER
+// among its bytes but not as a decoded trusted certificate, is one this cannot
+// rewrite: it returns (nil, false, nil) so removeFromKeystore leaves the file
+// alone. Reached only when the certificate is already known to be in the file,
+// that leaves the caller to report it, which fails the build rather than passing
+// a copy it could not take out. Removing the last certificate is fine: the
+// resulting empty store re-encodes and decodes cleanly, carrying no DER.
+func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	certs, err := decodePKCS12(content)
 	if err != nil {
-		// A real PKCS#12 that will not open under the empty password is one this
-		// cannot rewrite; the caller reports it as unstrippable, which fails the
-		// build because the sweep only reaches a file that holds the certificate.
-		logf("%s is a PKCS#12 keystore this cannot decode: %v", path, err)
-		return false, nil
+		logf("a PKCS#12 keystore this cannot decode under the empty password: %v", err)
+		return nil, false, nil
 	}
-
+	// Captured before the delete: slices.DeleteFunc rewrites certs' own backing
+	// array and shortens the slice it returns, leaving certs' length as it was.
+	// Comparing kept against that original length is what says a copy was found.
+	before := len(certs)
 	kept := slices.DeleteFunc(certs, func(cert *x509.Certificate) bool {
 		return holdsAnyDER(cert.Raw, ders)
 	})
-	if len(kept) == len(certs) {
-		// The DER a scan found is in the file's own bytes but not as a decoded
-		// trusted certificate: it is somewhere this rewrite does not reach, so
-		// removing nothing and leaving the caller to report it is right.
-		return false, nil
+	if len(kept) == before {
+		return nil, false, nil
 	}
-
-	rewritten, err := encodePKCS12(kept)
+	out, err := encodePKCS12(kept)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	if _, err := f.WriteAt(rewritten, 0); err != nil {
-		return false, err
-	}
-	return true, f.Truncate(int64(len(rewritten)))
+	return out, true, nil
 }

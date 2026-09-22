@@ -304,11 +304,6 @@ func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
 		return false, err
 	}
 	if !rewritten {
-		if rewritten, err = removeFromPKCS12(path, ders); err != nil {
-			return false, err
-		}
-	}
-	if !rewritten {
 		return true, nil
 	}
 	return fileHoldsCA(path, ders)

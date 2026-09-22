@@ -43,10 +43,12 @@ var keystoreSalt = []byte("Mighty Aphrodite")
 // var, not a const, so a test can reach the limit without writing 16 MB.
 var maxKeystoreBytes int64 = 16 << 20
 
-// removeFromKeystore takes the certificate out of a Java keystore, rewriting
-// it in place, and reports whether it rewrote anything. A file that is not a
-// keystore is left alone for the caller to report; one that is, but cannot be
-// rewritten safely, is an error.
+// removeFromKeystore takes the certificate out of a Java keystore, in either
+// shape one ships as, rewriting it in place, and reports whether it rewrote
+// anything. The file is read once and dispatched on its magic: a JKS
+// (feedfeed) or a PKCS#12 (a DER SEQUENCE). A file that is neither is left
+// alone for the caller to report; one that is, but cannot be rewritten safely,
+// is an error.
 func removeFromKeystore(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -65,14 +67,25 @@ func removeFromKeystore(path string, ders [][]byte) (bool, error) {
 	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
 		return false, err
 	}
-	if !bytes.HasPrefix(content, keystoreMagic) {
+
+	var rewritten []byte
+	switch {
+	case bytes.HasPrefix(content, keystoreMagic):
+		if rewritten, err = keystoreWithout(content, ders); err != nil {
+			return false, fmt.Errorf("%s: %w", path, err)
+		}
+	case bytes.HasPrefix(content, pkcs12Magic):
+		var removed bool
+		if rewritten, removed, err = pkcs12Without(content, ders); err != nil {
+			return false, err
+		}
+		if !removed {
+			return false, nil
+		}
+	default:
 		return false, nil
 	}
 
-	rewritten, err := keystoreWithout(content, ders)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
-	}
 	if _, err := f.WriteAt(rewritten, 0); err != nil {
 		return false, err
 	}
