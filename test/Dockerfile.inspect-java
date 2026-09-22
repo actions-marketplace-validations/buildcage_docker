@@ -1,0 +1,29 @@
+# A JVM already in the base image reads its trusted roots only from its own
+# keystore ($JAVA_HOME/lib/security/cacerts), neither the system CA store nor the
+# CA-trust environment variables the wrapper otherwise sets. Under the inspect
+# engine, which terminates and re-signs TLS, `mvn`/`gradle`/`java` can therefore
+# complete a handshake only if the wrapper has added the proxy CA to that
+# keystore for the step. This is the case docker/inspect/buildcage-runc's
+# keystore injection (jvmstore.go) exists for.
+#
+# BASE is an ARG so the suite runs this over both shapes a JDK ships cacerts in:
+# PKCS#12 (eclipse-temurin:21) and JKS (eclipse-temurin:17). FROM is deliberately
+# not governed by this engine (see docs/security.md#what-buildkitd-fetches-itself),
+# so the base pulls whatever the rules say.
+ARG BASE=eclipse-temurin:21
+FROM ${BASE}
+
+SHELL ["/bin/sh", "-c"]
+
+COPY HttpsCheck.java /HttpsCheck.java
+
+# The in-step proof: a Java client reaches the allowed origin over HTTPS. The
+# certificate it meets is the proxy's, re-signed for this build; a JVM that did
+# not trust the injected CA would throw an SSLHandshakeException here and fail
+# the build before any status returned. assert-inspect-no-ca-residue.sh then
+# proves the committed image's keystore does not carry the CA and still reads.
+RUN echo "=== [the base image JVM trusts the injected CA in-step] ===" && \
+    java /HttpsCheck.java https://allowed.example.com/public/probe && \
+    echo "OK: the JVM trusted the proxy CA in-step"
+
+RUN echo "=== End of test ==="

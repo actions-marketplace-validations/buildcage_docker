@@ -88,6 +88,9 @@ jobs:
           - mode: inspect-debian-restrict
             target: test_integration_buildkit_inspect_debian_restrict
             test_compose_file: compose.test-inspect.yaml
+          - mode: inspect-java-audit
+            target: test_integration_buildkit_inspect_java_audit
+            test_compose_file: compose.test-inspect.yaml
 
     name: "integration: test (${{ matrix.mode }})"
 

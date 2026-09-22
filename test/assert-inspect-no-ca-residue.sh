@@ -73,7 +73,7 @@ fi
 # catches the other end: a rewrite that dropped more than the one entry. Debian
 # bookworm's ca-certificates seeds ~150 roots, so 100 is well clear of a
 # healthy store and well above a gutted one.
-if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
+if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1 && test -f /etc/ssl/certs/java/cacerts'; then
   if listing=$(docker run --rm "$IMAGE" \
     keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit 2>/dev/null); then
     roots=$(grep -c trustedCertEntry <<<"$listing" || true)
@@ -89,6 +89,38 @@ if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
   fi
 fi
 
+# The base image's own JVM keystore: the case the keystore injection exists for
+# (docker/inspect/buildcage-runc/jvmstore.go), as opposed to the
+# ca-certificates-java one above. The cacerts path is discovered from the image's
+# own JAVA_HOME (both the JDK 9+ lib/security and a JDK 8's jre/lib), which covers
+# both shapes a JDK ships it in, PKCS#12 (eclipse-temurin:21) and JKS
+# (eclipse-temurin:17). It is a second check on the common keystore; the layer
+# sweep in buildcage-runc is what guarantees no keystore in any shape or location
+# (jssecacerts, the RHEL paths) reaches the image carrying the CA, by failing the
+# build if one does. The injection lands only in the scratch mirror bound over
+# the step, so a committed keystore that still trusted the CA would mean the undo
+# let the mirror through; the kept-root floor catches a rewrite that dropped more
+# than the CA, the same way the ca-certificates-java check above does.
+JVM_CACERTS=$(docker run --rm "$IMAGE" sh -c '
+  for p in "$JAVA_HOME/lib/security/cacerts" "$JAVA_HOME/jre/lib/security/cacerts"; do
+    [ -f "$p" ] && { printf %s "$p"; break; }
+  done' 2>/dev/null || true)
+if [ -n "$JVM_CACERTS" ]; then
+  if listing=$(docker run --rm "$IMAGE" \
+    keytool -list -keystore "$JVM_CACERTS" -storepass changeit 2>/dev/null); then
+    roots=$(grep -c trustedCertEntry <<<"$listing" || true)
+    if grep -qi buildcage <<<"$listing"; then
+      fail "the buildcage CA is still trusted in the base image JVM keystore ($JVM_CACERTS)"
+    elif [ "${roots:-0}" -lt 100 ]; then
+      fail "the base image JVM keystore has only $roots roots; it dropped more than the CA"
+    else
+      pass "the base image JVM keystore is readable, keeps its $roots roots, and no longer trusts the CA"
+    fi
+  else
+    fail "the base image JVM keystore is unreadable after the step; the undo corrupted it"
+  fi
+fi
+
 # A copy of the store the step made outside it (see the fixture Dockerfiles).
 # Nothing lists those paths, so they are reached only by reading the step's own
 # layer back before BuildKit commits it. The Debian fixture also re-armours the
@@ -97,11 +129,16 @@ fi
 # its whole base64. The pattern below still finds it, because base64 encodes in
 # three-byte groups and the certificate comes first, so the two share this line.
 #
-# The fixtures fail the build if they cannot make these, so finding none here
-# means the fixture has gone stale rather than that there is nothing to check.
+# The store-copying fixtures fail the build if they cannot make these, so
+# finding none there means the fixture has gone stale rather than that there is
+# nothing to check. A fixture with no system CA store to copy (the Java base
+# images) sets NO_APP_STORE_COPIES to say so, since for it an empty /app is
+# expected rather than a stale fixture.
 COPIES=$(docker run --rm "$IMAGE" sh -c 'ls /app/*.pem 2>/dev/null' || true)
 if [ -z "$CA_LINE" ]; then
   : # already reported above; an empty pattern would match every file
+elif [ -z "$COPIES" ] && [ -n "${NO_APP_STORE_COPIES:-}" ]; then
+  pass "no store copies under /app to check, as this fixture makes none"
 elif [ -z "$COPIES" ]; then
   fail "the fixture left no copy of the store under /app, so this cannot be checked"
 elif docker run --rm -e CA_LINE="$CA_LINE" "$IMAGE" sh -c '

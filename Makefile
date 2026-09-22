@@ -205,7 +205,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_java_audit test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
 # The target that verifies post.ts removed the builder. The targets below run
 # post.ts as part of their own teardown where they have one, but the removal
@@ -307,6 +307,35 @@ test_integration_buildkit_inspect_debian_restrict: ## Run inspect-engine restric
 	  --load -t $(TEST_IMAGE)
 	@node report/src/main.ts || true
 	@./test/assert-inspect-debian.sh restrict
+	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
+
+# The base-image JVM case: a JDK already present reads only its own keystore,
+# so the wrapper injects the proxy CA there for the step. Built over both shapes
+# a JDK ships cacerts in, PKCS#12 (temurin:21) and JKS (temurin:17); the build's
+# own in-step `java` step fails the build unless the JVM trusts the CA, and
+# assert-inspect-no-ca-residue.sh proves the committed keystore does not keep it.
+.PHONY: test_integration_buildkit_inspect_java_audit
+test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests against Java base images (JVM keystore injection)
+	@echo "Running inspect-engine audit mode tests (Java base images)..."
+	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
+	  $(MAKE) setup_buildkit_inspect_audit
+	@for base in eclipse-temurin:21 eclipse-temurin:17; do \
+	  echo "=== Java base image: $$base ==="; \
+	  docker buildx build --no-cache \
+	    --builder $(BUILDER_NAME) \
+	    --platform $(TEST_PLATFORM) \
+	    --build-arg BASE=$$base \
+	    --progress=plain -f test/Dockerfile.inspect-java test/ \
+	    --load -t $(TEST_IMAGE) || exit 1; \
+	  NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE) || exit 1; \
+	done
+	@echo "=== Java real-tool case: Maven resolving a dependency ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --progress=plain -f test/Dockerfile.inspect-java-maven test/ \
+	  --load -t $(TEST_IMAGE)
+	@NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_inspect_byte_exact

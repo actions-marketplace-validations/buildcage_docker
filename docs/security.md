@@ -208,7 +208,9 @@ Three mechanisms make that enforceable:
   proxy's CA by bind-mounting a scratch copy of the CA store over the step's own view of it, writing
   back to the real one only if the step actually changed it. It also leaves the certificate in the
   distribution's anchor directory, so a step that installs `ca-certificates` part-way through keeps
-  trusting it once the bundle is rebuilt. Injection happens at exec time, never touches LLB, and so
+  trusting it once the bundle is rebuilt, and adds it, the same mirrored way, to the keystore a JVM
+  already in the base image reads (`$JAVA_HOME/lib/security/cacerts`, in either the JKS or PKCS#12
+  shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
   cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
   and takes the certificate, and the anchor, out of every file carrying it, in whatever shape;
   a copy it cannot take out fails the build rather than reaching the image. Reading the layer back
@@ -281,10 +283,12 @@ port, so the method and the path are neither enforced nor reported.
 
 ### `inspect` cannot work with everything, in either mode
 
-TLS is terminated, so a tool that pins a certificate, or ships its own trust store instead of
-reading the common CA-trust environment variables, will not work. The JVM (Java, Kotlin, Scala) is
-the common case. Use `universal` for those, and see [Limitations](../README.md#limitations) for the
-rest of the compatibility picture.
+TLS is terminated, so a tool that pins a certificate, or ships a bundled trust store it never lets
+the system update, will not work. The JVM (Java, Kotlin, Scala) reads only its own keystore rather
+than the CA-trust variables; a JVM already in the base image is handled by injecting into that
+keystore, but a password-sealed one, or a step that rewrites a PKCS#12 `cacerts` with `keytool`,
+falls back to `universal`. See [Limitations](../README.md#limitations) for the rest of the
+compatibility picture.
 
 `audit` is not a passive observer here either. TLS is terminated in both modes, so a tool that
 cannot accept the CA fails under `audit` exactly as it would under `restrict`. What `audit` drops is

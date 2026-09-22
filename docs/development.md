@@ -365,8 +365,10 @@ If you encounter issues, try reproducing the problem locally to get detailed log
 3. **TLS/certificate errors under `proxy_engine: inspect`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal`, the tool likely pins a certificate or
    ships its own trust store rather than reading the CA-trust environment variables Buildcage sets.
-   See [Limitations](../README.md#limitations). The JVM is the common case; fall back to
-   `universal` for it.
+   A JVM already in the base image is handled (`buildcage-runc` injects into its
+   `$JAVA_HOME/lib/security/cacerts`, JKS or PKCS#12); the fallbacks that still need `universal` are
+   a password-sealed keystore and a step that rewrites a PKCS#12 `cacerts` with `keytool`. See
+   [Limitations](../README.md#limitations).
 
 4. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
 workers` never succeeded inside it. The step prints the container log; locally:

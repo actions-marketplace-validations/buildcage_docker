@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -769,5 +770,54 @@ func TestFinishWritesNothingBackWhenItCannotResetAnMtime(t *testing.T) {
 	}
 	if string(got) != "ORIGINAL-ROOTS\n" {
 		t.Errorf("the real store was written to: %q", got)
+	}
+}
+
+// coverKeystore folds a keystore that sits inside an already-mirrored directory
+// into that bind: it injects into the mirror's copy and re-captures the baseline
+// so the gatekeeper counts the injection.
+func TestCoverKeystoreInjectsAndRecapturesBaseline(t *testing.T) {
+	scratch := t.TempDir()
+	mustMkdirAll(t, filepath.Join(scratch, "java"))
+	mustWriteFile(t, filepath.Join(scratch, "java", "cacerts"),
+		string(keystore(2, trustedEntry(2, "digicert", otherDER))))
+	b := &dirBind{scratchDir: scratch, containerDir: "/etc/ssl/certs"}
+
+	b.coverKeystore(filepath.Join("java", "cacerts"), testCA)
+
+	if b.baseline == nil {
+		t.Fatal("the baseline was not re-captured")
+	}
+	got, _ := os.ReadFile(filepath.Join(scratch, "java", "cacerts"))
+	if !bytes.Contains(got, []byte(injectedAlias)) {
+		t.Error("the CA was not inserted into the mirror's keystore")
+	}
+}
+
+// A keystore that cannot be injected into leaves the baseline as it was, so the
+// bind reconciles on its pre-injection state rather than a half-done one.
+func TestCoverKeystoreLeavesBaselineWhenInjectionFails(t *testing.T) {
+	scratch := t.TempDir()
+	mustWriteFile(t, filepath.Join(scratch, "cacerts"), "not a keystore at all")
+	b := &dirBind{scratchDir: scratch, containerDir: "/x"}
+
+	b.coverKeystore("cacerts", testCA)
+
+	if b.baseline != nil {
+		t.Fatal("the baseline was re-captured though the injection failed")
+	}
+}
+
+func TestCoverKeystoreLeavesBaselineWhenTheManifestFails(t *testing.T) {
+	scratch := t.TempDir()
+	mustWriteFile(t, filepath.Join(scratch, "cacerts"),
+		string(keystore(2, trustedEntry(2, "digicert", otherDER))))
+	b := &dirBind{scratchDir: scratch, containerDir: "/x"}
+	failWalkOn(t, scratch, 1) // the re-capture after a successful injection
+
+	b.coverKeystore("cacerts", testCA)
+
+	if b.baseline != nil {
+		t.Fatal("the baseline was re-captured though the manifest failed")
 	}
 }

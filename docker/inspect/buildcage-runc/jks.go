@@ -74,7 +74,7 @@ func removeFromKeystore(path string, ders [][]byte) (bool, error) {
 		if rewritten, err = keystoreWithout(content, ders); err != nil {
 			return false, fmt.Errorf("%s: %w", path, err)
 		}
-	case bytes.HasPrefix(content, pkcs12Magic):
+	case looksLikePKCS12(content):
 		var removed bool
 		if rewritten, removed, err = pkcs12Without(content, ders); err != nil {
 			return false, err
@@ -131,6 +131,63 @@ func keystoreWithout(content []byte, ders [][]byte) ([]byte, error) {
 	}
 	binary.BigEndian.PutUint32(out[8:], uint32(kept))
 	return append(out, keystoreDigest(out)...), nil
+}
+
+// keystoreWith returns the keystore with a trusted-certificate entry for each
+// certificate added at the end, resealed. Symmetric with keystoreWithout: the
+// existing entries are copied byte for byte, so the only differences from what
+// came in are the added entries, the count, and the digest.
+func keystoreWith(content []byte, ders [][]byte) ([]byte, error) {
+	if len(content) < len(keystoreMagic)+8+sha1.Size {
+		return nil, errors.New("too short to be a keystore")
+	}
+	body := len(content) - sha1.Size
+	// The same seal check removal makes: a keystore under another password is
+	// not this wrapper's to rewrite, and resealing it under this one would
+	// leave it unreadable to the JVM that owns it.
+	if !bytes.Equal(content[body:], keystoreDigest(content[:body])) {
+		return nil, errors.New("not sealed with the system keystore password")
+	}
+	version, _, err := parseKeystore(content[:body])
+	if err != nil {
+		return nil, err
+	}
+
+	out := slices.Clone(content[:body])
+	for i, der := range ders {
+		// One entry keeps the plain alias, so the common single-certificate CA
+		// injects byte for byte the same every build; a bundle's later entries
+		// take a suffix, since a JKS drops all but one entry under a given alias.
+		alias := injectedAlias
+		if i > 0 {
+			alias = fmt.Sprintf("%s-%d", injectedAlias, i)
+		}
+		out = append(out, buildTrustedEntry(version, alias, der)...)
+	}
+	binary.BigEndian.PutUint32(out[8:], binary.BigEndian.Uint32(out[8:])+uint32(len(ders)))
+	return append(out, keystoreDigest(out)...), nil
+}
+
+// buildTrustedEntry builds a tag-2 entry: the CA as a trusted certificate under
+// alias, in the shape the keystore's own version writes.
+func buildTrustedEntry(version uint32, alias string, der []byte) []byte {
+	entry := binary.BigEndian.AppendUint32(nil, 2)
+	entry = appendJavaUTF(entry, alias)
+	entry = binary.BigEndian.AppendUint64(entry, injectedCreationTime)
+	if version > 1 {
+		// The certificate type each DER is written under from version 2 on.
+		entry = appendJavaUTF(entry, "X.509")
+	}
+	entry = binary.BigEndian.AppendUint32(entry, uint32(len(der)))
+	return append(entry, der...)
+}
+
+// appendJavaUTF writes s the way Java does: a two-byte length and then the
+// bytes. The aliases and type strings here are ASCII, so their byte length is
+// the length Java's modified UTF-8 would write too.
+func appendJavaUTF(b []byte, s string) []byte {
+	b = binary.BigEndian.AppendUint16(b, uint16(len(s)))
+	return append(b, s...)
 }
 
 // keystoreDigest is what seals a keystore: the password in UTF-16BE, the JDK's
