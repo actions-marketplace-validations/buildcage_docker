@@ -38,11 +38,12 @@ function blockedReport(overrides: Partial<UniversalReportData> = {}): UniversalR
     blocked: annotateKnownBlocked(
       [
         {
+          time: 1,
+          action: "block",
+          protocol: "https",
           host: "bad.example.com",
-          port: "443",
-          ruleType: "HTTPS",
+          port: 443,
           reason: "not in allowlist",
-          count: 1,
         },
       ],
       [],

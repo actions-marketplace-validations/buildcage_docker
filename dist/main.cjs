@@ -314,65 +314,6 @@ function splitRawRegexHost(pattern) {
 	return { host };
 }
 //#endregion
-//#region src/core/lib/acl/wildcard-rules.ts
-function splitRuleTokens(rulesInput) {
-	let tokens = rulesInput?.split(/\r?\n/).map(stripLineComment).join(" ").trim().split(/\s+/).filter(Boolean) ?? [];
-	return tokens.forEach(rejectGluedHash), tokens;
-}
-function parseAndValidateRules(rulesInput) {
-	let rules = splitRuleTokens(rulesInput);
-	return rules.forEach(convertRule), rules;
-}
-function completeRulePort(rule) {
-	if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
-	let regex = rule.slice(1);
-	return splitDomainFromPortPattern(regex).portPattern === null ? `~${endsAnchored(regex) ? regex.slice(0, -1) : regex}:\\d+` : rule;
-}
-function parseAndValidateKnownBlockedRules(rulesInput) {
-	let rules = splitRuleTokens(rulesInput).map(completeRulePort);
-	return rules.forEach(convertRule), rules;
-}
-function convertRule(rule) {
-	return rule.startsWith("~") ? (splitRawRegexHost(rule), anchorRawRegex(rule.slice(1))) : `^${wildcardToRegex(rule)}$`;
-}
-function domainToRegex(domain) {
-	return domain.split(".").map((part) => {
-		if (part === "**") return ".+";
-		if (part === "*") return "[^.]+";
-		if (part.includes("*")) throw Error(`Invalid wildcard in "${domain}": part "${part}" mixes "*" with other characters`);
-		return part.replace(/[.+^$()[\]{}|\\]/g, "\\$&").replace(/\?/g, "[^.]");
-	}).join("\\.");
-}
-function wildcardToRegex(pattern) {
-	if (!/^[^:]+:(?:\d+|\*)$/.test(pattern)) throw Error(`Invalid pattern "${pattern}"`);
-	let [domain, port] = pattern.split(":"), portRegex = port === "*" ? "\\d+" : port;
-	return `${domainToRegex(domain)}:${portRegex}`;
-}
-//#endregion
-//#region src/core/lib/acl/rules.ts
-var InvalidRulesError = class extends ActionError {};
-function parseRulesOrThrow(rulesInput) {
-	try {
-		return parseAndValidateRules(rulesInput);
-	} catch (e) {
-		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
-	}
-}
-function parseKnownBlockedRulesOrThrow(rulesInput) {
-	try {
-		return parseAndValidateKnownBlockedRules(rulesInput);
-	} catch (e) {
-		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
-	}
-}
-function buildACLRules({ httpsRulesInput, httpRulesInput, ipRulesInput }) {
-	return {
-		httpsRules: parseRulesOrThrow(httpsRulesInput),
-		httpRules: parseRulesOrThrow(httpRulesInput),
-		ipRules: parseRulesOrThrow(ipRulesInput)
-	};
-}
-//#endregion
 //#region src/core/lib/acl/url-rules.ts
 const DEFAULT_PORT = {
 	https: "443",
@@ -475,6 +416,75 @@ function buildUrlRules(rulesInput) {
 	return splitUrlRuleLines(rulesInput).map(convertUrlRule);
 }
 //#endregion
+//#region src/core/lib/acl/wildcard-rules.ts
+function splitRuleTokens(rulesInput) {
+	let tokens = rulesInput?.split(/\r?\n/).map(stripLineComment).join(" ").trim().split(/\s+/).filter(Boolean) ?? [];
+	return tokens.forEach(rejectGluedHash), tokens;
+}
+function parseAndValidateRules(rulesInput) {
+	let rules = splitRuleTokens(rulesInput);
+	return rules.forEach(convertRule), rules;
+}
+function completeRulePort(rule) {
+	if (!rule.startsWith("~")) return rule.includes(":") ? rule : `${rule}:*`;
+	let regex = rule.slice(1);
+	return splitDomainFromPortPattern(regex).portPattern === null ? `~${endsAnchored(regex) ? regex.slice(0, -1) : regex}:\\d+` : rule;
+}
+function splitKnownBlockedLines(rulesInput) {
+	let lines = rulesInput?.split(/\r?\n/).map((line) => stripLineComment(line).trim()).filter((line) => line !== "") ?? [];
+	return lines.forEach(rejectGluedHash), lines;
+}
+function isKnownBlockedUrlRule(line) {
+	return /\s/.test(line.trim());
+}
+function parseAndValidateKnownBlockedRules(rulesInput) {
+	return splitKnownBlockedLines(rulesInput).map((line) => {
+		if (isKnownBlockedUrlRule(line)) return convertUrlRule(line), line;
+		let completed = completeRulePort(line);
+		return convertRule(completed), completed;
+	});
+}
+function convertRule(rule) {
+	return rule.startsWith("~") ? (splitRawRegexHost(rule), anchorRawRegex(rule.slice(1))) : `^${wildcardToRegex(rule)}$`;
+}
+function domainToRegex(domain) {
+	return domain.split(".").map((part) => {
+		if (part === "**") return ".+";
+		if (part === "*") return "[^.]+";
+		if (part.includes("*")) throw Error(`Invalid wildcard in "${domain}": part "${part}" mixes "*" with other characters`);
+		return part.replace(/[.+^$()[\]{}|\\]/g, "\\$&").replace(/\?/g, "[^.]");
+	}).join("\\.");
+}
+function wildcardToRegex(pattern) {
+	if (!/^[^:]+:(?:\d+|\*)$/.test(pattern)) throw Error(`Invalid pattern "${pattern}"`);
+	let [domain, port] = pattern.split(":"), portRegex = port === "*" ? "\\d+" : port;
+	return `${domainToRegex(domain)}:${portRegex}`;
+}
+//#endregion
+//#region src/core/lib/acl/rules.ts
+var InvalidRulesError = class extends ActionError {};
+function parseRulesOrThrow(rulesInput) {
+	try {
+		return parseAndValidateRules(rulesInput);
+	} catch (e) {
+		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
+	}
+}
+function parseKnownBlockedRulesOrThrow(rulesInput) {
+	try {
+		return parseAndValidateKnownBlockedRules(rulesInput);
+	} catch (e) {
+		throw new InvalidRulesError(errorMessage(e), "INVALID_RULES");
+	}
+}
+function buildACLRules({ httpsRulesInput, httpRulesInput, ipRulesInput }) {
+	return {
+		httpsRules: parseRulesOrThrow(httpsRulesInput),
+		httpRules: parseRulesOrThrow(httpRulesInput),
+		ipRules: parseRulesOrThrow(ipRulesInput)
+	};
+}
+//#endregion
 //#region src/lib/engine.ts
 const ENGINES = ["universal", "inspect"], ENGINE_ALIASES = { transparent: "universal" };
 function resolveProxyEngine(input, notice) {
@@ -520,6 +530,15 @@ function checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules 
 		return;
 	}
 	throw new SetupError(`${reason} In restrict mode that means ${list} would not actually be enforced, so the build would look protected but isn't. Switch to proxy_engine: inspect, or remove ${list} from your workflow.`, "INVALID_PROXY_ENGINE");
+}
+function checkKnownBlockedUrlRuleSupport({ proxyEngine, proxyMode, knownBlockedUrlRules }, warn) {
+	if (proxyEngine === "inspect" || knownBlockedUrlRules.length === 0) return;
+	let reason = `known_blocked_rules contains URL rules (a method and a URL) that need proxy_engine: inspect, which alone sees a method or a path; proxy_engine: ${proxyEngine} sees only the host and port, so these rules match no blocked connection and acknowledge nothing.`;
+	if (proxyMode === "audit") {
+		warn(`${reason} They are ignored for this run. Drop the method to acknowledge the whole host, or switch to proxy_engine: inspect.`);
+		return;
+	}
+	throw new SetupError(`${reason} Drop the method to acknowledge the whole host, or switch to proxy_engine: inspect.`, "INVALID_PROXY_ENGINE");
 }
 //#endregion
 //#region src/lib/host-addresses.ts
@@ -7360,6 +7379,7 @@ const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("
 	readLocalImageOverride,
 	verifyImageDigestOrThrow,
 	checkUrlAndTlsRuleSupport,
+	checkKnownBlockedUrlRuleSupport,
 	logRules,
 	withLogGroup,
 	builderStartError,
@@ -7388,7 +7408,7 @@ async function resolveVerifiedImage({ actionRef, actionRepo, proxyEngine }, { ve
 	};
 }
 async function runSetupStep(env, overrides = {}) {
-	let { readEngineInputs, readRuleInputs, readBuilderName, readLocalImageOverride, verifyImageDigestOrThrow, checkUrlAndTlsRuleSupport, logRules, withLogGroup, builderStartError, runDocker, log, notice, warn } = {
+	let { readEngineInputs, readRuleInputs, readBuilderName, readLocalImageOverride, verifyImageDigestOrThrow, checkUrlAndTlsRuleSupport, checkKnownBlockedUrlRuleSupport, logRules, withLogGroup, builderStartError, runDocker, log, notice, warn } = {
 		...realDeps,
 		...overrides
 	}, actionRef = env.GITHUB_ACTION_REF ?? "", actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "", { proxyEngine } = readEngineInputs(notice);
@@ -7408,6 +7428,10 @@ async function runSetupStep(env, overrides = {}) {
 		proxyMode,
 		urlRules,
 		tlsRules
+	}, warn), checkKnownBlockedUrlRuleSupport({
+		proxyEngine,
+		proxyMode,
+		knownBlockedUrlRules: knownBlockedRules.filter(isKnownBlockedUrlRule)
 	}, warn), withLogGroup("buildcage: Configured ACL Rules", () => {
 		logRules("HTTPS", httpsRules), logRules("HTTP", httpRules), logRules("IP", ipRules), logRules("URL", urlRules), logRules("TLS", tlsRules), logRules("Known blocked", knownBlockedRules);
 	});

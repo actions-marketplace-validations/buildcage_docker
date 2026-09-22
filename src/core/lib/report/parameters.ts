@@ -1,4 +1,4 @@
-import { splitRuleTokens } from "../acl/wildcard-rules.ts";
+import { splitKnownBlockedLines, splitRuleTokens } from "../acl/wildcard-rules.ts";
 import type { GenReportParameters } from "./types.ts";
 
 /** Builds GenReportParameters from a container's own env, as read via
@@ -12,6 +12,8 @@ export function buildReportParameters(
     allowedHttpRules: splitRuleTokens(env.ALLOWED_HTTP_RULES),
     allowedIpRules: splitRuleTokens(env.ALLOWED_IP_RULES),
     allowedTlsRules: splitRuleTokens(env.ALLOWED_TLS_RULES),
-    knownBlockedRules: splitRuleTokens(env.KNOWN_BLOCKED_RULES),
+    // Newline-separated, unlike the whitespace-separated allow inputs: a line
+    // can be a URL rule carrying a space (see splitKnownBlockedLines).
+    knownBlockedRules: splitKnownBlockedLines(env.KNOWN_BLOCKED_RULES),
   };
 }

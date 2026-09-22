@@ -16,7 +16,11 @@ import { fileURLToPath } from "node:url";
 import { SetupError } from "./errors.ts";
 import { annotate } from "#core/lib/actions/annotation.ts";
 import { readBuilderName, readEngineInputs, readRuleInputs } from "./inputs.ts";
-import { checkUrlAndTlsRuleSupport } from "./engine-rule-support.ts";
+import {
+  checkKnownBlockedUrlRuleSupport,
+  checkUrlAndTlsRuleSupport,
+} from "./engine-rule-support.ts";
+import { isKnownBlockedUrlRule } from "#core/lib/acl/wildcard-rules.ts";
 import { buildComposeEnv } from "./compose-env.ts";
 import {
   verifyImageDigestOrThrow,
@@ -53,6 +57,7 @@ export interface SetupStepDeps {
   readLocalImageOverride: typeof readLocalImageOverride;
   verifyImageDigestOrThrow: typeof verifyImageDigestOrThrow;
   checkUrlAndTlsRuleSupport: typeof checkUrlAndTlsRuleSupport;
+  checkKnownBlockedUrlRuleSupport: typeof checkKnownBlockedUrlRuleSupport;
   logRules: typeof logRules;
   withLogGroup: typeof withLogGroup;
   builderStartError: typeof builderStartError;
@@ -82,6 +87,7 @@ const realDeps: SetupStepDeps = {
   readLocalImageOverride,
   verifyImageDigestOrThrow,
   checkUrlAndTlsRuleSupport,
+  checkKnownBlockedUrlRuleSupport,
   logRules,
   withLogGroup,
   builderStartError,
@@ -123,6 +129,7 @@ export async function runSetupStep(
     readLocalImageOverride,
     verifyImageDigestOrThrow,
     checkUrlAndTlsRuleSupport,
+    checkKnownBlockedUrlRuleSupport,
     logRules,
     withLogGroup,
     builderStartError,
@@ -155,6 +162,14 @@ export async function runSetupStep(
   // Before the builder starts, so a rule the engine cannot enforce is reported
   // once, up front, rather than silently not enforced.
   checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, warn);
+  checkKnownBlockedUrlRuleSupport(
+    {
+      proxyEngine,
+      proxyMode,
+      knownBlockedUrlRules: knownBlockedRules.filter(isKnownBlockedUrlRule),
+    },
+    warn,
+  );
 
   withLogGroup("buildcage: Configured ACL Rules", () => {
     logRules("HTTPS", httpsRules);
