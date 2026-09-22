@@ -235,6 +235,9 @@ known_blocked_rules: |
   telemetry.example.com
 ```
 
+A name refused at resolution, before any connection, has no port. A bare `telemetry.example.com` (or
+`telemetry.example.com:*`) covers it; `telemetry.example.com:443` does not, since no port was involved.
+
 ## Report action
 
 `buildcage/docker/report` reads the builder's communication log and writes the Job Summary. Add it
