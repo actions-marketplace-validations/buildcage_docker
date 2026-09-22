@@ -63,14 +63,29 @@ fi
 # (the Debian fixture). keytool is in the image because the JRE is, so the
 # committed keystore is read back through it; a binary JKS holds the DER, not
 # the base64 line the bundles are grepped for. The Alpine fixture ships no JRE
-# and skips this. A build that could not take the certificate out of the
-# keystore would have failed, so reaching here already means it did.
+# and skips this.
+#
+# The listing is captured and its exit code checked, rather than piped into
+# grep: the sweep rewrites and reseals the keystore, so "no buildcage" is only
+# meaningful if keytool could still read it. A rewrite that corrupted the seal
+# leaves keytool exiting non-zero with nothing on stdout, which a bare
+# `keytool | grep -qi buildcage` would read as a pass. The kept-root floor
+# catches the other end: a rewrite that dropped more than the one entry. Debian
+# bookworm's ca-certificates seeds ~150 roots, so 100 is well clear of a
+# healthy store and well above a gutted one.
 if docker run --rm "$IMAGE" sh -c 'command -v keytool >/dev/null 2>&1'; then
-  if docker run --rm "$IMAGE" sh -c \
-    'keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit 2>/dev/null | grep -qi buildcage'; then
-    fail "the buildcage CA is still trusted in the JVM keystore"
+  if listing=$(docker run --rm "$IMAGE" \
+    keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit 2>/dev/null); then
+    roots=$(grep -c trustedCertEntry <<<"$listing" || true)
+    if grep -qi buildcage <<<"$listing"; then
+      fail "the buildcage CA is still trusted in the JVM keystore"
+    elif [ "${roots:-0}" -lt 100 ]; then
+      fail "the sweep left the JVM keystore with only $roots roots; it dropped more than the CA"
+    else
+      pass "the JVM keystore is readable, keeps its $roots roots, and no longer trusts the CA"
+    fi
   else
-    pass "no buildcage CA in the JVM keystore"
+    fail "the JVM keystore is unreadable after the sweep; the rewrite corrupted it"
   fi
 fi
 
