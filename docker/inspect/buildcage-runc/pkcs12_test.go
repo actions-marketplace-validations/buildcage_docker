@@ -247,9 +247,9 @@ func TestStripCARewritesPKCS12(t *testing.T) {
 
 // A file shaped like a PKCS#12 that carries the CA's DER in the clear but will
 // not decode: the DER is found, the keystore rewrite cannot reach it, and
-// stripCA reports it left rather than passing the build. This is the fail-closed
-// the Q2 decision asks for, reached only because the DER is actually present. An
-// encrypted store hides the DER instead, so it is never a strip candidate.
+// stripCA reports it left rather than passing the build. It fails closed only
+// because the DER is actually present; an encrypted store hides the DER instead,
+// so it is never a strip candidate.
 func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	caPEM := certPEM(ca)
