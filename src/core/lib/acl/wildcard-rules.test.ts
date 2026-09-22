@@ -242,6 +242,10 @@ describe("known_blocked_rules port completion", () => {
     expect(completeRulePort("~^a\\$")).toBe("~^a\\$:\\d+");
   });
 
+  it("treats a missing input the same as an empty one", () => {
+    expect(parseAndValidateKnownBlockedRules(undefined)).toStrictEqual([]);
+  });
+
   it("is what parseAndValidateKnownBlockedRules returns, one rule per line", () => {
     expect(parseAndValidateKnownBlockedRules("a.example.com\nb.example.com:443")).toStrictEqual([
       "a.example.com:*",
