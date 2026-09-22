@@ -231,18 +231,25 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		}
 	}
 
-	// A JVM already in the base image reads only its own keystore, neither the
-	// system store nor the CA-trust variables, so the CA goes in there too,
-	// mirrored and bound the same way (see jvmstore.go). A Debian JDK's cacerts
-	// is a symlink into the CA store directory, which the store's own bind
-	// already mirrors and would shadow a second bind under; there the CA goes
-	// into that mirror's copy of the keystore instead of a bind of its own.
-	if keystore, ok := findJVMKeystore(s); ok {
-		containerDir := containerPathOf(s.rootfs, filepath.Dir(keystore))
+	// A JVM already in the base image reads only its own keystores, neither the
+	// system store nor the CA-trust variables, so the CA goes into each too (see
+	// jvmstore.go), grouped by directory so the ones a JDK keeps together share a
+	// bind. A Debian JDK's cacerts is a symlink into the CA store directory, which
+	// the store's own bind already mirrors and would shadow a second bind under;
+	// there the CA goes into that mirror's copy of the keystore instead.
+	keystoresByDir := map[string][]string{}
+	for _, keystore := range findJVMKeystores(s) {
+		dir := filepath.Dir(keystore)
+		keystoresByDir[dir] = append(keystoresByDir[dir], filepath.Base(keystore))
+	}
+	for hostDir, names := range keystoresByDir {
+		containerDir := containerPathOf(s.rootfs, hostDir)
 		if covering := bindCovering(binds, containerDir); covering != nil {
-			rel := filepath.Join(strings.TrimPrefix(containerDir, covering.containerDir), filepath.Base(keystore))
-			covering.coverKeystore(rel, ca)
-		} else if b := prepareBind(s, bundle, filepath.Dir(keystore), []string{filepath.Base(keystore)}, ca, true, true); b != nil {
+			for _, name := range names {
+				rel := filepath.Join(strings.TrimPrefix(containerDir, covering.containerDir), name)
+				covering.coverKeystore(rel, ca)
+			}
+		} else if b := prepareBind(s, bundle, hostDir, names, ca, true, true); b != nil {
 			binds = append(binds, b)
 		}
 	}

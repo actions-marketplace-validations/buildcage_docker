@@ -91,15 +91,16 @@ fi
 
 # The base image's own JVM keystore: the case the keystore injection exists for
 # (docker/inspect/buildcage-runc/jvmstore.go), as opposed to the
-# ca-certificates-java one above. The path is discovered from the image's own
-# JAVA_HOME, over the same candidates the injection looks at ($JAVA_HOME/lib and
-# a JDK 8's jre/lib), so this covers both shapes a JDK ships cacerts in, PKCS#12
-# (eclipse-temurin:21) and JKS (eclipse-temurin:17); a keystore found only via
-# the /etc/ssl/certs/java/cacerts fallback is the one the check above already
-# covers. The injection lands only in the scratch mirror bound over the step, so
-# a committed keystore that still trusted the CA would mean the undo let the
-# mirror through; the kept-root floor catches a rewrite that dropped more than
-# the CA, the same way the ca-certificates-java check above does.
+# ca-certificates-java one above. The cacerts path is discovered from the image's
+# own JAVA_HOME (both the JDK 9+ lib/security and a JDK 8's jre/lib), which covers
+# both shapes a JDK ships it in, PKCS#12 (eclipse-temurin:21) and JKS
+# (eclipse-temurin:17). It is a second check on the common keystore; the layer
+# sweep in buildcage-runc is what guarantees no keystore in any shape or location
+# (jssecacerts, the RHEL paths) reaches the image carrying the CA, by failing the
+# build if one does. The injection lands only in the scratch mirror bound over
+# the step, so a committed keystore that still trusted the CA would mean the undo
+# let the mirror through; the kept-root floor catches a rewrite that dropped more
+# than the CA, the same way the ca-certificates-java check above does.
 JVM_CACERTS=$(docker run --rm "$IMAGE" sh -c '
   for p in "$JAVA_HOME/lib/security/cacerts" "$JAVA_HOME/jre/lib/security/cacerts"; do
     [ -f "$p" ] && { printf %s "$p"; break; }

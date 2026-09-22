@@ -19,51 +19,93 @@ func writeRootfsKeystore(t *testing.T, rootfs, containerPath string, content []b
 	mustWriteFile(t, abs, string(content))
 }
 
-func TestFindJVMKeystoreFromJavaHome(t *testing.T) {
+func hasPath(paths []string, want string) bool {
+	for _, p := range paths {
+		if p == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFindJVMKeystoresFromJavaHome(t *testing.T) {
 	rootfs := t.TempDir()
 	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/java"}}
 	cacerts := filepath.Join(rootfs, "opt/java/lib/security/cacerts")
 	mustMkdirAll(t, filepath.Dir(cacerts))
 	mustWriteFile(t, cacerts, "x")
 
-	got, ok := findJVMKeystore(s)
-	if !ok || got != cacerts {
-		t.Fatalf("findJVMKeystore = %q, %v; want %q, true", got, ok, cacerts)
+	if got := findJVMKeystores(s); len(got) != 1 || got[0] != cacerts {
+		t.Fatalf("findJVMKeystores = %v; want [%q]", got, cacerts)
 	}
 }
 
-// JAVA_HOME unset, a JVM at a known fixed path instead (Debian's symlinked
-// cacerts, followed to its real file).
-func TestFindJVMKeystoreFromKnownPath(t *testing.T) {
+// jssecacerts overrides cacerts in the JVM's default trust manager, so both are
+// found when both are present.
+func TestFindJVMKeystoresIncludesJssecacerts(t *testing.T) {
 	rootfs := t.TempDir()
-	s := &spec{rootfs: rootfs, env: map[string]string{}}
-	cacerts := filepath.Join(rootfs, "etc/ssl/certs/java/cacerts")
-	mustMkdirAll(t, filepath.Dir(cacerts))
-	mustWriteFile(t, cacerts, "x")
+	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/java"}}
+	dir := filepath.Join(rootfs, "opt/java/lib/security")
+	mustMkdirAll(t, dir)
+	mustWriteFile(t, filepath.Join(dir, "cacerts"), "x")
+	mustWriteFile(t, filepath.Join(dir, "jssecacerts"), "x")
 
-	got, ok := findJVMKeystore(s)
-	if !ok || got != cacerts {
-		t.Fatalf("findJVMKeystore = %q, %v; want %q, true", got, ok, cacerts)
+	got := findJVMKeystores(s)
+	if !hasPath(got, filepath.Join(dir, "cacerts")) || !hasPath(got, filepath.Join(dir, "jssecacerts")) {
+		t.Fatalf("findJVMKeystores = %v; want both cacerts and jssecacerts", got)
 	}
 }
 
-// JAVA_HOME names a keystore that is not there, so discovery falls through to
-// the known paths and, finding none either, reports no keystore.
-func TestFindJVMKeystoreNoneFound(t *testing.T) {
+// JAVA_HOME unset, a JVM at a known fixed directory instead: Debian's, or one of
+// RHEL's, each followed through its symlink to the real file.
+func TestFindJVMKeystoresFromKnownDirs(t *testing.T) {
+	for _, dir := range []string{"etc/ssl/certs/java", "etc/pki/java", "etc/pki/ca-trust/extracted/java"} {
+		t.Run(dir, func(t *testing.T) {
+			rootfs := t.TempDir()
+			s := &spec{rootfs: rootfs, env: map[string]string{}}
+			cacerts := filepath.Join(rootfs, dir, "cacerts")
+			mustMkdirAll(t, filepath.Dir(cacerts))
+			mustWriteFile(t, cacerts, "x")
+
+			if got := findJVMKeystores(s); !hasPath(got, cacerts) {
+				t.Fatalf("findJVMKeystores = %v; want it to include %q", got, cacerts)
+			}
+		})
+	}
+}
+
+// A keystore reachable by two candidate paths (JAVA_HOME's cacerts symlinked to
+// a known fixed path) is returned once, not injected into twice.
+func TestFindJVMKeystoresDeduplicates(t *testing.T) {
+	rootfs := t.TempDir()
+	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/java"}}
+	real := filepath.Join(rootfs, "etc/ssl/certs/java/cacerts")
+	mustMkdirAll(t, filepath.Dir(real))
+	mustWriteFile(t, real, "x")
+	mustMkdirAll(t, filepath.Join(rootfs, "opt/java/lib/security"))
+	mustSymlink(t, "/etc/ssl/certs/java/cacerts", filepath.Join(rootfs, "opt/java/lib/security/cacerts"))
+
+	if got := findJVMKeystores(s); len(got) != 1 || got[0] != real {
+		t.Fatalf("findJVMKeystores = %v; want the single real path %q", got, real)
+	}
+}
+
+// JAVA_HOME names a directory with no keystore, and no known path has one
+// either, so nothing is found.
+func TestFindJVMKeystoresNoneFound(t *testing.T) {
 	s := &spec{rootfs: t.TempDir(), env: map[string]string{"JAVA_HOME": "/opt/java"}}
-	if got, ok := findJVMKeystore(s); ok {
-		t.Fatalf("found a keystore where there is none: %q", got)
+	if got := findJVMKeystores(s); len(got) != 0 {
+		t.Fatalf("found keystores where there are none: %v", got)
 	}
 }
 
-// A JAVA_HOME cacerts that is a directory, not a file, is not a keystore to
-// inject into and is passed over.
-func TestFindJVMKeystoreIgnoresANonRegularFile(t *testing.T) {
+// A cacerts that is a directory, not a file, is not a keystore to inject into.
+func TestFindJVMKeystoresIgnoresANonRegularFile(t *testing.T) {
 	rootfs := t.TempDir()
 	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/java"}}
 	mustMkdirAll(t, filepath.Join(rootfs, "opt/java/lib/security/cacerts"))
-	if _, ok := findJVMKeystore(s); ok {
-		t.Fatal("a directory was taken for a keystore")
+	if got := findJVMKeystores(s); len(got) != 0 {
+		t.Fatalf("a directory was taken for a keystore: %v", got)
 	}
 }
 
@@ -208,6 +250,35 @@ func TestInjectAddsCAToTheJVMKeystore(t *testing.T) {
 	}
 }
 
+// jssecacerts overrides cacerts, so both keystores in a JDK's security directory
+// get the CA, not cacerts alone.
+func TestInjectAddsCAToBothJVMKeystores(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
+		keystore(2, trustedEntry(2, "digicert", otherDER)))
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/jssecacerts",
+		keystore(2, trustedEntry(2, "digicert", otherDER)))
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	mount := findMount(t, loadMounts(t, bundle), "/opt/java/lib/security")
+	scratch, _ := mount["source"].(string)
+	for _, name := range []string{"cacerts", "jssecacerts"} {
+		mirrored, err := os.ReadFile(filepath.Join(scratch, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(mirrored, []byte(injectedAlias)) || !bytes.Contains(mirrored, testDER) {
+			t.Errorf("the CA was not inserted into the mirrored %s", name)
+		}
+	}
+}
+
 // A step that never touches the keystore leaves the real file alone: finish
 // finds the mirror unchanged from its post-injection baseline.
 func TestInjectLeavesAnUntouchedKeystoreAlone(t *testing.T) {
@@ -298,16 +369,15 @@ func TestInjectSkipsAnUninjectableKeystore(t *testing.T) {
 }
 
 // A JDK 8 keeps cacerts under jre/lib/security, its JAVA_HOME being the JDK root.
-func TestFindJVMKeystoreFromJavaHomeJre(t *testing.T) {
+func TestFindJVMKeystoresFromJavaHomeJre(t *testing.T) {
 	rootfs := t.TempDir()
 	s := &spec{rootfs: rootfs, env: map[string]string{"JAVA_HOME": "/opt/jdk8"}}
 	cacerts := filepath.Join(rootfs, "opt/jdk8/jre/lib/security/cacerts")
 	mustMkdirAll(t, filepath.Dir(cacerts))
 	mustWriteFile(t, cacerts, "x")
 
-	got, ok := findJVMKeystore(s)
-	if !ok || got != cacerts {
-		t.Fatalf("findJVMKeystore = %q, %v; want %q, true", got, ok, cacerts)
+	if got := findJVMKeystores(s); !hasPath(got, cacerts) {
+		t.Fatalf("findJVMKeystores = %v; want it to include %q", got, cacerts)
 	}
 }
 

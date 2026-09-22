@@ -37,40 +37,52 @@ const (
 	injectedCreationTime = 1700000000000
 )
 
-// Keystores tried when JAVA_HOME is unset. JAVA_HOME covers the Java base
-// images this is aimed at; this catches a JVM installed at a fixed location
-// without it. /etc/ssl/certs/java/cacerts is Debian's ca-certificates-java
-// output, a symlink resolveInRoot follows to the real file.
-var knownJVMKeystores = []string{
-	"/etc/ssl/certs/java/cacerts",
+// The keystore file names a JVM's default trust manager reads, in the order it
+// prefers them: jssecacerts overrides cacerts entirely when it is present, so
+// the CA has to go into whichever exist, not cacerts alone.
+var jvmKeystoreNames = []string{"jssecacerts", "cacerts"}
+
+// Security directories tried when JAVA_HOME is unset. JAVA_HOME covers the Java
+// base images this is aimed at; these catch a JVM installed at a fixed location
+// without it. /etc/ssl/certs/java is Debian's ca-certificates-java output and
+// the /etc/pki ones are RHEL's, each a symlink resolveInRoot follows to the
+// real file.
+var knownJVMKeystoreDirs = []string{
+	"/etc/ssl/certs/java",
+	"/etc/pki/java",
+	"/etc/pki/ca-trust/extracted/java",
 }
 
-// findJVMKeystore locates the existing JVM keystore inside the rootfs, from
-// JAVA_HOME first and then the known fixed paths. It returns the resolved host
-// path of the keystore file, or ok=false when the image carries no JVM keystore
-// this knows to look for.
-func findJVMKeystore(s *spec) (string, bool) {
-	var candidates []string
+// findJVMKeystores returns the resolved host paths of every JVM keystore inside
+// the rootfs, from JAVA_HOME first and then the known fixed directories, each
+// deduplicated by where it resolves so a symlinked one is not injected twice.
+func findJVMKeystores(s *spec) []string {
+	var dirs []string
 	if home := s.env["JAVA_HOME"]; home != "" {
 		// lib/security is the layout from JDK 9 on; jre/lib/security is where a
 		// JDK 8's JAVA_HOME (the JDK root, with the JRE under jre/) keeps it.
-		candidates = append(candidates,
-			filepath.Join(home, "lib", "security", "cacerts"),
-			filepath.Join(home, "jre", "lib", "security", "cacerts"),
+		dirs = append(dirs,
+			filepath.Join(home, "lib", "security"),
+			filepath.Join(home, "jre", "lib", "security"),
 		)
 	}
-	candidates = append(candidates, knownJVMKeystores...)
+	dirs = append(dirs, knownJVMKeystoreDirs...)
 
-	for _, candidate := range candidates {
-		resolved, err := resolveInRoot(s.rootfs, candidate)
-		if err != nil {
-			continue
-		}
-		if info, err := os.Stat(resolved); err == nil && info.Mode().IsRegular() {
-			return resolved, true
+	var keystores []string
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		for _, name := range jvmKeystoreNames {
+			resolved, err := resolveInRoot(s.rootfs, filepath.Join(dir, name))
+			if err != nil || seen[resolved] {
+				continue
+			}
+			if info, err := os.Stat(resolved); err == nil && info.Mode().IsRegular() {
+				seen[resolved] = true
+				keystores = append(keystores, resolved)
+			}
 		}
 	}
-	return "", false
+	return keystores
 }
 
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
