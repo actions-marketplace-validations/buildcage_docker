@@ -43,13 +43,12 @@ var keystoreSalt = []byte("Mighty Aphrodite")
 // var, not a const, so a test can reach the limit without writing 16 MB.
 var maxKeystoreBytes int64 = 16 << 20
 
-// removeFromKeystore takes the certificate out of a Java keystore, in either
-// shape one ships as, rewriting it in place, and reports whether it rewrote
-// anything. The file is read once and dispatched on its magic: a JKS
-// (feedfeed) or a PKCS#12 (a DER SEQUENCE). A file that is neither is left
-// alone for the caller to report; one that is, but cannot be rewritten safely,
-// is an error.
-func removeFromKeystore(path string, ders [][]byte) (bool, error) {
+// removeFromBinaryStore takes the certificate out of a binary trust store in
+// place and reports whether it rewrote anything. A JKS (feedfeed) or PKCS#12
+// (a DER SEQUENCE) keystore is told apart by its magic; anything else is tried
+// as an EFI signature database. A file that is none of them is left for the
+// caller to report; a keystore that cannot be rewritten safely is an error.
+func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false, asNotRegular(path, err)
@@ -83,7 +82,10 @@ func removeFromKeystore(path string, ders [][]byte) (bool, error) {
 			return false, nil
 		}
 	default:
-		return false, nil
+		var removed bool
+		if rewritten, removed = signatureListsWithout(content, ders); !removed {
+			return false, nil
+		}
 	}
 
 	if _, err := f.WriteAt(rewritten, 0); err != nil {

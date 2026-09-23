@@ -347,13 +347,13 @@ func TestSweepDirDropsAnAbsoluteLinkThroughTheRoot(t *testing.T) {
 // rewrite is named and fails the build rather than being left in the layer.
 func TestSweepDirFailsOnAContainerItCannotRewrite(t *testing.T) {
 	dir := t.TempDir()
-	mustWriteFile(t, filepath.Join(dir, "cacerts.bin"), "EFI-VAR\x00"+string(testDER)+"\x00")
+	mustWriteFile(t, filepath.Join(dir, "store.db"), "SQLite format 3\x00"+string(testDER)+"\x00")
 
 	_, err := sweepDir(dir, dir, testCA, caMarksOf(testCA))
 	if !errors.Is(err, errUnstrippableCA) {
 		t.Fatalf("got %v, want the container to be reported", err)
 	}
-	if !strings.Contains(err.Error(), "cacerts.bin") {
+	if !strings.Contains(err.Error(), "store.db") {
 		t.Fatalf("got %v, want it to name the file", err)
 	}
 }
@@ -637,8 +637,8 @@ func TestStripLayerFailsOnACopyItCouldNotRemove(t *testing.T) {
 	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
 	mustMkdirAll(t, rootfs)
 	mustMkdirAll(t, upper)
-	mustWriteFile(t, filepath.Join(upper, "cacerts.bin"), "EFI-VAR\x00"+string(testDER))
-	mustHardLink(t, filepath.Join(upper, "cacerts.bin"), filepath.Join(rootfs, "cacerts.bin"))
+	mustWriteFile(t, filepath.Join(upper, "store.db"), "SQLite format 3\x00"+string(testDER))
+	mustHardLink(t, filepath.Join(upper, "store.db"), filepath.Join(rootfs, "store.db"))
 	useMountInfo(t, overlayLine(rootfs, upper))
 
 	if err := stripLayer(rootfs, testCA); !errors.Is(err, errUnstrippableCA) {

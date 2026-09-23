@@ -213,8 +213,9 @@ Three mechanisms make that enforceable:
   already in the base image reads (`$JAVA_HOME/lib/security/cacerts`, in either the JKS or PKCS#12
   shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
   cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
-  and takes the certificate, and the anchor, out of every text file carrying it as PEM and every JKS
-  or PKCS#12 keystore carrying it as DER. A copy it finds but cannot remove fails the build: one
+  and takes the certificate, and the anchor, out of every text file carrying it as PEM, every JKS
+  or PKCS#12 keystore carrying it as DER, and the EFI signature database RHEL's `update-ca-trust`
+  writes. A copy it finds but cannot remove fails the build: one
   inside any other binary, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line), a
   certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 holding either
   that opens with no password or `changeit`. A copy it cannot read stays in the image: one in a

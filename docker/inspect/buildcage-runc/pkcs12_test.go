@@ -177,14 +177,14 @@ func TestPKCS12WithoutRemovesLastCert(t *testing.T) {
 	}
 }
 
-// removeFromKeystore reads the file once and dispatches on its magic: a PKCS#12
-// keystore holding the CA is rewritten in place, the gap that used to fail the
-// build.
+// removeFromBinaryStore reads the file once and dispatches on its magic: a
+// PKCS#12 keystore holding the CA is rewritten in place, the gap that used to
+// fail the build.
 func TestRemoveFromKeystoreStripsPKCS12(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
-	rewritten, err := removeFromKeystore(path, [][]byte{ca.Raw})
+	rewritten, err := removeFromBinaryStore(path, [][]byte{ca.Raw})
 	if err != nil || !rewritten {
 		t.Fatalf("rewriting the PKCS#12 keystore: rewritten=%v err=%v", rewritten, err)
 	}
@@ -204,7 +204,7 @@ func TestRemoveFromKeystorePKCS12NotHolding(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	path := mustWritePKCS12(t, passwordlessStore(t, root))
 	before, _ := os.ReadFile(path)
-	rewritten, err := removeFromKeystore(path, [][]byte{ca.Raw})
+	rewritten, err := removeFromBinaryStore(path, [][]byte{ca.Raw})
 	if err != nil || rewritten {
 		t.Fatalf("want no rewrite, got rewritten=%v err=%v", rewritten, err)
 	}
@@ -214,8 +214,9 @@ func TestRemoveFromKeystorePKCS12NotHolding(t *testing.T) {
 	}
 }
 
-// removeFromKeystore hands a PKCS#12 rewrite error back rather than reporting
-// no rewrite, so the caller does not read a failed strip as a clean one.
+// removeFromBinaryStore hands a PKCS#12 rewrite error back rather than
+// reporting no rewrite, so the caller does not read a failed strip as a clean
+// one.
 func TestRemoveFromKeystorePKCS12Error(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
@@ -223,7 +224,7 @@ func TestRemoveFromKeystorePKCS12Error(t *testing.T) {
 	old := encodePKCS12
 	encodePKCS12 = func([]*x509.Certificate) ([]byte, error) { return nil, errBrokenFile }
 	t.Cleanup(func() { encodePKCS12 = old })
-	if _, err := removeFromKeystore(path, [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
+	if _, err := removeFromBinaryStore(path, [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the encode failure, got %v", err)
 	}
 }
