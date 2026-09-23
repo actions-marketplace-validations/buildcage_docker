@@ -20,6 +20,7 @@ package main
 
 import (
 	"crypto/x509"
+	"io"
 	"slices"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
@@ -99,4 +100,51 @@ func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	return out, true, nil
+}
+
+// Passwords tried on an encrypted PKCS#12: none, and the JDK default a copy of
+// cacerts usually keeps. Others pass unread: dependencies ship encrypted test
+// keystores (the Azure SDK for Go does), and failing on those would fail
+// builds that never touched the CA.
+var sealedKeystorePasswords = []string{"", keystorePassword}
+
+// sealedPKCS12Holds reports whether f is a PKCS#12 that opens under one of
+// sealedKeystorePasswords and holds a certificate carrying one of needles.
+func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error) {
+	if size < 2 || size > maxKeystoreBytes {
+		return false, nil
+	}
+	// Nearly every file is not a keystore, so the magic is checked before
+	// reading the whole file.
+	head := make([]byte, 2)
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return false, err
+	}
+	if !looksLikePKCS12(head) {
+		return false, nil
+	}
+	content := make([]byte, size)
+	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
+		return false, err
+	}
+	for _, password := range sealedKeystorePasswords {
+		for _, cert := range pkcs12Certificates(content, password) {
+			if holdsAnyDER(cert.Raw, needles) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// pkcs12Certificates decodes content as a trust store or as a key with its
+// chain, the two shapes go-pkcs12 supports. Nil if neither opens.
+func pkcs12Certificates(content []byte, password string) []*x509.Certificate {
+	if certs, err := pkcs12.DecodeTrustStore(content, password); err == nil {
+		return certs
+	}
+	if _, cert, chain, err := pkcs12.DecodeChain(content, password); err == nil {
+		return append(chain, cert)
+	}
+	return nil
 }
