@@ -419,12 +419,12 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-# The client ended it, so buildcage keeps it out of the report; only the raw
-# traffic artifact below still carries it.
-if grep -qE "HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)" <<< "$REPORT_MARKDOWN"; then
-  fail "a connection the client left was shown in the report"
+# No rule decided it and nothing else reached this host, so its close is kept,
+# and neither table can hold it: the timeline is the only place it can appear.
+if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
+  pass "a connection the client left is in the timeline, with a mark of its own"
 else
-  pass "a connection the client left is kept out of the report"
+  fail "the aborted connection is missing from the timeline"
 fi
 if grep -qF "| aborted.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN"; then
   fail "the aborted connection was put in one of the host tables"
@@ -507,8 +507,6 @@ if [ -n "$TRAFFIC" ] \
         (r) => r.protocol === "dns" && r.action === "block" && r.reason === "dns-not-allowed",
         // The JSON keeps a lookup the summary folds into the request that followed.
         (r) => r.protocol === "dns" && r.action === "allow",
-        // The summary hides a client-ended connection; the artifact keeps it.
-        (r) => r.action === "incomplete" && ["client-aborted", "client-timeout"].includes(r.reason),
       ];
       const ok = need.every((f) => rows.some(f))
         && rows.every((r) => r.time && r.action && r.protocol && r.host)
