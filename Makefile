@@ -259,6 +259,8 @@ test_integration_buildkit_universal_restrict_no_traffic: ## Run universal-engine
 # The Alpine build the CA-residue and layer-bloat guards run against. Every
 # inspect build injects the same CA the same way, so the other Alpine image
 # (Dockerfile.inspect-audit, built by the round trip) would prove nothing more.
+# The same builder then checks that a step packing the bundle into a binary
+# fails rather than commits it.
 .PHONY: test_integration_buildkit_inspect_restrict
 test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode tests
 	@echo "Running inspect-engine restrict mode tests..."
@@ -273,6 +275,8 @@ test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode 
 	@./test/assert-inspect-no-layer-bloat.sh $(TEST_IMAGE)
 	@node report/src/main.ts || true
 	@./test/assert-inspect-restrict.sh
+	@BUILDER_NAME=$(BUILDER_NAME) TEST_PLATFORM=$(TEST_PLATFORM) \
+	  ./test/assert-inspect-refuses-embedded-bundle.sh
 	@node src/post.ts
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 

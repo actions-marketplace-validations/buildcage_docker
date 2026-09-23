@@ -395,6 +395,17 @@ reported as blocked; see
   Buildcage will not rewrite, and a step that itself rewrites a PKCS#12 `cacerts` with `keytool`,
   which re-seals it with a MAC Buildcage cannot reopen to take the CA back out, so the build fails
   closed rather than shipping the CA.
+- A step that packs the system CA bundle into a binary or an uncompressed archive fails: `go:embed`,
+  `include_str!` or `tar cf` of the bundle, in the same `RUN` step that copied it. The bundle holds
+  the build's CA while the step runs, and cutting it out of a binary would shift everything after
+  it. Copy the bundle in an earlier `RUN` step, which leaves that copy without the CA:
+
+  ```dockerfile
+  RUN cp /etc/ssl/certs/ca-certificates.crt ./certs/ && go build   # fails
+  RUN cp /etc/ssl/certs/ca-certificates.crt ./certs/
+  RUN go build                                                      # fine
+  ```
+
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
 - An image with no system CA store (`scratch`, distroless, or `debian:*-slim` before

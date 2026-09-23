@@ -251,8 +251,9 @@ type span struct{ start, end int64 }
 // place.
 //
 // Returns without error when there is none, since the step may have rewritten
-// the file itself. The find and the strip share one handle, opened the same
-// guarded way as appendCA, so they can't land on different files.
+// the file itself, and when the file is binary, which it leaves untouched. The
+// find and the strip share one handle, opened the same guarded way as appendCA,
+// so they can't land on different files.
 func removeCA(path string, ca []byte) error {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
@@ -279,6 +280,14 @@ func removeCA(path string, ca []byte) error {
 	size := info.Size()
 	cuts, err := findCertificates(f, ders, size)
 	if err != nil || len(cuts) == 0 {
+		return err
+	}
+	// Closing the gap moves every byte after it, which a text file survives and
+	// a binary does not: an executable's offsets, an archive's sizes and checksums
+	// all point past the cut. A NUL byte is what every such format has and no
+	// bundle does, so the copy is left for the caller to find and refuse.
+	nul, err := findInFile(f, []byte{0}, 0, size)
+	if err != nil || nul != -1 {
 		return err
 	}
 	kept, err := closeGaps(f, cuts, size)
