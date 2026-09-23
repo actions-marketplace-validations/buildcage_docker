@@ -419,8 +419,8 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-# No rule decided it, so it belongs in neither table and the timeline is the
-# only place it can appear.
+# No rule decided it and nothing else reached this host, so its close is kept,
+# and neither table can hold it: the timeline is the only place it can appear.
 if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
   pass "a connection the client left is in the timeline, with a mark of its own"
 else
