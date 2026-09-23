@@ -361,9 +361,10 @@ else
   fail "the Blocked Hosts table is missing expected rows"
 fi
 # A refusal made before a whole request arrived is still a refusal, and counts
-# towards fail_on_blocked. The plain stage has no SNI to name it by, hence the
-# host these two carry.
-if grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| bad-request \|' <<< "$REPORT_MARKDOWN" \
+# towards fail_on_blocked. The plain stage has no SNI to name it by: bytes sent
+# to an address are named by it, as the ip rule that could pass them would be,
+# and a request to a name lands on the proxy's own address, which names nothing.
+if grep -qF '| 10.200.0.100:5432 | IP | bad-request |' <<< "$REPORT_MARKDOWN" \
   && grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| missing-host-header \|' <<< "$REPORT_MARKDOWN"; then
   pass "both refusals that named no host are in the table"
 else
