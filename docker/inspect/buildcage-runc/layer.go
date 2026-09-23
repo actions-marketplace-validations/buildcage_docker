@@ -295,10 +295,9 @@ func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
 	if err != nil || !left {
 		return false, err
 	}
-	// Armoured copies are gone, so what is left is a container holding the DER
-	// among its own bytes. A Java keystore is the one that can be rewritten, in
-	// either of the two shapes it ships as; any other container is reported
-	// rather than left in.
+	// What is left is a binary holding the certificate as DER or as PEM that
+	// removeCA would not cut. Only a Java keystore can be rewritten, in either
+	// shape it ships as; any other binary is reported.
 	rewritten, err := removeFromKeystore(path, ders)
 	if err != nil {
 		return false, err

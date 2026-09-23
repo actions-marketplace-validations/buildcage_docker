@@ -358,6 +358,30 @@ func TestSweepDirFailsOnAContainerItCannotRewrite(t *testing.T) {
 	}
 }
 
+// A binary embedding the bundle fails the build instead of being committed
+// corrupted.
+func TestSweepDirFailsOnABinaryEmbeddingTheBundle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server")
+	content := "\x7fELF\x02\x01\x01\x00" + string(otherCA) + string(testCA) + "\x00TRAILER"
+	mustWriteFile(t, path, content)
+
+	_, err := sweepDir(dir, dir, testCA, certificateDERs(testCA))
+	if !errors.Is(err, errUnstrippableCA) {
+		t.Fatalf("got %v, want the binary to be reported", err)
+	}
+	if !strings.Contains(err.Error(), "server") {
+		t.Fatalf("got %v, want it to name the file", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("got %q, want it unchanged", got)
+	}
+}
+
 // The sweep reads every byte a step wrote, so anything it is not here for has
 // to come out the other side untouched. On an overlay, even opening one for
 // writing would copy it into the layer.
