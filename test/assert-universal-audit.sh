@@ -103,8 +103,9 @@ assert_rules() {
 }
 
 if grep -qF "Switch to restrict mode" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "proxy_mode: restrict" <<< "$REPORT_MARKDOWN"; then
-  pass "a restrict-mode example was rendered"
+  && grep -qF "proxy_mode: restrict" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "proxy_engine: universal" <<< "$REPORT_MARKDOWN"; then
+  pass "a restrict-mode example was rendered, naming the non-default engine"
 else
   fail "no restrict-mode example was rendered"
 fi
