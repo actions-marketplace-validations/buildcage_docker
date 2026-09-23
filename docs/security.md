@@ -247,6 +247,7 @@ more than intended.
 | Connects to a raw address                                                                          | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                         |
 | Speaks something that is not HTTP to a port no rule covers                                         | Read as a request by the stage it is handed to and refused, on both engines, and the refusal is counted like any other                                       |
 | Ignores the proxy variables entirely                                                               | No effect: interception is at the network level, not opt-in                                                                                                  |
+| Sends `*` as its method, `Host` or path in audit, to plant a wildcard in the suggested rules       | Left out of the suggested `allowed_url_rules` and listed beside it, so pasting them never permits more than the build sent                                   |
 | Floods the proxy log until earlier entries rotate away                                             | A log that no longer starts where a real run does is not accepted as a complete record: the step fails under `restrict` with `fail_on_blocked` (the default) |
 
 ## What the engines cannot see
