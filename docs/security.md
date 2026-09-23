@@ -385,6 +385,14 @@ Pay particular attention to general-purpose destinations: a gist host, object st
 that can create repositories. They accept uploads as readily as they serve downloads, which is what
 makes them useful for sending data out.
 
+A wildcard host widens the DNS side too. The resolver inside the cage answers locally and forwards
+nothing (see [DNS never leaves the job](#dns-never-leaves-the-job)), but a request the rules admit
+is resolved upstream by the proxy against the runner's own DNS before it connects. Under
+`*.example.com` a name like `<data>.example.com` is looked up the moment the request is allowed, so
+its labels reach that domain's authoritative nameserver even when the request that follows is
+refused on its path. In `audit`, where nothing is refused, every name the build asks for is resolved
+this way. A literal host, or a narrow wildcard, keeps what leaves the job to names you named.
+
 ### Reduce what has to be reachable
 
 A package registry is usually the one entry a build cannot do without, and the fetch has to happen
