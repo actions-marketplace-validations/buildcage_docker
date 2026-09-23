@@ -29,7 +29,7 @@ else
   pass "the build failed"
 fi
 
-if echo "$OUT" | grep -q "cannot strip: /app/bundle.tar"; then
+if grep -q "cannot strip: /app/bundle.tar" <<<"$OUT"; then
   pass "the failure names the archive as the file it could not strip"
 else
   fail "the build log does not name /app/bundle.tar as unstrippable"
