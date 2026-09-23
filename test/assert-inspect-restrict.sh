@@ -222,11 +222,25 @@ else
 fi
 echo ""
 
+echo "[DNS over TCP] a resolver an ip rule allows passes through, the gateway's does not:"
+if grep -qE "^buildcage [0-9]+ pass tcp [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.53:53 sni=-$" <<< "$LOGS"; then
+  pass "the fixture resolver's :53 recorded as a tcp passthrough"
+else
+  fail "no tcp passthrough was recorded for the fixture resolver's :53"
+fi
+if grep -qE "dst=172\.20\.0\.1:53 " <<< "$LOGS"; then
+  fail "the gateway's :53 reached the proxy instead of CoreDNS"
+else
+  pass "the gateway's :53 never reached the proxy"
+fi
+echo ""
+
 # Everything not passed through is recorded by the frontend that terminates it,
 # so nothing else may appear at the tcp stage or it would be counted twice.
 # The count is not asserted: a reused container's log spans several builds.
 OTHER=$(grep -E "^buildcage [0-9]+ pass " <<< "$LOGS" \
   | grep -v "sni=tlspass\.example\.com" \
+  | grep -v "dst=10\.200\.0\.53:53" \
   | grep -cv "dst=10\.200\.0\.100:9080" || true)
 if [ "$OTHER" -eq 0 ]; then
   pass "only the passthrough is logged at the tcp stage"
