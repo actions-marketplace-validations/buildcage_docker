@@ -88,10 +88,9 @@ func findJVMKeystores(s *spec) []string {
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
 // at path, rewriting it in place. Like removeFromBinaryStore it reads the file
 // once and dispatches on its magic. On success it returns the keystore's
-// pre-injection bytes, so the caller can restore them without reading the file a
-// second time (and without an uncapped read, since this bounds the size). An
-// error leaves the keystore untouched for the caller to report, so the step's
-// JVM does not trust the CA.
+// pre-injection bytes for the caller to restore later. An error leaves the
+// keystore untouched for the caller to report, so the step's JVM does not trust
+// the CA.
 func insertIntoKeystore(path string, ca []byte) ([]byte, error) {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
@@ -134,7 +133,6 @@ func insertIntoKeystore(path string, ca []byte) ([]byte, error) {
 	if _, err := f.WriteAt(injected, 0); err != nil {
 		return nil, err
 	}
-	// content on the Truncate error too, but callers that check the error first
-	// never read it there.
+	// Returns content alongside a Truncate error; the caller ignores it there.
 	return content, f.Truncate(int64(len(injected)))
 }

@@ -24,12 +24,10 @@ func loadSpec(bundle string) (*spec, error) {
 	if err != nil {
 		return nil, err
 	}
-	// UseNumber so a number survives the load/save round trip as the text
-	// BuildKit wrote. Decoded into float64, a value past 2^53 (an ulimit of
-	// RLIM_INFINITY, a seccomp argument) would round to a different integer and
-	// go back out changed, which runc can reject or, worse, silently enforce a
-	// rule against the wrong value. This wrapper reads no number itself, so
-	// keeping them as json.Number costs nothing here.
+	// UseNumber so a number past 2^53 (an RLIM_INFINITY ulimit, a seccomp
+	// argument) survives the load/save round trip as the text BuildKit wrote
+	// rather than rounding through float64, which runc can reject or misapply.
+	// The wrapper reads no number itself, so json.Number costs nothing here.
 	var raw map[string]any
 	dec := json.NewDecoder(bytes.NewReader(content))
 	dec.UseNumber()

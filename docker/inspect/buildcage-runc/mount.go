@@ -58,22 +58,19 @@ type dirBind struct {
 	original []fileEntry // hostDir's state before mirroring
 	baseline []fileEntry // scratchDir's state right after the CA was appended
 
-	// keystoreOriginals holds each injected keystore's pre-injection bytes,
-	// keyed by its path relative to scratchDir. Unlike a PEM bundle, a keystore
-	// does not survive the inject/strip round trip byte for byte (go-pkcs12
-	// rewrites each alias to its certificate's subject, and a JKS re-serialises),
-	// so one the step never changed is restored from these rather than committed
-	// in the churned form the round trip leaves.
+	// keystoreOriginals holds each injected keystore's pre-injection bytes, keyed
+	// by its path relative to scratchDir. A keystore does not survive the
+	// inject/strip round trip byte for byte (go-pkcs12 rewrites aliases to the
+	// subject, a JKS re-serialises), so one the step never changed is restored
+	// from these instead.
 	keystoreOriginals map[string][]byte
 }
 
-// groupTargetsByBind groups the CA targets by the directory whose mirror will
-// carry them, as names relative to that directory. A target resolving under the
-// store directory is folded into the store's own group rather than bound on its
-// own: the store bind already mirrors the whole directory, and a second bind
-// nested inside the store mount would be shadowed by it, so a target below the
-// store (an env var pointing at a file there) would otherwise be skipped and
-// never trust the CA. Every other target is grouped by its immediate directory.
+// groupTargetsByBind groups the CA targets by the directory whose mirror carries
+// them, as names relative to that directory. A target under the store directory
+// is folded into the store's group: the store bind already mirrors that whole
+// directory, and a separate bind nested under the store mount would be shadowed
+// by it, leaving the target without the CA.
 func groupTargetsByBind(targets map[string]bool, store systemStore) map[string][]string {
 	groups := make(map[string][]string)
 	for target := range targets {
@@ -87,11 +84,9 @@ func groupTargetsByBind(targets map[string]bool, store systemStore) map[string][
 	return groups
 }
 
-// bindDirsInOrder is the grouped directories to prepare, the store first and the
-// rest sorted. The order fixes which of two nesting directories wins the bind,
-// which map iteration left to change from run to run; putting the store first
-// keeps it, the directory nearly everything trusts, from being the one a nesting
-// target displaces.
+// bindDirsInOrder prepares the store first, then the rest sorted, so which of
+// two nesting directories wins the bind is fixed rather than left to map order.
+// The store goes first so a nesting target never displaces it.
 func bindDirsInOrder(groups map[string][]string, store systemStore) []string {
 	dirs := make([]string, 0, len(groups))
 	for dir := range groups {
@@ -346,10 +341,8 @@ func (b *dirBind) finish() error {
 		return nil
 	}
 
-	// Before the sweep: a keystore the step never touched is put back to its
-	// pristine bytes, which carry no CA to sweep and no re-encoding to fail on,
-	// so the sweep neither churns it nor fails the build over a strip it would
-	// have discarded anyway.
+	// Before the sweep, so an untouched keystore restored to its pristine bytes
+	// carries no CA for the sweep to strip and re-encode (or fail on).
 	if err := b.restoreUntouchedKeystores(current); err != nil {
 		return err
 	}
@@ -418,13 +411,11 @@ func (b *dirBind) rememberKeystore(target string, original []byte) {
 	b.keystoreOriginals[rel] = original
 }
 
-// restoreUntouchedKeystores puts the pristine bytes back for every injected
-// keystore the step left as the injection had it, so the write-back commits the
-// keystore an unproxied build would have rather than the churned form the
-// inject/strip round trip produces. current is the mirror as the step left it,
-// before the sweep: a keystore that still matches the post-injection baseline
-// there is one the step never touched. One the step did change keeps its swept
-// version, the CA taken back out of the step's own bytes.
+// restoreUntouchedKeystores restores the pristine bytes of every injected
+// keystore the step left matching the post-injection baseline, so an unchanged
+// keystore is committed as an unproxied build would have it rather than in the
+// churned form the round trip produces. current is the mirror before the sweep;
+// a keystore the step did change is left for the sweep to take the CA out of.
 func (b *dirBind) restoreUntouchedKeystores(current []fileEntry) error {
 	for rel, original := range b.keystoreOriginals {
 		cur, ok := entryFor(current, rel)
