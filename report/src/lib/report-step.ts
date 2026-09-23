@@ -102,7 +102,7 @@ export async function runReportStep(
 
   const scratchDir = makeScratchDir();
   // The path is handed to the script, so only a file this step created is
-  // ever uploaded. Only the inspect engine writes it.
+  // ever uploaded.
   const trafficFile = trafficArtifact.wanted ? join(scratchDir, "traffic.json") : undefined;
   try {
     const reportActionPath = join(scratchDir, "report-action.js");
