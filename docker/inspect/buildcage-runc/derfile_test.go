@@ -36,9 +36,8 @@ func TestHoldsOnlyInjectedCert(t *testing.T) {
 }
 
 // removeFromBinaryStore empties a file that is one bare DER of the injected CA,
-// the gap that used to fail the build on a system carrying Mono. It is emptied
-// rather than rewritten: nothing but the certificate was in it, and the sweep
-// drops the emptied file.
+// rather than rewriting it, since nothing but the certificate is in it. The sweep
+// then drops the emptied file.
 func TestRemoveFromBinaryStoreEmptiesABareDERCert(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	path := filepath.Join(t.TempDir(), "ski-DEADBEEF.cer")

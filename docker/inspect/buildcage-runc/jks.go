@@ -75,10 +75,10 @@ func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 			return false, fmt.Errorf("%s: %w", path, err)
 		}
 	case holdsOnlyInjectedCert(content, ders):
-		// The whole file is the injected CA, so nothing is left behind:
-		// rewritten stays nil and the emptied file is dropped by the sweep. This
-		// is tried before PKCS#12 because a bare DER certificate is a SEQUENCE
-		// too and would otherwise be mistaken for a keystore that cannot decode.
+		// The whole file is the injected CA: leaving rewritten nil empties it,
+		// and the sweep drops the emptied file. Ordered before PKCS#12 because a
+		// bare DER certificate is also a SEQUENCE and would otherwise be taken for
+		// a keystore that fails to decode.
 	case looksLikePKCS12(content):
 		var removed bool
 		if rewritten, removed, err = pkcs12Without(content, ders); err != nil {
