@@ -148,11 +148,10 @@ type injection struct {
 	binds        []*dirBind
 	createdOwnCA string
 	created      createdDirs
-	// The step's layer as found when the injection began. Kept rather than
-	// recomputed at finish: a transient failure to read the mount table would
-	// otherwise report no layer and commit the anchors' scattered copies
-	// unswept. Empty when there was no overlay to read, in which case no
-	// anchors were placed either.
+	// The step's layer as found when the injection began, kept rather than
+	// recomputed at finish: a transient mount-table read failure there would
+	// otherwise report no layer and commit the anchors' scattered copies unswept.
+	// Empty when there was no overlay, in which case no anchors were placed.
 	upper string
 }
 
