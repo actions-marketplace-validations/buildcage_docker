@@ -533,6 +533,24 @@ func TestRemoveCAIsANoOpWhenTheFileIsGone(t *testing.T) {
 	}
 }
 
+// Cutting a PEM block out of a binary would shift everything after it.
+func TestRemoveCALeavesABinaryUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server")
+	content := "\x7fELF\x02\x01\x01\x00" + string(testCA) + "\x00TRAILER"
+	mustWriteFile(t, path, content)
+
+	if err := removeCA(path, testCA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("got %q, want it unchanged", got)
+	}
+}
+
 // An empty bundle has no bytes to scan. The scan has to end on its own rather
 // than read past the end of the file.
 func TestRemoveCAIsANoOpOnAnEmptyFile(t *testing.T) {
@@ -594,6 +612,7 @@ func TestRemoveCAReportsAFailurePartwayThrough(t *testing.T) {
 		"the scan for the closing line":           {failReadAt: 2},
 		"the read of the certificate itself":      {failReadAt: 3},
 		"the newline check after the certificate": {failReadAt: 4},
+		"the check for a binary":                  {failReadAt: 5},
 		"the shift that closes the gap":           {failWriteAt: 1},
 	}
 	for name, broken := range cases {

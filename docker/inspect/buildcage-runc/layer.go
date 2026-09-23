@@ -300,9 +300,9 @@ func stripCA(path string, ca []byte, marks caMarks) (bool, error) {
 	if err != nil || !left {
 		return false, err
 	}
-	// What is left is the DER inside a binary container, or a trace nothing
-	// removes. Only a Java keystore (JKS or PKCS#12) can be rewritten;
-	// anything else is reported.
+	// What is left is a binary holding the certificate as DER or as PEM that
+	// removeCA would not cut, or a trace nothing removes. Only a Java keystore
+	// can be rewritten, in either shape it ships as; anything else is reported.
 	rewritten, err := removeFromKeystore(path, marks.ders)
 	if err != nil {
 		return false, err

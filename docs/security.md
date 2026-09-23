@@ -213,17 +213,17 @@ Three mechanisms make that enforceable:
   already in the base image reads (`$JAVA_HOME/lib/security/cacerts`, in either the JKS or PKCS#12
   shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
   cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
-  and takes the certificate, and the anchor, out of every file carrying it as PEM, or as DER in a
-  JKS or PKCS#12 keystore. A copy it finds but cannot remove fails the build: the PEM re-wrapped
-  (escaped into JSON, indented in YAML, on one line), a certificate the proxy issued (saved from a
-  server trust-on-first-use), or a PKCS#12 holding either that opens with no password or
-  `changeit`. A copy it cannot read stays in the image: one in a compressed archive, or in a
-  keystore encrypted under another password. Those are not failed on, since dependencies ship
-  encrypted test keystores and failing on them would break builds that never touched the CA.
-  Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder started by
-  this action gets. On a builder whose data root cannot hold an overlay upper directory, BuildKit
-  falls back to another snapshotter, the wrapper logs that it is leaving the layer unread, and only
-  the store directory's own undo applies, as before the engine read layers back.
+  and takes the certificate, and the anchor, out of every text file carrying it as PEM and every JKS
+  or PKCS#12 keystore carrying it as DER. A copy it finds but cannot remove fails the build: one
+  inside any other binary, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line), a
+  certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 holding either
+  that opens with no password or `changeit`. A copy it cannot read stays in the image: one in a
+  compressed archive, or in a keystore encrypted under another password. Those are not failed on,
+  since dependencies ship encrypted test keystores and failing on them would break builds that never
+  touched the CA. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
+  started by this action gets. On a builder whose data root cannot hold an overlay upper directory,
+  BuildKit falls back to another snapshotter, the wrapper logs that it is leaving the layer unread,
+  and only the store directory's own undo applies, as before the engine read layers back.
 
 A wide host rule paired with a narrow path or method does not narrow the DNS side. DNS has no notion
 of a path, so a name under an allowed `*.example.com` is logged as allowed the moment it is looked

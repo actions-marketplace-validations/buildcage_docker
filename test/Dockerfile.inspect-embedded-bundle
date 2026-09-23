@@ -1,0 +1,13 @@
+# An uncompressed tar of the injected bundle stands in for go:embed or
+# include_str!: NUL bytes in its headers, the PEM verbatim in its body. The
+# sweep must refuse it; assert-inspect-refuses-embedded-bundle.sh expects the
+# build to fail. The text copy is removed so the tar is the only file named.
+FROM alpine/curl@sha256:1a4d725751c5bd50297ee243db5d4df8ac5aabdf7030dd40dcec3bc3fdaa1cfa
+
+SHELL ["/bin/sh", "-c"]
+
+RUN mkdir -p /app && cd /app && \
+    cp /etc/ssl/certs/ca-certificates.crt . && \
+    tar cf bundle.tar ca-certificates.crt && \
+    rm ca-certificates.crt && \
+    echo "OK: packed"
