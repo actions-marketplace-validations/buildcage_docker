@@ -136,7 +136,16 @@ func removeCreatedDirs(rootfs string, created createdDirs) {
 		if adopted[dir] {
 			continue
 		}
-		err := os.Remove(dir)
+		// Re-resolve the container path and remove only what still lands where
+		// the injection created it. Otherwise a step that swapped an ancestor for
+		// an absolute symlink would have os.Remove follow it out of the rootfs;
+		// resolveInRoot confines the target, and a mismatch reveals the swap.
+		resolved, err := resolveInRoot(rootfs, containerPathOf(rootfs, dir))
+		if err != nil || resolved != dir {
+			logf("not taking the anchor directory %s back out: it no longer resolves there (%v)", dir, err)
+			continue
+		}
+		err = os.Remove(resolved)
 		// Gone, or holding something the step put there: either way the
 		// injection has nothing left of its own here.
 		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTEMPTY) {

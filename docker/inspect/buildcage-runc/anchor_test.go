@@ -136,6 +136,34 @@ func TestRemoveCreatedDirsLeavesOneTheStepFilled(t *testing.T) {
 	}
 }
 
+// A step that empties an anchor directory and swaps an ancestor for a symlink
+// to an absolute path of its own must not have the undo follow it: os.Remove on
+// the inject-time path would otherwise reach out of the rootfs. Re-resolving the
+// path disagrees with where the injection put it, so the directory is left.
+func TestRemoveCreatedDirsRefusesAPathASymlinkNowLeadsOutOf(t *testing.T) {
+	rootfs := t.TempDir()
+	mustMkdirAll(t, filepath.Join(rootfs, "etc"))
+	created := placeAnchors(rootfs, testCA)
+
+	// Something outside the rootfs the old undo would have unlinked by following
+	// an absolute symlink out of it.
+	outside := t.TempDir()
+	mustMkdirAll(t, filepath.Join(outside, "anchors"))
+
+	// The step points the RHEL anchor's parent at that outside path.
+	source := filepath.Join(rootfs, "etc", "pki", "ca-trust", "source")
+	if err := os.RemoveAll(source); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, outside, source)
+
+	removeCreatedDirs(rootfs, created)
+
+	if _, err := os.Stat(filepath.Join(outside, "anchors")); err != nil {
+		t.Fatalf("the undo followed a symlink out of the rootfs: %v", err)
+	}
+}
+
 // A path that resolves to a symlink or is otherwise not writable is left for
 // the step; createCA reports it rather than following it.
 func TestCreateCARefusesAnExistingPath(t *testing.T) {
