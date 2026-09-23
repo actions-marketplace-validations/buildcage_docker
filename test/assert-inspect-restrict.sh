@@ -228,7 +228,7 @@ if grep -qE "^buildcage [0-9]+ pass tcp [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\
 else
   fail "no tcp passthrough was recorded for the fixture resolver's :53"
 fi
-if grep -qE "dst=172\.20\.0\.1:53 " <<< "$LOGS"; then
+if grep -qE "dst=198\.19\.255\.1:53 " <<< "$LOGS"; then
   fail "the gateway's :53 reached the proxy instead of CoreDNS"
 else
   pass "the gateway's :53 never reached the proxy"
@@ -301,12 +301,12 @@ echo "[DNS] a reverse lookup is recorded without being judged:"
 # No rule can name a reverse zone, so calling one denied would put a row in the
 # report that writing a rule could never take away. The resolver still records
 # the lookup, under a verb of its own that the report layer does not read.
-if grep -qF "buildcage dns reverse name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+if grep -qF "buildcage dns reverse name=1.255.19.198.in-addr.arpa" <<< "$DNS_LOG"; then
   pass "the reverse lookup was recorded under its own verb"
 else
   fail "the reverse lookup was not recorded"
 fi
-if grep -qF "buildcage dns denied name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+if grep -qF "buildcage dns denied name=1.255.19.198.in-addr.arpa" <<< "$DNS_LOG"; then
   fail "the reverse lookup was recorded as a denied name"
 else
   pass "the reverse lookup was not recorded as denied"
@@ -458,7 +458,7 @@ else
   fail "the refused lookup for the aborted host was folded away"
 fi
 
-if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+if grep -qF "1.255.19.198.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
   fail "a reverse lookup reached the report"
 else
   pass "a reverse lookup is left out of the report entirely"

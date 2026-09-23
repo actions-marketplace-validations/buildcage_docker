@@ -12,8 +12,8 @@ WORKTREE_NAME := $(if $(findstring /worktrees/,$(GIT_DIR)),$(notdir $(GIT_DIR)))
 # no image tag, container name or Compose project name accepts it.
 WORKTREE_SLUG := $(if $(WORKTREE_NAME),$(shell printf '%s' '$(WORKTREE_NAME)' | tr 'A-Z' 'a-z' | tr -Cs 'a-z0-9_-' '-' | sed -e 's/^-//' -e 's/-$$//'))
 BUILDCAGE_WORKTREE_SUFFIX ?= $(if $(WORKTREE_SLUG),-$(WORKTREE_SLUG))
-# test-net cannot be left to Docker's pool, which includes 172.20.0.0/16 and so
-# overlaps the builder's CNI bridge, so pick a subnet from the worktree name.
+# test-net-addr finds test-net by its subnet, so pin one, derived from the
+# worktree name so linked worktrees don't collide.
 TEST_NET_SUBNET ?= $(if $(WORKTREE_NAME),$(shell printf '%s' '$(WORKTREE_NAME)' | cksum | awk '{printf "10.%d.%d.0/24", $$1 % 40 + 210, int($$1 / 40) % 254 + 1}'),10.210.0.0/24)
 BUILDER_NAME ?= buildcage$(BUILDCAGE_WORKTREE_SUFFIX)
 TEST_IMAGE ?= buildcage-test$(BUILDCAGE_WORKTREE_SUFFIX)

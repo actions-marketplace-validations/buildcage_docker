@@ -3,7 +3,7 @@ debug = true
 [dns]
 # The steps' resolver, not buildkitd's own: the daemon keeps using the builder
 # container's resolv.conf, so `FROM` still reaches a real registry.
-nameservers = ["172.20.0.1"]
+nameservers = ["198.19.255.1"]
 # Without this, the host's own search domain leaks into every RUN step's
 # resolv.conf and doubles each lookup.
 options = ["ndots:0"]

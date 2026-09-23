@@ -54,8 +54,7 @@ services:
       test-net:
 
 networks:
-  # Pinned rather than auto-assigned: Docker's pool includes 172.20.0.0/16,
-  # which collides with the builder's CNI bridge inside its netns.
+  # Pinned rather than auto-assigned: test-net-addr finds the interface by it.
   test-net:
     ipam:
       config:
