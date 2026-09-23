@@ -57,6 +57,20 @@ func passwordlessStore(t *testing.T, certs ...*x509.Certificate) []byte {
 	return data
 }
 
+// namedStore is a passwordless trust store whose entry carries an alias of its
+// own, the way keytool writes a JDK's cacerts (a short label, not the subject
+// DN). Re-encoding it through decode/EncodeTrustStore would replace that alias
+// with the subject, which is the churn restoreUntouchedKeystores prevents.
+func namedStore(t *testing.T, alias string, cert *x509.Certificate) []byte {
+	t.Helper()
+	data, err := pkcs12.Passwordless.EncodeTrustStoreEntries(
+		[]pkcs12.TrustStoreEntry{{Cert: cert, FriendlyName: alias}}, "")
+	if err != nil {
+		t.Fatalf("encoding a named trust store: %v", err)
+	}
+	return data
+}
+
 // encryptedStore is a Modern trust store: its certificate bags are PBES2
 // encrypted under a real password, so the empty-password decode this uses
 // cannot open it. It stands in for a keystore a step replaced with one of its

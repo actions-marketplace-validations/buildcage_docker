@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,22 @@ func TestGroupTargetsByDir(t *testing.T) {
 	}
 	if len(groups["/rootfs/custom"]) != 1 {
 		t.Errorf("expected 1 file grouped under /rootfs/custom, got %v", groups["/rootfs/custom"])
+	}
+}
+
+// The order the directories are prepared in decides which of two nesting ones
+// wins the bind, so it has to be fixed rather than left to map iteration. The
+// deepest is prepared first, so the more specific directory claims its subtree.
+func TestDirsDeepestFirst(t *testing.T) {
+	groups := map[string][]string{
+		"/etc/ssl":       nil,
+		"/etc/ssl/certs": nil,
+		"/opt/java":      nil,
+	}
+	got := dirsDeepestFirst(groups)
+	want := []string{"/opt/java", "/etc/ssl/certs", "/etc/ssl"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 

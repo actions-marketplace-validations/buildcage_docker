@@ -35,6 +35,10 @@ var runRsync = func(args []string) ([]byte, error) {
 	return exec.Command("rsync", args...).CombinedOutput()
 }
 
+// writeMirrorFile is a var so a test can fail the pristine-keystore restore,
+// which a real filesystem only does part-way through on an I/O error.
+var writeMirrorFile = os.WriteFile
+
 // dirBind mounts a scratch mirror of one directory over the step's view of
 // it, so the CA can be added without ever opening the real rootfs file for
 // writing. Grouped by directory rather than by file: two variables can
@@ -53,6 +57,14 @@ type dirBind struct {
 
 	original []fileEntry // hostDir's state before mirroring
 	baseline []fileEntry // scratchDir's state right after the CA was appended
+
+	// keystoreOriginals holds each injected keystore's pre-injection bytes,
+	// keyed by its path relative to scratchDir. Unlike a PEM bundle, a keystore
+	// does not survive the inject/strip round trip byte for byte (go-pkcs12
+	// rewrites each alias to its certificate's subject, and a JKS re-serialises),
+	// so one the step never changed is restored from these rather than committed
+	// in the churned form the round trip leaves.
+	keystoreOriginals map[string][]byte
 }
 
 func groupTargetsByDir(targets map[string]bool) map[string][]string {
@@ -62,6 +74,21 @@ func groupTargetsByDir(targets map[string]bool) map[string][]string {
 		groups[dir] = append(groups[dir], target)
 	}
 	return groups
+}
+
+// dirsDeepestFirst orders grouped directories the deepest first. Two targets
+// whose directories nest (an env var pointing inside the store, say) cannot both
+// be bound, since one mount would shadow the other, and which one wins is
+// decided by the order they are prepared in. Left to map iteration that changed
+// from run to run; deepest first lets the more specific directory claim its
+// subtree and skips the ancestor that would otherwise shadow it.
+func dirsDeepestFirst(groups map[string][]string) []string {
+	dirs := make([]string, 0, len(groups))
+	for dir := range groups {
+		dirs = append(dirs, dir)
+	}
+	slices.SortFunc(dirs, func(a, b string) int { return strings.Compare(b, a) })
+	return dirs
 }
 
 func newScratchDir(bundle string) (string, error) {
@@ -256,8 +283,13 @@ func (b *dirBind) prepare(ca []byte) error {
 			// A keystore that cannot be injected into (an unusual format, or a
 			// PKCS#12 the empty password will not open) leaves the step's JVM not
 			// trusting the CA rather than failing the build.
+			original, readErr := os.ReadFile(target)
 			if err := insertIntoKeystore(target, ca); err != nil {
 				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
+				continue
+			}
+			if readErr == nil {
+				b.rememberKeystore(target, original)
 			}
 			continue
 		}
@@ -302,6 +334,10 @@ func (b *dirBind) finish() error {
 		return err
 	}
 
+	if err := b.restoreUntouchedKeystores(current); err != nil {
+		return err
+	}
+
 	stripped, err := captureManifest(b.scratchDir)
 	if err != nil {
 		return err
@@ -332,9 +368,14 @@ func (b *dirBind) finish() error {
 // mirror's post-injection state; the sweep at finish takes the CA back out of
 // this keystore the same as any other file the mirror carries.
 func (b *dirBind) coverKeystore(rel string, ca []byte) {
-	if err := insertIntoKeystore(filepath.Join(b.scratchDir, rel), ca); err != nil {
+	target := filepath.Join(b.scratchDir, rel)
+	original, readErr := os.ReadFile(target)
+	if err := insertIntoKeystore(target, ca); err != nil {
 		logf("cannot inject the CA into keystore %s: %v; leaving it untouched", rel, err)
 		return
+	}
+	if readErr == nil {
+		b.rememberKeystore(target, original)
 	}
 	baseline, err := captureManifest(b.scratchDir)
 	if err != nil {
@@ -342,6 +383,46 @@ func (b *dirBind) coverKeystore(rel string, ca []byte) {
 		return
 	}
 	b.baseline = baseline
+}
+
+// rememberKeystore records a keystore's pre-injection bytes, keyed the way the
+// manifest names it, so restoreUntouchedKeystores can put them back.
+func (b *dirBind) rememberKeystore(target string, original []byte) {
+	rel, _ := filepath.Rel(b.scratchDir, target)
+	if b.keystoreOriginals == nil {
+		b.keystoreOriginals = map[string][]byte{}
+	}
+	b.keystoreOriginals[rel] = original
+}
+
+// restoreUntouchedKeystores puts the pristine bytes back for every injected
+// keystore the step left as the injection had it, so the write-back commits the
+// keystore an unproxied build would have rather than the churned form the
+// inject/strip round trip produces. current is the mirror as the step left it,
+// before the sweep: a keystore that still matches the post-injection baseline
+// there is one the step never touched. One the step did change keeps its swept
+// version, the CA taken back out of the step's own bytes.
+func (b *dirBind) restoreUntouchedKeystores(current []fileEntry) error {
+	for rel, original := range b.keystoreOriginals {
+		cur, ok := entryFor(current, rel)
+		base, okBase := entryFor(b.baseline, rel)
+		if !ok || !okBase || !cur.sameExceptMtime(base) {
+			continue
+		}
+		if err := writeMirrorFile(filepath.Join(b.scratchDir, rel), original, base.mode.Perm()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func entryFor(entries []fileEntry, rel string) (fileEntry, bool) {
+	for _, e := range entries {
+		if e.path == rel {
+			return e, true
+		}
+	}
+	return fileEntry{}, false
 }
 
 func (b *dirBind) cleanup() {

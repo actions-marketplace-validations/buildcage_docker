@@ -220,7 +220,9 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	plan := planCATrust(s, ca, store)
 
 	var binds []*dirBind
-	for hostDir, files := range groupTargetsByDir(plan.targets) {
+	groups := groupTargetsByDir(plan.targets)
+	for _, hostDir := range dirsDeepestFirst(groups) {
+		files := groups[hostDir]
 		names := make([]string, len(files))
 		for i, f := range files {
 			names[i] = filepath.Base(f)
