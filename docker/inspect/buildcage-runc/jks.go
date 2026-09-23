@@ -44,10 +44,11 @@ var keystoreSalt = []byte("Mighty Aphrodite")
 var maxKeystoreBytes int64 = 16 << 20
 
 // removeFromBinaryStore takes the certificate out of a binary trust store in
-// place and reports whether it rewrote anything. A JKS (feedfeed) or PKCS#12
-// (a DER SEQUENCE) keystore is told apart by its magic; anything else is tried
-// as an EFI signature database. A file that is none of them is left for the
-// caller to report; a keystore that cannot be rewritten safely is an error.
+// place and reports whether it rewrote anything. A JKS (feedfeed) is told apart
+// by its magic; a file that is one bare DER of the injected CA is emptied; a
+// PKCS#12 (a DER SEQUENCE) keystore comes next; anything else is tried as an EFI
+// signature database. A file that is none of them is left for the caller to
+// report; a keystore that cannot be rewritten safely is an error.
 func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -73,6 +74,11 @@ func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 		if rewritten, err = keystoreWithout(content, ders); err != nil {
 			return false, fmt.Errorf("%s: %w", path, err)
 		}
+	case holdsOnlyInjectedCert(content, ders):
+		// The whole file is the injected CA, so nothing is left behind:
+		// rewritten stays nil and the emptied file is dropped by the sweep. This
+		// is tried before PKCS#12 because a bare DER certificate is a SEQUENCE
+		// too and would otherwise be mistaken for a keystore that cannot decode.
 	case looksLikePKCS12(content):
 		var removed bool
 		if rewritten, removed, err = pkcs12Without(content, ders); err != nil {
