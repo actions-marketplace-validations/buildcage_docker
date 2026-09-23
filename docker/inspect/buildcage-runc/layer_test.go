@@ -358,9 +358,8 @@ func TestSweepDirFailsOnAContainerItCannotRewrite(t *testing.T) {
 	}
 }
 
-// A binary that embeds the bundle holds the certificate armoured, the shape a
-// text bundle is stripped in. It fails the build rather than being committed
-// with everything after the cut shifted out of place.
+// A binary embedding the bundle fails the build instead of being committed
+// corrupted.
 func TestSweepDirFailsOnABinaryEmbeddingTheBundle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server")

@@ -251,9 +251,9 @@ type span struct{ start, end int64 }
 // place.
 //
 // Returns without error when there is none, since the step may have rewritten
-// the file itself, and when the file is binary, which it leaves untouched. The
-// find and the strip share one handle, opened the same guarded way as appendCA,
-// so they can't land on different files.
+// the file itself, or when the file is binary. The find and the strip share one
+// handle, opened the same guarded way as appendCA, so they can't land on
+// different files.
 func removeCA(path string, ca []byte) error {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
@@ -282,10 +282,9 @@ func removeCA(path string, ca []byte) error {
 	if err != nil || len(cuts) == 0 {
 		return err
 	}
-	// Closing the gap moves every byte after it, which a text file survives and
-	// a binary does not: an executable's offsets, an archive's sizes and checksums
-	// all point past the cut. A NUL byte is what every such format has and no
-	// bundle does, so the copy is left for the caller to find and refuse.
+	// Closing the gap shifts every later byte, which breaks a binary's offsets
+	// and checksums. Binaries hold a NUL and PEM bundles never do, so a binary is
+	// left for the caller to refuse.
 	nul, err := findInFile(f, []byte{0}, 0, size)
 	if err != nil || nul != -1 {
 		return err

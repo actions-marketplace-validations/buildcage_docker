@@ -1,12 +1,7 @@
-# A step that packs the system bundle into a binary while the CA is injected:
-# the shape `go:embed`, `include_str!` or a single-executable build leaves, made
-# here with an uncompressed tar, whose headers hold NUL bytes and whose body
-# holds the bundle's PEM verbatim. Cutting the CA out would shift every byte
-# after it, so the layer sweep has to refuse the archive and fail this build.
-# assert-inspect-refuses-embedded-bundle.sh builds it and expects exactly that.
-#
-# The text copy is removed within the step so the archive is the only file the
-# sweep could name.
+# An uncompressed tar of the injected bundle stands in for go:embed or
+# include_str!: NUL bytes in its headers, the PEM verbatim in its body. The
+# sweep must refuse it; assert-inspect-refuses-embedded-bundle.sh expects the
+# build to fail. The text copy is removed so the tar is the only file named.
 FROM alpine/curl@sha256:1a4d725751c5bd50297ee243db5d4df8ac5aabdf7030dd40dcec3bc3fdaa1cfa
 
 SHELL ["/bin/sh", "-c"]

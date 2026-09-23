@@ -531,8 +531,7 @@ func TestRemoveCAIsANoOpWhenTheFileIsGone(t *testing.T) {
 	}
 }
 
-// A bundle a step embedded in a binary is still an armoured block, but cutting
-// it out would move every byte after it. The binary is left exactly as it was.
+// Cutting a PEM block out of a binary would shift everything after it.
 func TestRemoveCALeavesABinaryUntouched(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server")
 	content := "\x7fELF\x02\x01\x01\x00" + string(testCA) + "\x00TRAILER"

@@ -2,10 +2,8 @@
 set -euo pipefail
 source "$(dirname "$0")/helpers.sh"
 
-# Builds Dockerfile.inspect-embedded-bundle and expects it to fail: the layer
-# sweep can take the CA out of a text bundle but not out of a binary without
-# shifting everything after it, so the step that packed the bundle into an
-# archive has to fail rather than commit the archive, stripped or not.
+# The CA cannot be cut out of a binary without corrupting it, so
+# Dockerfile.inspect-embedded-bundle must fail to build.
 
 BUILDER="${BUILDER_NAME:-buildcage}"
 PLATFORM="${TEST_PLATFORM:-linux/arm64}"
