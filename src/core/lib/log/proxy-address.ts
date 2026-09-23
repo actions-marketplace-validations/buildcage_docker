@@ -1,9 +1,10 @@
 /**
- * The gateway the build reaches the proxy and its resolver through. CoreDNS
- * answers every name with it, so a connection sent there was named rather than
- * addressed, and its destination says nothing about which name.
+ * The gateway the build reaches the proxy and its resolver through, and the
+ * address CoreDNS answers every name with. A connection sent there was named
+ * rather than addressed, so its destination says nothing about which name.
  *
- * Written into both engines' s6 scripts and haproxy.cfg.template, which cannot
- * import this, so a change here is a change there.
+ * This is the inspect engine's network gateway, declared in its cni.conflist
+ * and echoed into its haproxy config generator as GATEWAY=; neither can import
+ * this, so the test beside this holds all three to the same value.
  */
 export const PROXY_ADDRESS = "172.20.0.1";
