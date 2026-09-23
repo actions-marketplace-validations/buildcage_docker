@@ -114,15 +114,21 @@ var sealedKeystorePasswords = []string{"", keystorePassword}
 // one of sealedKeystorePasswords, holds a certificate carrying one of needles.
 // Bags it encrypts hide the DER from scanForCA, which reads bytes as they are.
 func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error) {
-	if size > maxKeystoreBytes {
+	if size < 2 || size > maxKeystoreBytes {
+		return false, nil
+	}
+	// The magic first, so the files that are not keystores, which is nearly
+	// every file a step writes, are not read a second time in full.
+	head := make([]byte, 2)
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return false, err
+	}
+	if !looksLikePKCS12(head) {
 		return false, nil
 	}
 	content := make([]byte, size)
 	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
 		return false, err
-	}
-	if !looksLikePKCS12(content) {
-		return false, nil
 	}
 	for _, password := range sealedKeystorePasswords {
 		for _, cert := range pkcs12Certificates(content, password) {

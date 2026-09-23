@@ -458,17 +458,52 @@ func TestSealedPKCS12HoldsSkipsAnOversizedFile(t *testing.T) {
 	}
 }
 
+// Both reads, of the magic and of the whole keystore, report a failure.
 func TestSealedPKCS12HoldsReportsAFailedRead(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
-	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca))
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("opening %s: %v", path, err)
+	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
+	path := mustWritePKCS12(t, content)
+	for _, nth := range []int{1, 2} {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("opening %s: %v", path, err)
+		}
+		broken := &brokenFile{bundleFile: f, failReadAt: nth}
+		if _, err := sealedPKCS12Holds(broken, int64(len(content)), caMarksOf(certPEM(ca)).needles); !errors.Is(err, errBrokenFile) {
+			t.Errorf("read %d: want the read failure, got %v", nth, err)
+		}
+		f.Close()
 	}
-	defer f.Close()
-	broken := &brokenFile{bundleFile: f, failReadAt: 1}
-	if _, err := sealedPKCS12Holds(broken, 16, caMarksOf(certPEM(ca)).needles); !errors.Is(err, errBrokenFile) {
-		t.Fatalf("want the read failure, got %v", err)
+}
+
+// A file that does not open like a keystore is read no further than its
+// magic, and one too short to hold that is not read at all.
+func TestSealedPKCS12HoldsReadsOnlyTheMagicOfOtherFiles(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		reads   int
+	}{
+		"a text file": {"not a keystore, and long enough to be worth not reading", 1},
+		"a tiny file": {"0", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			content := tc.content
+			path := filepath.Join(t.TempDir(), "file")
+			mustWriteFile(t, path, content)
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("opening %s: %v", path, err)
+			}
+			defer f.Close()
+			counted := &brokenFile{bundleFile: f}
+			found, err := sealedPKCS12Holds(counted, int64(len(content)), [][]byte{[]byte("x")})
+			if err != nil || found {
+				t.Fatalf("got found=%v err=%v", found, err)
+			}
+			if counted.reads != tc.reads {
+				t.Errorf("read %d times, want %d", counted.reads, tc.reads)
+			}
+		})
 	}
 }
 
