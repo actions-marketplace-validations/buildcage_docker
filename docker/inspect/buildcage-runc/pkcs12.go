@@ -15,8 +15,8 @@ package main
 // bags with PBES2, which that loader does not decrypt. A cacerts keytool or a
 // Modern encoder wrote seals a MAC under its own password, so the empty-password
 // decode will not open it and it stays fail-closed (errUnstrippableCA) rather
-// than being passed silently. removeFromKeystore reads the file and dispatches
-// on its magic.
+// than being passed silently. removeFromBinaryStore reads the file and
+// dispatches on its magic.
 
 import (
 	"crypto/x509"

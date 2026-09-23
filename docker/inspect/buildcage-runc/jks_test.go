@@ -86,7 +86,7 @@ func TestRemoveFromKeystoreTakesOutTheTrustedEntry(t *testing.T) {
 			)
 			path := mustWriteKeystore(t, before)
 
-			rewritten, err := removeFromKeystore(path, [][]byte{testDER})
+			rewritten, err := removeFromBinaryStore(path, [][]byte{testDER})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,7 +112,7 @@ func TestRemoveFromKeystoreResealsWhatItWrites(t *testing.T) {
 		trustedEntry(2, "digicert", otherDER),
 	))
 
-	if _, err := removeFromKeystore(path, [][]byte{testDER}); err != nil {
+	if _, err := removeFromBinaryStore(path, [][]byte{testDER}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -139,7 +139,7 @@ func TestRemoveFromKeystoreRefusesOneSealedWithAnotherPassword(t *testing.T) {
 	sealed[len(sealed)-1] ^= 0xff
 	path := mustWriteKeystore(t, sealed)
 
-	_, err := removeFromKeystore(path, [][]byte{testDER})
+	_, err := removeFromBinaryStore(path, [][]byte{testDER})
 	if err == nil || !strings.Contains(err.Error(), "system keystore password") {
 		t.Fatalf("got %v, want the seal to be refused", err)
 	}
@@ -150,7 +150,7 @@ func TestRemoveFromKeystoreRefusesOneSealedWithAnotherPassword(t *testing.T) {
 func TestRemoveFromKeystoreRefusesACertificateInAKeyChain(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, keyEntry(2, "server", []byte("KEY"), otherDER, testDER)))
 
-	_, err := removeFromKeystore(path, [][]byte{testDER})
+	_, err := removeFromBinaryStore(path, [][]byte{testDER})
 	if err == nil || !strings.Contains(err.Error(), "private key's own chain") {
 		t.Fatalf("got %v, want the key chain to be refused", err)
 	}
@@ -162,7 +162,7 @@ func TestRemoveFromKeystoreRefusesACertificateInAKeyChain(t *testing.T) {
 func TestRemoveFromKeystoreRefusesOneHoldingTheCertificateOutsideAnEntry(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, string(testDER), otherDER)))
 
-	_, err := removeFromKeystore(path, [][]byte{testDER})
+	_, err := removeFromBinaryStore(path, [][]byte{testDER})
 	if err == nil || !strings.Contains(err.Error(), "outside any entry") {
 		t.Fatalf("got %v, want the certificate's place to be refused", err)
 	}
@@ -179,7 +179,7 @@ func TestRemoveFromKeystoreLeavesWhatIsNotOne(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := mustWriteKeystore(t, []byte(content))
 
-			rewritten, err := removeFromKeystore(path, [][]byte{testDER})
+			rewritten, err := removeFromBinaryStore(path, [][]byte{testDER})
 			if err != nil || rewritten {
 				t.Fatalf("got rewritten=%v err=%v, want it left alone", rewritten, err)
 			}
@@ -198,7 +198,7 @@ func TestRemoveFromKeystoreLeavesOneTooLargeToRead(t *testing.T) {
 	t.Cleanup(func() { maxKeystoreBytes = 16 << 20 })
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "buildcage", testDER)))
 
-	rewritten, err := removeFromKeystore(path, [][]byte{testDER})
+	rewritten, err := removeFromBinaryStore(path, [][]byte{testDER})
 	if err != nil || rewritten {
 		t.Fatalf("got rewritten=%v err=%v, want it left alone", rewritten, err)
 	}
@@ -279,7 +279,7 @@ func TestRemoveFromKeystoreReportsAFailedWrite(t *testing.T) {
 			))
 			useBrokenBundleFile(t, broken)
 
-			if _, err := removeFromKeystore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
+			if _, err := removeFromBinaryStore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
 				t.Fatalf("got %v, want the failure to be reported", err)
 			}
 		})
@@ -290,7 +290,7 @@ func TestRemoveFromKeystoreReportsAFailedStat(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "buildcage", testDER)))
 	useBrokenBundleFile(t, &brokenFile{failStat: true})
 
-	if _, err := removeFromKeystore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
+	if _, err := removeFromBinaryStore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the stat failure to be reported", err)
 	}
 }
@@ -299,13 +299,13 @@ func TestRemoveFromKeystoreReportsAFailedRead(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "buildcage", testDER)))
 	useBrokenBundleFile(t, &brokenFile{failReadAt: 1})
 
-	if _, err := removeFromKeystore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
+	if _, err := removeFromBinaryStore(path, [][]byte{testDER}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the read failure to be reported", err)
 	}
 }
 
 func TestRemoveFromKeystoreRefusesAPathThatIsNotThere(t *testing.T) {
-	if _, err := removeFromKeystore(filepath.Join(t.TempDir(), "gone"), [][]byte{testDER}); err == nil {
+	if _, err := removeFromBinaryStore(filepath.Join(t.TempDir(), "gone"), [][]byte{testDER}); err == nil {
 		t.Fatal("expected a missing keystore to be reported")
 	}
 }

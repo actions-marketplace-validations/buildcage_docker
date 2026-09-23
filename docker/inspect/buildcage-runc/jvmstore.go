@@ -86,9 +86,9 @@ func findJVMKeystores(s *spec) []string {
 }
 
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
-// at path, rewriting it in place. Like removeFromKeystore it reads the file once
-// and dispatches on its magic. An error leaves the keystore untouched for the
-// caller to report, so the step's JVM does not trust the CA.
+// at path, rewriting it in place. Like removeFromBinaryStore it reads the file
+// once and dispatches on its magic. An error leaves the keystore untouched for
+// the caller to report, so the step's JVM does not trust the CA.
 func insertIntoKeystore(path string, ca []byte) error {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {

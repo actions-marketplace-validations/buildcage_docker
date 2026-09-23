@@ -296,9 +296,10 @@ func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
 		return false, err
 	}
 	// What is left is a binary holding the certificate as DER or as PEM that
-	// removeCA would not cut. Only a Java keystore can be rewritten, in either
-	// shape it ships as; any other binary is reported.
-	rewritten, err := removeFromKeystore(path, ders)
+	// removeCA would not cut. Only a Java keystore, in either shape it ships
+	// as, and an EFI signature database can be rewritten; any other binary is
+	// reported.
+	rewritten, err := removeFromBinaryStore(path, ders)
 	if err != nil {
 		return false, err
 	}

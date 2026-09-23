@@ -122,7 +122,7 @@ func TestInsertIntoKeystoreJKS(t *testing.T) {
 		t.Error("the CA was not inserted into the JKS")
 	}
 	// Well-formed and sealed: removal reads it back without complaint.
-	if _, err := removeFromKeystore(path, [][]byte{testDER}); err != nil {
+	if _, err := removeFromBinaryStore(path, [][]byte{testDER}); err != nil {
 		t.Fatalf("the injected keystore is not one removal accepts: %v", err)
 	}
 }
