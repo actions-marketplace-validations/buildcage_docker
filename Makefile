@@ -338,6 +338,40 @@ test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests agains
 	@NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
+# Copies of the CA a step makes where the layer sweep can find them but not take
+# them out: each has to fail the build, naming the file, rather than reach the
+# image. The control is an encrypted keystore that is not the CA's, which has to
+# build.
+.PHONY: test_integration_buildkit_inspect_hidden_ca
+test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that hides a copy of the CA the sweep cannot remove
+	@echo "Running inspect-engine hidden CA copy tests..."
+	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
+	  $(MAKE) setup_buildkit_inspect_audit
+	@for case in keystore leaf json; do \
+	  echo "=== A copy of the CA the sweep cannot take out: $$case ==="; \
+	  if docker buildx build --no-cache \
+	      --builder $(BUILDER_NAME) \
+	      --platform $(TEST_PLATFORM) \
+	      --build-arg CASE=$$case \
+	      --progress=plain -f test/Dockerfile.inspect-hidden-ca test/ \
+	      > $(SCRATCH_PREFIX)-hidden-ca.log 2>&1; then \
+	    echo "FAIL: the build committed a copy of the CA ($$case)"; exit 1; \
+	  fi; \
+	  if ! grep -q "cannot strip: /app/" $(SCRATCH_PREFIX)-hidden-ca.log; then \
+	    tail -40 $(SCRATCH_PREFIX)-hidden-ca.log; \
+	    echo "FAIL: the build failed, but not on the copy of the CA ($$case)"; exit 1; \
+	  fi; \
+	  echo "PASS: the build failed on the copy of the CA ($$case)"; \
+	done
+	@echo "=== An encrypted keystore that is not the CA's ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --build-arg CASE=control \
+	  --progress=plain -f test/Dockerfile.inspect-hidden-ca test/
+	@echo "PASS: the build kept a keystore that is not the CA's"
+	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
+
 .PHONY: test_integration_buildkit_inspect_byte_exact
 test_integration_buildkit_inspect_byte_exact: ## Compare inspect vs universal layer-for-layer, byte for byte
 	@echo "Running inspect-engine byte-exact layer comparison..."

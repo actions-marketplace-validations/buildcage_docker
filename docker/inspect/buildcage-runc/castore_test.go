@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -757,5 +759,86 @@ func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// A copy removal cannot take out is still found, so the build fails rather
+// than committing it: the CA in a shape whose line breaks a format rewrote,
+// and a certificate the proxy forged, which names the CA as its issuer.
+func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	leaf, _ := testLeaf(t, ca, caKey, "allowed.example")
+	caPEM := string(certPEM(ca))
+	marks := caMarksOf([]byte(caPEM))
+
+	indented := ""
+	for _, line := range strings.SplitAfter(caPEM, "\n") {
+		indented += "    " + line
+	}
+	for name, content := range map[string]string{
+		"PEM escaped into JSON":  `{"ca":"` + strings.ReplaceAll(caPEM, "\n", `\n`) + `"}`,
+		"PEM indented into YAML": "tls:\n  ca: |\n" + indented,
+		"base64 with no breaks":  base64.StdEncoding.EncodeToString(ca.Raw),
+		"a forged leaf as PEM":   string(certPEM(leaf)),
+		"a forged leaf as DER":   string(leaf.Raw),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "copy")
+			mustWriteFile(t, path, content)
+			found, err := fileHoldsCA(path, marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if !found {
+				t.Error("the copy was not found")
+			}
+		})
+	}
+}
+
+// Another CA's certificates, in the same shapes, are not mistaken for this
+// one's.
+func TestFileHoldsCALeavesAnotherCAAlone(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	other, otherKey := testIssuer(t, "another run")
+	leaf, _ := testLeaf(t, other, otherKey, "allowed.example")
+	marks := caMarksOf(certPEM(ca))
+	path := filepath.Join(t.TempDir(), "bundle")
+	mustWriteFile(t, path, string(certPEM(other))+string(certPEM(leaf))+
+		base64.StdEncoding.EncodeToString(other.Raw)+string(leaf.Raw))
+	found, err := fileHoldsCA(path, marks.needles)
+	if err != nil {
+		t.Fatalf("fileHoldsCA: %v", err)
+	}
+	if found {
+		t.Error("another CA's certificates were taken for this one's")
+	}
+}
+
+// A block that will not parse as a certificate still identifies itself by its
+// DER and the start of its base64, with no subject to add.
+func TestCAMarksOfACertificateThatDoesNotParse(t *testing.T) {
+	marks := caMarksOf(testCA)
+	if len(marks.ders) != 1 || len(marks.needles) != 2 {
+		t.Fatalf("got %d ders and %d needles, want 1 and 2", len(marks.ders), len(marks.needles))
+	}
+	if string(marks.needles[1]) != "QlVJTERDQUdFLUNB" {
+		t.Errorf("the base64 needle is %q", marks.needles[1])
+	}
+}
+
+// The base64 needle is one PEM line long, so it matches the body however the
+// lines after the first were broken.
+func TestCAMarksOfTakesOnePEMLine(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	marks := caMarksOf(certPEM(ca))
+	if len(marks.needles) != 3 {
+		t.Fatalf("got %d needles, want the DER, the subject and a base64 line", len(marks.needles))
+	}
+	if !bytes.Equal(marks.needles[1], ca.RawSubject) {
+		t.Error("the second needle is not the CA's subject")
+	}
+	if got := string(marks.needles[2]); got != base64.StdEncoding.EncodeToString(ca.Raw)[:pemLineLength] {
+		t.Errorf("the base64 needle is %q", got)
 	}
 }

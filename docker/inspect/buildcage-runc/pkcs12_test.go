@@ -235,7 +235,7 @@ func TestStripCARewritesPKCS12(t *testing.T) {
 	root := testCert(t, "digicert")
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
-	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, append([]byte{0x30, 0x82}, ca.Raw...))
-	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestStripCAPropagatesPKCS12Error(t *testing.T) {
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
 	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
-	if _, err := stripCA(path, caPEM, certificateDERs(caPEM)); !errors.Is(err, errBrokenFile) {
+	if _, err := stripCA(path, caPEM, caMarksOf(caPEM)); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the write failure propagated, got %v", err)
 	}
 }
@@ -312,5 +312,178 @@ func TestPKCS12WithRejectsBadDER(t *testing.T) {
 	root := testCert(t, "digicert")
 	if _, err := pkcs12With(passwordlessStore(t, root), [][]byte{[]byte("not a certificate")}); err == nil {
 		t.Fatal("want a parse error for a non-certificate DER")
+	}
+}
+
+// testIssuer is a CA that can sign, standing in for the proxy's: what a step
+// saves from a server is a certificate this issued, not this one. nonce is the
+// random serialNumber each proxy CA's subject carries.
+func testIssuer(t *testing.T, nonce string) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(7),
+		Subject:               pkix.Name{CommonName: "buildcage proxy CA", SerialNumber: nonce},
+		NotBefore:             time.Unix(1700000000, 0),
+		NotAfter:              time.Unix(1900000000, 0),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating the CA: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing the CA: %v", err)
+	}
+	return cert, key
+}
+
+// testLeaf is a server certificate for host, issued by ca the way the proxy
+// forges one. The key goes with it for a keystore that needs one.
+func testLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, host string) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(8),
+		Subject:      pkix.Name{CommonName: host},
+		DNSNames:     []string{host},
+		NotBefore:    time.Unix(1700000000, 0),
+		NotAfter:     time.Unix(1900000000, 0),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("creating the leaf: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing the leaf: %v", err)
+	}
+	return cert, key
+}
+
+func mustEncodeTrustStore(t *testing.T, enc *pkcs12.Encoder, password string, certs ...*x509.Certificate) []byte {
+	t.Helper()
+	data, err := enc.EncodeTrustStore(certs, password)
+	if err != nil {
+		t.Fatalf("encoding a trust store: %v", err)
+	}
+	return data
+}
+
+// A PKCS#12 keystore that encrypts its bags hides the DER from the byte scan,
+// so the ones that open under a password this tries are opened and read. Both
+// shapes the library decodes are covered: a trust store, which is what keytool
+// -importkeystore makes of a cacerts, and a key with its chain.
+func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	leaf, leafKey := testLeaf(t, ca, caKey, "app.example")
+	chain := func(password string) []byte {
+		data, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{ca}, password)
+		if err != nil {
+			t.Fatalf("encoding a keystore: %v", err)
+		}
+		return data
+	}
+	marks := caMarksOf(certPEM(ca))
+
+	for name, content := range map[string][]byte{
+		"a trust store under changeit":        mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca),
+		"a trust store under no password":     mustEncodeTrustStore(t, pkcs12.Modern, "", root, ca),
+		"a key and chain under changeit":      chain(keystorePassword),
+		"a trust store holding a forged leaf": mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Contains(content, ca.Raw) {
+				t.Fatal("the fixture holds the DER in the clear, so it would not test the decryption")
+			}
+			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if !found {
+				t.Error("an encrypted keystore holding the CA passed")
+			}
+		})
+	}
+}
+
+// What cannot be opened, or opens to nothing of the CA's, passes: dependencies
+// ship encrypted test keystores of their own, and those are not the CA's.
+func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	other, otherKey := testIssuer(t, "another run")
+	leaf, leafKey := testLeaf(t, other, otherKey, "app.example")
+	withKey, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{other}, keystorePassword)
+	if err != nil {
+		t.Fatalf("encoding a keystore: %v", err)
+	}
+	marks := caMarksOf(certPEM(ca))
+
+	for name, content := range map[string][]byte{
+		"the CA under a password of its own": mustEncodeTrustStore(t, pkcs12.Modern, "a-real-password", ca),
+		"another CA under changeit":          mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, other),
+		"a key and chain of another CA":      withKey,
+	} {
+		t.Run(name, func(t *testing.T) {
+			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if found {
+				t.Error("an encrypted keystore without a readable copy of the CA failed")
+			}
+		})
+	}
+}
+
+// Past the size a keystore reaches, the file is not read in to be decoded.
+func TestSealedPKCS12HoldsSkipsAnOversizedFile(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
+	old := maxKeystoreBytes
+	maxKeystoreBytes = int64(len(content)) - 1
+	t.Cleanup(func() { maxKeystoreBytes = old })
+	found, err := sealedPKCS12Holds(bytes.NewReader(content), int64(len(content)), caMarksOf(certPEM(ca)).needles)
+	if err != nil || found {
+		t.Fatalf("got found=%v err=%v, want the file left unread", found, err)
+	}
+}
+
+func TestSealedPKCS12HoldsReportsAFailedRead(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca))
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening %s: %v", path, err)
+	}
+	defer f.Close()
+	broken := &brokenFile{bundleFile: f, failReadAt: 1}
+	if _, err := sealedPKCS12Holds(broken, 16, caMarksOf(certPEM(ca)).needles); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("want the read failure, got %v", err)
+	}
+}
+
+// One it can open but cannot rewrite, because it is sealed under changeit, is
+// reported as left rather than passed.
+func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a changeit-sealed keystore it cannot rewrite")
 	}
 }

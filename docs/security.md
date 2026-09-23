@@ -213,12 +213,20 @@ Three mechanisms make that enforceable:
   already in the base image reads (`$JAVA_HOME/lib/security/cacerts`, in either the JKS or PKCS#12
   shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
   cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
-  and takes the certificate, and the anchor, out of every file carrying it, in whatever shape;
-  a copy it cannot take out fails the build rather than reaching the image. Reading the layer back
-  needs BuildKit's `overlayfs` snapshotter, which the builder started by this action gets. On a
-  builder whose data root cannot hold an overlay upper directory, BuildKit falls back to another
-  snapshotter, the wrapper logs that it is leaving the layer unread, and only the store directory's
-  own undo applies — which is what the engine did before it read layers back at all.
+  and takes the certificate, and the anchor, out of every file carrying it as PEM, or as DER in a
+  JKS or PKCS#12 keystore; a copy it finds but cannot take out fails the build rather than reaching
+  the image. It fails the build too on copies no removal reaches: the PEM with its lines rewritten
+  (escaped into JSON, indented into YAML, joined into one line), a certificate the proxy issued,
+  which a step saving what a server presented would keep, and a PKCS#12 keystore holding either
+  that opens under no password or the JDK's default `changeit`. A copy it cannot read is not found
+  and stays in the image: one inside a compressed archive (`tar czf`, a deflated jar or zip), or in
+  a keystore encrypted under a password of its own. Failing on every keystore it cannot open would
+  fail builds that never touched the CA, since dependencies ship encrypted test keystores of their
+  own. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder started by
+  this action gets. On a builder whose data root cannot hold an overlay upper directory, BuildKit
+  falls back to another snapshotter, the wrapper logs that it is leaving the layer unread, and only
+  the store directory's own undo applies — which is what the engine did before it read layers back
+  at all.
 
 A wide host rule paired with a narrow path or method does not narrow the DNS side. DNS has no notion
 of a path, so a name under an allowed `*.example.com` is logged as allowed the moment it is looked

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -231,6 +233,36 @@ func certificateDERs(armoured []byte) [][]byte {
 	}
 }
 
+// caMarks is what gives a copy of the certificate away.
+type caMarks struct {
+	// The certificate itself, in DER, which is what removal takes out.
+	ders [][]byte
+	// What a file is searched for: the DER, and traces removal leaves alone,
+	// so a file holding one fails the build. The CA's subject is the issuer
+	// of every certificate the proxy forged, which is what a step saving the
+	// one a server presented keeps. The first line of a PEM body, which takes
+	// in the random serial number, stays whole through what a format does to
+	// the lines around it: JSON's escaped \n, YAML's indentation, or no breaks
+	// at all.
+	needles [][]byte
+}
+
+// PEM breaks a body every 64 characters.
+const pemLineLength = 64
+
+func caMarksOf(ca []byte) caMarks {
+	marks := caMarks{ders: certificateDERs(ca)}
+	marks.needles = slices.Clone(marks.ders)
+	for _, der := range marks.ders {
+		if cert, err := x509.ParseCertificate(der); err == nil {
+			marks.needles = append(marks.needles, cert.RawSubject)
+		}
+		line := base64.StdEncoding.EncodeToString(der)
+		marks.needles = append(marks.needles, []byte(line[:min(len(line), pemLineLength)]))
+	}
+	return marks
+}
+
 // holdsAnyDER reports whether b carries one of the certificates whole.
 // Containment rather than equality: a TRUSTED CERTIFICATE's body is the
 // certificate with the trust settings appended, and a binary container puts
@@ -410,23 +442,23 @@ func findAnyInFile(f io.ReaderAt, needles [][]byte, from, size int64) (int64, in
 	return -1, -1, nil
 }
 
-// scanForCA reports whether f holds the certificate in any of the shapes a
-// trust store keeps one in: the DER itself, which covers every binary
-// container, or a PEM block whose contents carry it.
+// scanForCA reports whether f holds one of needles (caMarks) as it is, which
+// covers every binary container that does not encrypt it, or inside a PEM
+// block.
 //
 // One pass, because the sweep reads every byte a step wrote and then reads
 // them all again to check itself.
-func scanForCA(f bundleFile, size int64, ders [][]byte) (bool, error) {
-	needles := append(slices.Clone(ders), beginPEM)
+func scanForCA(f bundleFile, size int64, needles [][]byte) (bool, error) {
+	search := append(slices.Clone(needles), beginPEM)
 	for off := int64(0); off < size; {
-		at, which, err := findAnyInFile(f, needles, off, size)
+		at, which, err := findAnyInFile(f, search, off, size)
 		if err != nil {
 			return false, err
 		}
 		if at == -1 {
 			return false, nil
 		}
-		if which < len(ders) {
+		if which < len(needles) {
 			return true, nil
 		}
 		block, end, err := readPEMBlock(f, at, size)
@@ -440,7 +472,7 @@ func scanForCA(f bundleFile, size int64, ders [][]byte) (bool, error) {
 			continue
 		}
 		off = end
-		if holdsAnyDER(block.Bytes, ders) {
+		if holdsAnyDER(block.Bytes, needles) {
 			return true, nil
 		}
 	}

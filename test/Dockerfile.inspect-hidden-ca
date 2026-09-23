@@ -1,0 +1,33 @@
+# Copies of the proxy CA that a step makes itself, in shapes the layer sweep
+# (docker/inspect/buildcage-runc/layer.go) finds but cannot take out. Each CASE
+# leaves one, and the build has to fail rather than commit it:
+#
+#   keystore  keytool -importkeystore re-encrypts the injected cacerts into a
+#             new PKCS#12 under changeit, so the DER is nowhere in the clear
+#   leaf      the certificate a server presented, saved the way a trust-on-
+#             first-use script does, which the proxy forged under its CA
+#   json      the CA's PEM escaped into a JSON string
+#
+# CASE=control writes an encrypted keystore of its own that the CA is not in,
+# and has to pass: failing on every keystore the sweep cannot open would fail
+# builds that never touched the CA.
+ARG BASE=eclipse-temurin:21
+FROM ${BASE}
+ARG CASE
+
+SHELL ["/bin/sh", "-c"]
+
+RUN mkdir -p /app && case "$CASE" in \
+      keystore) keytool -importkeystore -noprompt \
+        -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
+        -destkeystore /app/trust.p12 -deststoretype PKCS12 -deststorepass changeit ;; \
+      leaf) openssl s_client -showcerts -connect allowed.example.com:443 \
+        -servername allowed.example.com </dev/null 2>/dev/null \
+        | sed -n '/-----BEGIN/,/-----END/p' > /app/host.crt && test -s /app/host.crt ;; \
+      json) { printf '{"ca":"'; awk '{printf "%s\\n", $0}' "$NODE_EXTRA_CA_CERTS"; printf '"}'; } \
+        > /app/ca.json && grep -q 'BEGIN CERTIFICATE' /app/ca.json ;; \
+      control) keytool -genkeypair -noprompt -alias app -keyalg EC -validity 2 \
+        -dname CN=app.example -storetype PKCS12 -keystore /app/server.p12 \
+        -storepass a-real-password ;; \
+      *) echo "unknown CASE=$CASE" >&2; exit 2 ;; \
+    esac
