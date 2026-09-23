@@ -31,7 +31,6 @@ and links here for the details.
   with:
     builder_name: buildcage
     proxy_mode: restrict
-    proxy_engine: inspect
 ```
 
 On a self-hosted runner that runs several jobs at once, give each job its own `builder_name`. The
