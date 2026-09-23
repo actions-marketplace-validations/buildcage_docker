@@ -146,8 +146,8 @@ func eachFileHoldingCA(dir string, needles [][]byte, hit func(rel string) error)
 	return files, err
 }
 
-// fileHoldsCA reports whether the file at path carries one of needles
-// (caMarks), as it is or in a PKCS#12 keystore's encrypted bags. It is opened
+// fileHoldsCA reports whether the file at path carries one of needles, in its
+// raw bytes or inside an encrypted PKCS#12 it can open. It is opened
 // read-only: on an overlay, opening a file for writing copies it up into the
 // layer, which would put a file the image shipped there for nothing.
 //
@@ -300,10 +300,9 @@ func stripCA(path string, ca []byte, marks caMarks) (bool, error) {
 	if err != nil || !left {
 		return false, err
 	}
-	// Armoured copies are gone, so what is left is a container holding the DER
-	// among its own bytes, or a trace (caMarks) nothing takes out. A Java
-	// keystore is the one container that can be rewritten, in either of the
-	// two shapes it ships as; anything else is reported rather than left in.
+	// What is left is the DER inside a binary container, or a trace nothing
+	// removes. Only a Java keystore (JKS or PKCS#12) can be rewritten;
+	// anything else is reported.
 	rewritten, err := removeFromKeystore(path, marks.ders)
 	if err != nil {
 		return false, err

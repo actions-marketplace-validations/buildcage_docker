@@ -1,16 +1,11 @@
-# Copies of the proxy CA that a step makes itself, in shapes the layer sweep
-# (docker/inspect/buildcage-runc/layer.go) finds but cannot take out. Each CASE
-# leaves one, and the build has to fail rather than commit it:
+# Each CASE leaves a copy of the proxy CA that the layer sweep finds but cannot
+# remove, so the build must fail:
 #
-#   keystore  keytool -importkeystore re-encrypts the injected cacerts into a
-#             new PKCS#12 under changeit, so the DER is nowhere in the clear
-#   leaf      the certificate a server presented, saved the way a trust-on-
-#             first-use script does, which the proxy forged under its CA
+#   keystore  cacerts re-encrypted into a new PKCS#12 under changeit
+#   leaf      a server certificate the proxy forged, saved trust-on-first-use
 #   json      the CA's PEM escaped into a JSON string
 #
-# CASE=control writes an encrypted keystore of its own that the CA is not in,
-# and has to pass: failing on every keystore the sweep cannot open would fail
-# builds that never touched the CA.
+# CASE=control writes an unrelated encrypted keystore and must pass.
 ARG BASE=eclipse-temurin:21
 FROM ${BASE}
 ARG CASE

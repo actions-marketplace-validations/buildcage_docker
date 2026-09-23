@@ -233,21 +233,18 @@ func certificateDERs(armoured []byte) [][]byte {
 	}
 }
 
-// caMarks is what gives a copy of the certificate away.
+// caMarks identifies copies of the CA in a file.
 type caMarks struct {
-	// The certificate itself, in DER, which is what removal takes out.
+	// What removal takes out.
 	ders [][]byte
-	// What a file is searched for: the DER, and traces removal leaves alone,
-	// so a file holding one fails the build. The CA's subject is the issuer
-	// of every certificate the proxy forged, which is what a step saving the
-	// one a server presented keeps. The first line of a PEM body, which takes
-	// in the random serial number, stays whole through what a format does to
-	// the lines around it: JSON's escaped \n, YAML's indentation, or no breaks
-	// at all.
+	// What detection searches for: ders, plus traces removal cannot take out,
+	// which fail the build. The subject is the issuer of every certificate
+	// the proxy forged. The first PEM body line includes the random serial
+	// and survives re-wrapping (JSON's escaped \n, YAML indentation, no
+	// breaks).
 	needles [][]byte
 }
 
-// PEM breaks a body every 64 characters.
 const pemLineLength = 64
 
 func caMarksOf(ca []byte) caMarks {
@@ -442,9 +439,8 @@ func findAnyInFile(f io.ReaderAt, needles [][]byte, from, size int64) (int64, in
 	return -1, -1, nil
 }
 
-// scanForCA reports whether f holds one of needles (caMarks) as it is, which
-// covers every binary container that does not encrypt it, or inside a PEM
-// block.
+// scanForCA reports whether f holds one of needles in its raw bytes or inside
+// a PEM block.
 //
 // One pass, because the sweep reads every byte a step wrote and then reads
 // them all again to check itself.

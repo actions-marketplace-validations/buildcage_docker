@@ -311,7 +311,7 @@ toolchains read at a store that holds it: `NODE_EXTRA_CA_CERTS`, `DENO_CERT`, `S
 `REQUESTS_CA_BUNDLE` and `PIP_CERT`. `CURL_CA_BUNDLE` is set only in a step with no system CA store
 of its own, since curl reads that store already. A variable the base image or the Dockerfile already
 set is appended to rather than redirected, and neither the CA nor the variables are left in the
-image layers, short of a copy a step makes where it cannot be read (see
+image layers, except a copy a step hides where it cannot be read (see
 [Limitations](#limitations)). The CA is also left in the distribution's own anchor directory, so a
 step that installs `ca-certificates` partway through keeps trusting it once `update-ca-certificates`
 has rebuilt the bundle from scratch. A JVM already in the base image reads none of those variables and
@@ -397,11 +397,10 @@ reported as blocked; see
   Buildcage will not rewrite, and a step that itself rewrites a PKCS#12 `cacerts` with `keytool`,
   which re-seals it with a MAC Buildcage cannot reopen to take the CA back out, so the build fails
   closed rather than shipping the CA.
-- The CA is taken back out of what a step leaves in its layer, and a copy found in a shape that
-  cannot be rewritten fails the build, but only a copy that can be read is found. One a step writes
-  into a compressed archive, or into a keystore encrypted under a password other than none or
-  `changeit`, stays in the image. See [Security Details](./docs/security.md#inspect-proxy-engine)
-  for what is found.
+- A copy of the CA left in a step's layer is removed, or fails the build if it cannot be. A copy
+  that cannot be read, in a compressed archive or a keystore encrypted under a password other than
+  none or `changeit`, is not found and stays in the image. See
+  [Security Details](./docs/security.md#inspect-proxy-engine).
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
 - An image with no system CA store (`scratch`, distroless, or `debian:*-slim` before

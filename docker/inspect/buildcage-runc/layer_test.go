@@ -622,8 +622,7 @@ func TestStripLayerFailsOnACopyItCouldNotRemove(t *testing.T) {
 	}
 }
 
-// A trace no removal takes out fails the build the same way, and leaves the
-// bundle beside it, which the sweep can clean, clean.
+// The bundle beside the traces is still cleaned.
 func TestStripLayerFailsOnATraceItCannotRemove(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	leaf, _ := testLeaf(t, ca, caKey, "allowed.example")

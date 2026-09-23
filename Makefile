@@ -338,10 +338,9 @@ test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests agains
 	@NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
-# Copies of the CA a step makes where the layer sweep can find them but not take
-# them out: each has to fail the build, naming the file, rather than reach the
-# image. The control is an encrypted keystore that is not the CA's, which has to
-# build.
+# Each case hides a copy of the CA the sweep finds but cannot remove, and must
+# fail the build naming the file. The control writes an unrelated encrypted
+# keystore and must build.
 .PHONY: test_integration_buildkit_inspect_hidden_ca
 test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that hides a copy of the CA the sweep cannot remove
 	@echo "Running inspect-engine hidden CA copy tests..."

@@ -762,9 +762,6 @@ func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
 	}
 }
 
-// A copy removal cannot take out is still found, so the build fails rather
-// than committing it: the CA in a shape whose line breaks a format rewrote,
-// and a certificate the proxy forged, which names the CA as its issuer.
 func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	leaf, _ := testLeaf(t, ca, caKey, "allowed.example")
@@ -796,8 +793,6 @@ func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
 	}
 }
 
-// Another CA's certificates, in the same shapes, are not mistaken for this
-// one's.
 func TestFileHoldsCALeavesAnotherCAAlone(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	other, otherKey := testIssuer(t, "another run")
@@ -815,8 +810,7 @@ func TestFileHoldsCALeavesAnotherCAAlone(t *testing.T) {
 	}
 }
 
-// A block that will not parse as a certificate still identifies itself by its
-// DER and the start of its base64, with no subject to add.
+// testCA's DER is a placeholder that does not parse, so it has no subject.
 func TestCAMarksOfACertificateThatDoesNotParse(t *testing.T) {
 	marks := caMarksOf(testCA)
 	if len(marks.ders) != 1 || len(marks.needles) != 2 {
@@ -827,8 +821,6 @@ func TestCAMarksOfACertificateThatDoesNotParse(t *testing.T) {
 	}
 }
 
-// The base64 needle is one PEM line long, so it matches the body however the
-// lines after the first were broken.
 func TestCAMarksOfTakesOnePEMLine(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	marks := caMarksOf(certPEM(ca))

@@ -102,23 +102,20 @@ func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	return out, true, nil
 }
 
-// The passwords a PKCS#12 keystore is opened under to look inside bags it
-// encrypts: none, and the JDK's default, which a copy of a cacerts usually
-// keeps. A keystore under any other password
-// passes unread. Dependencies ship encrypted test keystores under passwords
-// of their own (the Azure SDK for Go has one in its module zip), and failing
-// on what cannot be read would fail builds that never touched the CA.
+// Passwords tried on an encrypted PKCS#12: none, and the JDK default a copy of
+// cacerts usually keeps. Others pass unread: dependencies ship encrypted test
+// keystores (the Azure SDK for Go does), and failing on those would fail
+// builds that never touched the CA.
 var sealedKeystorePasswords = []string{"", keystorePassword}
 
-// sealedPKCS12Holds reports whether f is a PKCS#12 keystore that, opened under
-// one of sealedKeystorePasswords, holds a certificate carrying one of needles.
-// Bags it encrypts hide the DER from scanForCA, which reads bytes as they are.
+// sealedPKCS12Holds reports whether f is a PKCS#12 that opens under one of
+// sealedKeystorePasswords and holds a certificate carrying one of needles.
 func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error) {
 	if size < 2 || size > maxKeystoreBytes {
 		return false, nil
 	}
-	// The magic first, so the files that are not keystores, which is nearly
-	// every file a step writes, are not read a second time in full.
+	// Nearly every file is not a keystore, so the magic is checked before
+	// reading the whole file.
 	head := make([]byte, 2)
 	if _, err := f.ReadAt(head, 0); err != nil {
 		return false, err
@@ -140,9 +137,8 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 	return false, nil
 }
 
-// pkcs12Certificates returns what content holds under password, as a trust
-// store or as a key with its chain, the two shapes the library decodes. None
-// when it opens as neither.
+// pkcs12Certificates decodes content as a trust store or as a key with its
+// chain, the two shapes go-pkcs12 supports. Nil if neither opens.
 func pkcs12Certificates(content []byte, password string) []*x509.Certificate {
 	if certs, err := pkcs12.DecodeTrustStore(content, password); err == nil {
 		return certs

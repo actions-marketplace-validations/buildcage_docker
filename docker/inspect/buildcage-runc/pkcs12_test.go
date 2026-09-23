@@ -315,9 +315,7 @@ func TestPKCS12WithRejectsBadDER(t *testing.T) {
 	}
 }
 
-// testIssuer is a CA that can sign, standing in for the proxy's: what a step
-// saves from a server is a certificate this issued, not this one. nonce is the
-// random serialNumber each proxy CA's subject carries.
+// nonce stands in for the random serialNumber in the proxy CA's subject.
 func testIssuer(t *testing.T, nonce string) (*x509.Certificate, *ecdsa.PrivateKey) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -343,8 +341,6 @@ func testIssuer(t *testing.T, nonce string) (*x509.Certificate, *ecdsa.PrivateKe
 	return cert, key
 }
 
-// testLeaf is a server certificate for host, issued by ca the way the proxy
-// forges one. The key goes with it for a keystore that needs one.
 func testLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, host string) (*x509.Certificate, *ecdsa.PrivateKey) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -378,10 +374,6 @@ func mustEncodeTrustStore(t *testing.T, enc *pkcs12.Encoder, password string, ce
 	return data
 }
 
-// A PKCS#12 keystore that encrypts its bags hides the DER from the byte scan,
-// so the ones that open under a password this tries are opened and read. Both
-// shapes the library decodes are covered: a trust store, which is what keytool
-// -importkeystore makes of a cacerts, and a key with its chain.
 func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	root := testCert(t, "digicert")
@@ -416,8 +408,6 @@ func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	}
 }
 
-// What cannot be opened, or opens to nothing of the CA's, passes: dependencies
-// ship encrypted test keystores of their own, and those are not the CA's.
 func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	other, otherKey := testIssuer(t, "another run")
@@ -445,7 +435,6 @@ func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
 	}
 }
 
-// Past the size a keystore reaches, the file is not read in to be decoded.
 func TestSealedPKCS12HoldsSkipsAnOversizedFile(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
@@ -458,7 +447,6 @@ func TestSealedPKCS12HoldsSkipsAnOversizedFile(t *testing.T) {
 	}
 }
 
-// Both reads, of the magic and of the whole keystore, report a failure.
 func TestSealedPKCS12HoldsReportsAFailedRead(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
@@ -476,8 +464,6 @@ func TestSealedPKCS12HoldsReportsAFailedRead(t *testing.T) {
 	}
 }
 
-// A file that does not open like a keystore is read no further than its
-// magic, and one too short to hold that is not read at all.
 func TestSealedPKCS12HoldsReadsOnlyTheMagicOfOtherFiles(t *testing.T) {
 	for name, tc := range map[string]struct {
 		content string
@@ -507,8 +493,7 @@ func TestSealedPKCS12HoldsReadsOnlyTheMagicOfOtherFiles(t *testing.T) {
 	}
 }
 
-// One it can open but cannot rewrite, because it is sealed under changeit, is
-// reported as left rather than passed.
+// Sealed under changeit, so it can be read but not rewritten.
 func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	root := testCert(t, "digicert")
