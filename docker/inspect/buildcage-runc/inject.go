@@ -220,13 +220,9 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	plan := planCATrust(s, ca, store)
 
 	var binds []*dirBind
-	groups := groupTargetsByDir(plan.targets)
-	for _, hostDir := range dirsDeepestFirst(groups) {
-		files := groups[hostDir]
-		names := make([]string, len(files))
-		for i, f := range files {
-			names[i] = filepath.Base(f)
-		}
+	groups := groupTargetsByBind(plan.targets, store)
+	for _, hostDir := range bindDirsInOrder(groups, store) {
+		names := groups[hostDir]
 		custom := !(store.found && hostDir == store.dir())
 		if b := prepareBind(s, bundle, hostDir, names, ca, custom, false); b != nil {
 			binds = append(binds, b)

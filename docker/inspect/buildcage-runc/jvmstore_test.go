@@ -111,7 +111,7 @@ func TestFindJVMKeystoresIgnoresANonRegularFile(t *testing.T) {
 
 func TestInsertIntoKeystoreJKS(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, testCA); err != nil {
+	if _, err := insertIntoKeystore(path, testCA); err != nil {
 		t.Fatalf("insertIntoKeystore: %v", err)
 	}
 	out, err := os.ReadFile(path)
@@ -131,7 +131,7 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 	root := testCert(t, "digicert")
 	ca := testCert(t, "buildcage")
 	path := mustWritePKCS12(t, passwordlessStore(t, root))
-	if err := insertIntoKeystore(path, certPEM(ca)); err != nil {
+	if _, err := insertIntoKeystore(path, certPEM(ca)); err != nil {
 		t.Fatalf("insertIntoKeystore: %v", err)
 	}
 	content, err := os.ReadFile(path)
@@ -149,21 +149,21 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 
 func TestInsertIntoKeystoreNeedsACertificate(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, []byte("no PEM certificate here")); !errors.Is(err, errNotACertificate) {
+	if _, err := insertIntoKeystore(path, []byte("no PEM certificate here")); !errors.Is(err, errNotACertificate) {
 		t.Fatalf("got %v, want errNotACertificate", err)
 	}
 }
 
 func TestInsertIntoKeystoreRejectsNonKeystore(t *testing.T) {
 	path := mustWriteKeystore(t, []byte("not a keystore, just some bytes"))
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
 
 func TestInsertIntoKeystoreRejectsTooSmall(t *testing.T) {
 	path := mustWriteKeystore(t, []byte{0xfe, 0xed})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestInsertIntoKeystoreRejectsTooLarge(t *testing.T) {
 	t.Cleanup(func(prev int64) func() { return func() { maxKeystoreBytes = prev } }(maxKeystoreBytes))
 	maxKeystoreBytes = 4
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestInsertIntoKeystoreRejectsTooLarge(t *testing.T) {
 func TestInsertIntoKeystoreReportsADecodeFailure(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	path := mustWritePKCS12(t, encryptedStore(t, ca))
-	if err := insertIntoKeystore(path, certPEM(ca)); err == nil {
+	if _, err := insertIntoKeystore(path, certPEM(ca)); err == nil {
 		t.Fatal("want the decode failure to be reported")
 	}
 }
@@ -190,7 +190,7 @@ func TestInsertIntoKeystoreReportsADecodeFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAStatFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failStat: true})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the stat failure", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestInsertIntoKeystoreReportsAStatFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAReadFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failReadAt: 1})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the read failure", err)
 	}
 }
@@ -206,13 +206,13 @@ func TestInsertIntoKeystoreReportsAReadFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAWriteFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the write failure", err)
 	}
 }
 
 func TestInsertIntoKeystoreRefusesAPathThatIsNotThere(t *testing.T) {
-	if err := insertIntoKeystore(filepath.Join(t.TempDir(), "gone"), testCA); err == nil {
+	if _, err := insertIntoKeystore(filepath.Join(t.TempDir(), "gone"), testCA); err == nil {
 		t.Fatal("expected a missing keystore to be reported")
 	}
 }

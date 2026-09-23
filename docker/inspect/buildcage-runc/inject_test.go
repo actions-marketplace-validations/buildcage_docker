@@ -186,6 +186,44 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	}
 }
 
+// A variable pointing at a file nested inside the system store directory is
+// injected in the store's own mirror, not bound on its own: a bind under the
+// store mount would be shadowed by it, so the nested file would otherwise never
+// get the CA (and, left to map order, the store itself could be the one skipped).
+func TestInjectFoldsATargetNestedUnderTheStore(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"DENO_CERT=/etc/ssl/certs/company/roots.pem"})
+	mustMkdirAll(t, filepath.Join(rootfs, "etc", "ssl", "certs", "company"))
+	mustWriteFile(t, filepath.Join(rootfs, "etc", "ssl", "certs", "company", "roots.pem"), "COMPANY\n")
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	mounts := loadMounts(t, bundle)
+	for _, m := range mounts {
+		if m["destination"] == "/etc/ssl/certs/company" {
+			t.Fatal("the nested target got its own bind, which the store mount shadows")
+		}
+	}
+
+	// Both the store bundle and the nested file are injected in the store's one
+	// mirror.
+	mount := findMount(t, mounts, "/etc/ssl/certs")
+	scratchDir, _ := mount["source"].(string)
+	for _, rel := range []string{"ca-certificates.crt", "company/roots.pem"} {
+		got, err := os.ReadFile(filepath.Join(scratchDir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), string(testCA)) {
+			t.Errorf("%s did not get the CA in the store mirror: %q", rel, got)
+		}
+	}
+}
+
 // A variable pointing at a bundle under a directory that is not there is the
 // step's own: nothing can be appended to a file whose directory does not
 // exist, so it is left alone rather than mirrored. (resolveInRoot resolves such

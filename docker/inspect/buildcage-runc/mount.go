@@ -67,28 +67,51 @@ type dirBind struct {
 	keystoreOriginals map[string][]byte
 }
 
-func groupTargetsByDir(targets map[string]bool) map[string][]string {
+// groupTargetsByBind groups the CA targets by the directory whose mirror will
+// carry them, as names relative to that directory. A target resolving under the
+// store directory is folded into the store's own group rather than bound on its
+// own: the store bind already mirrors the whole directory, and a second bind
+// nested inside the store mount would be shadowed by it, so a target below the
+// store (an env var pointing at a file there) would otherwise be skipped and
+// never trust the CA. Every other target is grouped by its immediate directory.
+func groupTargetsByBind(targets map[string]bool, store systemStore) map[string][]string {
 	groups := make(map[string][]string)
 	for target := range targets {
+		if store.found && withinDir(target, store.dir()) {
+			groups[store.dir()] = append(groups[store.dir()], strings.TrimPrefix(target, store.dir()+"/"))
+			continue
+		}
 		dir := filepath.Dir(target)
-		groups[dir] = append(groups[dir], target)
+		groups[dir] = append(groups[dir], filepath.Base(target))
 	}
 	return groups
 }
 
-// dirsDeepestFirst orders grouped directories the deepest first. Two targets
-// whose directories nest (an env var pointing inside the store, say) cannot both
-// be bound, since one mount would shadow the other, and which one wins is
-// decided by the order they are prepared in. Left to map iteration that changed
-// from run to run; deepest first lets the more specific directory claim its
-// subtree and skips the ancestor that would otherwise shadow it.
-func dirsDeepestFirst(groups map[string][]string) []string {
+// bindDirsInOrder is the grouped directories to prepare, the store first and the
+// rest sorted. The order fixes which of two nesting directories wins the bind,
+// which map iteration left to change from run to run; putting the store first
+// keeps it, the directory nearly everything trusts, from being the one a nesting
+// target displaces.
+func bindDirsInOrder(groups map[string][]string, store systemStore) []string {
 	dirs := make([]string, 0, len(groups))
 	for dir := range groups {
+		if store.found && dir == store.dir() {
+			continue
+		}
 		dirs = append(dirs, dir)
 	}
-	slices.SortFunc(dirs, func(a, b string) int { return strings.Compare(b, a) })
+	slices.Sort(dirs)
+	if store.found {
+		if _, ok := groups[store.dir()]; ok {
+			dirs = append([]string{store.dir()}, dirs...)
+		}
+	}
 	return dirs
+}
+
+// withinDir reports whether path is dir or something under it.
+func withinDir(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
 }
 
 func newScratchDir(bundle string) (string, error) {
@@ -283,14 +306,12 @@ func (b *dirBind) prepare(ca []byte) error {
 			// A keystore that cannot be injected into (an unusual format, or a
 			// PKCS#12 the empty password will not open) leaves the step's JVM not
 			// trusting the CA rather than failing the build.
-			original, readErr := os.ReadFile(target)
-			if err := insertIntoKeystore(target, ca); err != nil {
+			original, err := insertIntoKeystore(target, ca)
+			if err != nil {
 				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
 				continue
 			}
-			if readErr == nil {
-				b.rememberKeystore(target, original)
-			}
+			b.rememberKeystore(target, original)
 			continue
 		}
 		if err := appendCA(target, ca); err != nil {
@@ -325,16 +346,20 @@ func (b *dirBind) finish() error {
 		return nil
 	}
 
+	// Before the sweep: a keystore the step never touched is put back to its
+	// pristine bytes, which carry no CA to sweep and no re-encoding to fail on,
+	// so the sweep neither churns it nor fails the build over a strip it would
+	// have discarded anyway.
+	if err := b.restoreUntouchedKeystores(current); err != nil {
+		return err
+	}
+
 	// The whole mirror, not only the files the CA was added to. With a store,
 	// the step's writes land here rather than in the overlay's upper
 	// directory, so a copy the step left beside the bundle is not in the layer
 	// for stripLayer to find: it only gets there when the write-back below
 	// copies it up.
 	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, caMarksOf(b.ca)); err != nil {
-		return err
-	}
-
-	if err := b.restoreUntouchedKeystores(current); err != nil {
 		return err
 	}
 
@@ -369,14 +394,12 @@ func (b *dirBind) finish() error {
 // this keystore the same as any other file the mirror carries.
 func (b *dirBind) coverKeystore(rel string, ca []byte) {
 	target := filepath.Join(b.scratchDir, rel)
-	original, readErr := os.ReadFile(target)
-	if err := insertIntoKeystore(target, ca); err != nil {
+	original, err := insertIntoKeystore(target, ca)
+	if err != nil {
 		logf("cannot inject the CA into keystore %s: %v; leaving it untouched", rel, err)
 		return
 	}
-	if readErr == nil {
-		b.rememberKeystore(target, original)
-	}
+	b.rememberKeystore(target, original)
 	baseline, err := captureManifest(b.scratchDir)
 	if err != nil {
 		logf("cannot re-capture the baseline after keystore injection in %s: %v", b.containerDir, err)
