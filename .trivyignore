@@ -165,9 +165,10 @@ CVE-2026-84445
 CVE-2026-84303
 
 # github.com/moby/go-archive: arbitrary file write via a malicious tar
-# archive. Only hit by buildkitd's own FROM-image layer extraction, as
-# trusted as the build definition itself, out of scope like the x/mod
-# entry above.
+# archive, reached only when buildkitd extracts a layer of an image it
+# fetches itself (a FROM or COPY --from= base image). Such fetches are out
+# of scope by design (docs/security.md, "What buildkitd fetches itself"),
+# addressed by pinning base images rather than by the proxy.
 CVE-2026-17106
 
 # github.com/cilium/ebpf: integer overflow parsing a crafted BTF blob.
