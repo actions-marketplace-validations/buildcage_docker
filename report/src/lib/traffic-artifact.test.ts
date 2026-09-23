@@ -59,41 +59,14 @@ describe("uploadTrafficArtifact", () => {
     expect(calls[0][3]).toStrictEqual({ retentionDays: 7 });
   });
 
-  it("warns and uploads nothing when the engine produced no traffic JSON", async () => {
+  it("uploads nothing, and stays quiet, when no file was written", async () => {
     const warn = vi.fn();
     const { upload, calls } = fakeUpload();
 
     await uploadTrafficArtifact(FILE, "buildcage", warn, { fileExists: () => false, upload });
 
     expect(calls).toStrictEqual([]);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Only proxy_engine: inspect does."));
-  });
-
-  it("stays quiet about a missing file when the report script never finished", async () => {
-    const warn = vi.fn();
-    const { upload, calls } = fakeUpload();
-
-    await uploadTrafficArtifact(FILE, "buildcage", warn, {
-      reportScriptFinished: false,
-      fileExists: () => false,
-      upload,
-    });
-
-    expect(calls).toStrictEqual([]);
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("still uploads a file the report script wrote before it died", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const { upload, calls } = fakeUpload();
-
-    await uploadTrafficArtifact(FILE, "buildcage", silent, {
-      reportScriptFinished: false,
-      fileExists: () => true,
-      upload,
-    });
-
-    expect(calls[0][0]).toBe("buildcage-traffic");
   });
 
   it("warns rather than throwing when the upload fails", async () => {

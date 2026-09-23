@@ -123,7 +123,7 @@ describe("the traffic artifact", () => {
       `${SCRATCH}/traffic.json`,
       "buildcage",
       mocks.warn,
-      { retentionDays: 7, reportScriptFinished: true },
+      { retentionDays: 7 },
     );
   });
 
@@ -136,9 +136,7 @@ describe("the traffic artifact", () => {
     expect(order).toStrictEqual(["upload", "remove"]);
   });
 
-  it("still uploads when the report script was never launched, saying it did not finish", async () => {
-    // The traffic JSON is most wanted on the run that failed, and a file
-    // missing because the script never ran says nothing about the engine.
+  it("still uploads when the report script throws, since the run that failed wants it most", async () => {
     mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true });
     mocks.runReportScript.mockImplementation(() => {
       throw new ReportError("node is not on PATH", "REPORT_SCRIPT_FAILED");
@@ -148,7 +146,7 @@ describe("the traffic artifact", () => {
       `${SCRATCH}/traffic.json`,
       "buildcage",
       mocks.warn,
-      { retentionDays: undefined, reportScriptFinished: false },
+      { retentionDays: undefined },
     );
     expect(mocks.removeScratchDir).toHaveBeenCalledWith(SCRATCH);
   });
