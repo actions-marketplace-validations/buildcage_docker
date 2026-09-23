@@ -236,7 +236,7 @@ func TestStripCARewritesPKCS12(t *testing.T) {
 	root := testCert(t, "digicert")
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
-	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, append([]byte{0x30, 0x82}, ca.Raw...))
-	left, err := stripCA(path, caPEM, certificateDERs(caPEM))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestStripCAPropagatesPKCS12Error(t *testing.T) {
 	caPEM := certPEM(ca)
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
 	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
-	if _, err := stripCA(path, caPEM, certificateDERs(caPEM)); !errors.Is(err, errBrokenFile) {
+	if _, err := stripCA(path, caPEM, caMarksOf(caPEM)); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the write failure propagated, got %v", err)
 	}
 }
@@ -313,5 +313,198 @@ func TestPKCS12WithRejectsBadDER(t *testing.T) {
 	root := testCert(t, "digicert")
 	if _, err := pkcs12With(passwordlessStore(t, root), [][]byte{[]byte("not a certificate")}); err == nil {
 		t.Fatal("want a parse error for a non-certificate DER")
+	}
+}
+
+// nonce stands in for the random serialNumber in the proxy CA's subject.
+func testIssuer(t *testing.T, nonce string) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(7),
+		Subject:               pkix.Name{CommonName: "buildcage proxy CA", SerialNumber: nonce},
+		NotBefore:             time.Unix(1700000000, 0),
+		NotAfter:              time.Unix(1900000000, 0),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("creating the CA: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing the CA: %v", err)
+	}
+	return cert, key
+}
+
+func testLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey, host string) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(8),
+		Subject:      pkix.Name{CommonName: host},
+		DNSNames:     []string{host},
+		NotBefore:    time.Unix(1700000000, 0),
+		NotAfter:     time.Unix(1900000000, 0),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("creating the leaf: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parsing the leaf: %v", err)
+	}
+	return cert, key
+}
+
+func mustEncodeTrustStore(t *testing.T, enc *pkcs12.Encoder, password string, certs ...*x509.Certificate) []byte {
+	t.Helper()
+	data, err := enc.EncodeTrustStore(certs, password)
+	if err != nil {
+		t.Fatalf("encoding a trust store: %v", err)
+	}
+	return data
+}
+
+func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	leaf, leafKey := testLeaf(t, ca, caKey, "app.example")
+	chain := func(password string) []byte {
+		data, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{ca}, password)
+		if err != nil {
+			t.Fatalf("encoding a keystore: %v", err)
+		}
+		return data
+	}
+	marks := caMarksOf(certPEM(ca))
+
+	for name, content := range map[string][]byte{
+		"a trust store under changeit":        mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca),
+		"a trust store under no password":     mustEncodeTrustStore(t, pkcs12.Modern, "", root, ca),
+		"a key and chain under changeit":      chain(keystorePassword),
+		"a trust store holding a forged leaf": mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Contains(content, ca.Raw) {
+				t.Fatal("the fixture holds the DER in the clear, so it would not test the decryption")
+			}
+			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if !found {
+				t.Error("an encrypted keystore holding the CA passed")
+			}
+		})
+	}
+}
+
+func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	other, otherKey := testIssuer(t, "another run")
+	leaf, leafKey := testLeaf(t, other, otherKey, "app.example")
+	withKey, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{other}, keystorePassword)
+	if err != nil {
+		t.Fatalf("encoding a keystore: %v", err)
+	}
+	marks := caMarksOf(certPEM(ca))
+
+	for name, content := range map[string][]byte{
+		"the CA under a password of its own": mustEncodeTrustStore(t, pkcs12.Modern, "a-real-password", ca),
+		"another CA under changeit":          mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, other),
+		"a key and chain of another CA":      withKey,
+	} {
+		t.Run(name, func(t *testing.T) {
+			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if found {
+				t.Error("an encrypted keystore without a readable copy of the CA failed")
+			}
+		})
+	}
+}
+
+func TestSealedPKCS12HoldsSkipsAnOversizedFile(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
+	old := maxKeystoreBytes
+	maxKeystoreBytes = int64(len(content)) - 1
+	t.Cleanup(func() { maxKeystoreBytes = old })
+	found, err := sealedPKCS12Holds(bytes.NewReader(content), int64(len(content)), caMarksOf(certPEM(ca)).needles)
+	if err != nil || found {
+		t.Fatalf("got found=%v err=%v, want the file left unread", found, err)
+	}
+}
+
+func TestSealedPKCS12HoldsReportsAFailedRead(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca)
+	path := mustWritePKCS12(t, content)
+	for _, nth := range []int{1, 2} {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("opening %s: %v", path, err)
+		}
+		broken := &brokenFile{bundleFile: f, failReadAt: nth}
+		if _, err := sealedPKCS12Holds(broken, int64(len(content)), caMarksOf(certPEM(ca)).needles); !errors.Is(err, errBrokenFile) {
+			t.Errorf("read %d: want the read failure, got %v", nth, err)
+		}
+		f.Close()
+	}
+}
+
+func TestSealedPKCS12HoldsReadsOnlyTheMagicOfOtherFiles(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		reads   int
+	}{
+		"a text file": {"not a keystore, and long enough to be worth not reading", 1},
+		"a tiny file": {"0", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			content := tc.content
+			path := filepath.Join(t.TempDir(), "file")
+			mustWriteFile(t, path, content)
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("opening %s: %v", path, err)
+			}
+			defer f.Close()
+			counted := &brokenFile{bundleFile: f}
+			found, err := sealedPKCS12Holds(counted, int64(len(content)), [][]byte{[]byte("x")})
+			if err != nil || found {
+				t.Fatalf("got found=%v err=%v", found, err)
+			}
+			if counted.reads != tc.reads {
+				t.Errorf("read %d times, want %d", counted.reads, tc.reads)
+			}
+		})
+	}
+}
+
+// Sealed under changeit, so it can be read but not rewritten.
+func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a changeit-sealed keystore it cannot rewrite")
 	}
 }

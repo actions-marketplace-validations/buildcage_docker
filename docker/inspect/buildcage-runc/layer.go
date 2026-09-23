@@ -126,7 +126,7 @@ func unescapeMountInfo(field string) string {
 // directory is a directory, and a symlink carries a path rather than bytes:
 // none of them can hold a certificate, and the file a link points at is
 // listed in its own right if it is here at all.
-func eachFileHoldingCA(dir string, ders [][]byte, hit func(rel string) error) (int, error) {
+func eachFileHoldingCA(dir string, needles [][]byte, hit func(rel string) error) (int, error) {
 	dir = filepath.Clean(dir)
 	files := 0
 	err := walkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -137,7 +137,7 @@ func eachFileHoldingCA(dir string, ders [][]byte, hit func(rel string) error) (i
 			return nil
 		}
 		files++
-		found, err := fileHoldsCA(path, ders)
+		found, err := fileHoldsCA(path, needles)
 		if err != nil || !found {
 			return err
 		}
@@ -146,12 +146,13 @@ func eachFileHoldingCA(dir string, ders [][]byte, hit func(rel string) error) (i
 	return files, err
 }
 
-// fileHoldsCA reports whether the file at path carries the certificate. It is
-// opened read-only: on an overlay, opening a file for writing copies it up
-// into the layer, which would put a file the image shipped there for nothing.
+// fileHoldsCA reports whether the file at path carries one of needles, in its
+// raw bytes or inside an encrypted PKCS#12 it can open. It is opened
+// read-only: on an overlay, opening a file for writing copies it up into the
+// layer, which would put a file the image shipped there for nothing.
 //
 // A path that is not there holds nothing, the same way removeCA treats one.
-func fileHoldsCA(path string, ders [][]byte) (bool, error) {
+func fileHoldsCA(path string, needles [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -164,7 +165,11 @@ func fileHoldsCA(path string, ders [][]byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return scanForCA(f, info.Size(), ders)
+	found, err := scanForCA(f, info.Size(), needles)
+	if err != nil || found {
+		return found, err
+	}
+	return sealedPKCS12Holds(f, info.Size(), needles)
 }
 
 // sweepDir takes the certificate out of every file under listing that holds
@@ -174,16 +179,16 @@ func fileHoldsCA(path string, ders [][]byte) (bool, error) {
 // overlay's upper directory, but each removal goes through the rootfs, because
 // writing into the upper directory would step around the whiteouts overlay
 // keeps there. For a mirror they are the same directory.
-func sweepDir(listing, root string, ca []byte, ders [][]byte) (int, error) {
+func sweepDir(listing, root string, ca []byte, marks caMarks) (int, error) {
 	var unstrippable []string
 	// The paths the sweep took away, so a link left pointing at one can go too.
 	removed := map[string]bool{}
-	files, err := eachFileHoldingCA(listing, ders, func(rel string) error {
+	files, err := eachFileHoldingCA(listing, marks.needles, func(rel string) error {
 		target, err := resolveInRoot(root, rel)
 		if err != nil {
 			return err
 		}
-		left, err := stripCA(target, ca, ders)
+		left, err := stripCA(target, ca, marks)
 		if err != nil {
 			return err
 		}
@@ -279,33 +284,33 @@ func dropRemovedLinks(listing, root string, removed map[string]bool) error {
 
 // stripCA takes the certificate out of one file, in whichever shape it is in
 // there, and reports whether a copy is still in it afterwards.
-func stripCA(path string, ca []byte, ders [][]byte) (bool, error) {
+func stripCA(path string, ca []byte, marks caMarks) (bool, error) {
 	// Read-only first, even though the listing already said this file carries
 	// the certificate: the listing named it under a different directory, and on
 	// an overlay, opening a file for writing copies it up into the layer. Only
 	// a file that carries the certificate is ever opened for writing.
-	carries, err := fileHoldsCA(path, ders)
+	carries, err := fileHoldsCA(path, marks.needles)
 	if err != nil || !carries {
 		return false, err
 	}
 	if err := removeCA(path, ca); err != nil {
 		return false, err
 	}
-	left, err := fileHoldsCA(path, ders)
+	left, err := fileHoldsCA(path, marks.needles)
 	if err != nil || !left {
 		return false, err
 	}
 	// What is left is a binary holding the certificate as DER or as PEM that
-	// removeCA would not cut. Only a Java keystore or an EFI signature database
-	// can be rewritten; any other binary is reported.
-	rewritten, err := removeFromBinaryStore(path, ders)
+	// removeCA would not cut, or a trace nothing removes. Only a Java keystore
+	// or an EFI signature database can be rewritten; anything else is reported.
+	rewritten, err := removeFromBinaryStore(path, marks.ders)
 	if err != nil {
 		return false, err
 	}
 	if !rewritten {
 		return true, nil
 	}
-	return fileHoldsCA(path, ders)
+	return fileHoldsCA(path, marks.needles)
 }
 
 // stripLayer takes the certificate out of the step's own layer, then reads the
@@ -322,13 +327,13 @@ func stripLayer(rootfs string, ca []byte) error {
 		return nil
 	}
 
-	ders := certificateDERs(ca)
+	marks := caMarksOf(ca)
 	started := time.Now()
-	files, err := sweepDir(upper, rootfs, ca, ders)
+	files, err := sweepDir(upper, rootfs, ca, marks)
 	if err != nil {
 		return err
 	}
-	left, err := verifyLayer(upper, ders)
+	left, err := verifyLayer(upper, marks.needles)
 	// Paths only, never what is in them: the sweep reads every byte the step
 	// wrote, tokens and credentials among them.
 	logf("swept the step's layer at %s: %d files in %s", upper, files, time.Since(started).Round(time.Millisecond))
@@ -342,9 +347,9 @@ func stripLayer(rootfs string, ca []byte) error {
 }
 
 // verifyLayer lists what still carries the certificate after a sweep.
-func verifyLayer(upper string, ders [][]byte) ([]string, error) {
+func verifyLayer(upper string, needles [][]byte) ([]string, error) {
 	var left []string
-	_, err := eachFileHoldingCA(upper, ders, func(rel string) error {
+	_, err := eachFileHoldingCA(upper, needles, func(rel string) error {
 		left = append(left, rel)
 		return nil
 	})

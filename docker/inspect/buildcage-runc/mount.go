@@ -298,7 +298,7 @@ func (b *dirBind) finish() error {
 	// directory, so a copy the step left beside the bundle is not in the layer
 	// for stripLayer to find: it only gets there when the write-back below
 	// copies it up.
-	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, certificateDERs(b.ca)); err != nil {
+	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, caMarksOf(b.ca)); err != nil {
 		return err
 	}
 
