@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -23,8 +24,14 @@ func loadSpec(bundle string) (*spec, error) {
 	if err != nil {
 		return nil, err
 	}
+	// UseNumber so a number past 2^53 (an RLIM_INFINITY ulimit, a seccomp
+	// argument) survives the load/save round trip as the text BuildKit wrote
+	// rather than rounding through float64, which runc can reject or misapply.
+	// The wrapper reads no number itself, so json.Number costs nothing here.
 	var raw map[string]any
-	if err := json.Unmarshal(content, &raw); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(content))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
 		return nil, err
 	}
 

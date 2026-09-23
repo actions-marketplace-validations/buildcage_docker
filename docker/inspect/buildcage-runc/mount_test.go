@@ -6,23 +6,48 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestGroupTargetsByDir(t *testing.T) {
+func TestGroupTargetsByBind(t *testing.T) {
+	store := systemStore{found: true, hostPath: "/rootfs/etc/ssl/certs/ca-certificates.crt", containerPath: "/etc/ssl/certs/ca-certificates.crt"}
 	targets := map[string]bool{
-		"/rootfs/etc/ssl/certs/ca-certificates.crt": true,
-		"/rootfs/etc/ssl/certs/extra.pem":           true,
-		"/rootfs/custom/roots.pem":                  true,
+		"/rootfs/etc/ssl/certs/ca-certificates.crt": true, // the store bundle
+		"/rootfs/etc/ssl/certs/company/roots.pem":   true, // a target nested under the store
+		"/rootfs/custom/roots.pem":                  true, // a target of its own
 	}
-	groups := groupTargetsByDir(targets)
-	if len(groups["/rootfs/etc/ssl/certs"]) != 2 {
-		t.Errorf("expected 2 files grouped under /rootfs/etc/ssl/certs, got %v", groups["/rootfs/etc/ssl/certs"])
+	groups := groupTargetsByBind(targets, store)
+
+	// The store's group carries both its own bundle and the nested target, so
+	// the one below the store is injected in the store's mirror rather than lost
+	// to a bind the store mount would shadow. Names are relative to the dir.
+	got := groups["/rootfs/etc/ssl/certs"]
+	slices.Sort(got)
+	if want := []string{"ca-certificates.crt", "company/roots.pem"}; !slices.Equal(got, want) {
+		t.Errorf("store group = %v, want %v", got, want)
 	}
-	if len(groups["/rootfs/custom"]) != 1 {
-		t.Errorf("expected 1 file grouped under /rootfs/custom, got %v", groups["/rootfs/custom"])
+	if want := []string{"roots.pem"}; !slices.Equal(groups["/rootfs/custom"], want) {
+		t.Errorf("custom group = %v, want %v", groups["/rootfs/custom"], want)
+	}
+}
+
+// The store is prepared first so a nesting target never displaces it, and the
+// rest follow in a fixed order rather than map order, so which of two nesting
+// directories wins does not change from run to run.
+func TestBindDirsInOrder(t *testing.T) {
+	store := systemStore{found: true, hostPath: "/etc/ssl/certs/ca-certificates.crt"}
+	groups := map[string][]string{
+		"/opt/app":       nil,
+		"/etc/ssl":       nil,
+		"/etc/ssl/certs": nil, // the store dir
+	}
+	got := bindDirsInOrder(groups, store)
+	want := []string{"/etc/ssl/certs", "/etc/ssl", "/opt/app"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 

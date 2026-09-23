@@ -111,7 +111,7 @@ func TestFindJVMKeystoresIgnoresANonRegularFile(t *testing.T) {
 
 func TestInsertIntoKeystoreJKS(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, testCA); err != nil {
+	if _, err := insertIntoKeystore(path, testCA); err != nil {
 		t.Fatalf("insertIntoKeystore: %v", err)
 	}
 	out, err := os.ReadFile(path)
@@ -131,7 +131,7 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 	root := testCert(t, "digicert")
 	ca := testCert(t, "buildcage")
 	path := mustWritePKCS12(t, passwordlessStore(t, root))
-	if err := insertIntoKeystore(path, certPEM(ca)); err != nil {
+	if _, err := insertIntoKeystore(path, certPEM(ca)); err != nil {
 		t.Fatalf("insertIntoKeystore: %v", err)
 	}
 	content, err := os.ReadFile(path)
@@ -149,21 +149,21 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 
 func TestInsertIntoKeystoreNeedsACertificate(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, []byte("no PEM certificate here")); !errors.Is(err, errNotACertificate) {
+	if _, err := insertIntoKeystore(path, []byte("no PEM certificate here")); !errors.Is(err, errNotACertificate) {
 		t.Fatalf("got %v, want errNotACertificate", err)
 	}
 }
 
 func TestInsertIntoKeystoreRejectsNonKeystore(t *testing.T) {
 	path := mustWriteKeystore(t, []byte("not a keystore, just some bytes"))
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
 
 func TestInsertIntoKeystoreRejectsTooSmall(t *testing.T) {
 	path := mustWriteKeystore(t, []byte{0xfe, 0xed})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestInsertIntoKeystoreRejectsTooLarge(t *testing.T) {
 	t.Cleanup(func(prev int64) func() { return func() { maxKeystoreBytes = prev } }(maxKeystoreBytes))
 	maxKeystoreBytes = 4
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errNotAKeystore) {
 		t.Fatalf("got %v, want errNotAKeystore", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestInsertIntoKeystoreRejectsTooLarge(t *testing.T) {
 func TestInsertIntoKeystoreReportsADecodeFailure(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	path := mustWritePKCS12(t, encryptedStore(t, ca))
-	if err := insertIntoKeystore(path, certPEM(ca)); err == nil {
+	if _, err := insertIntoKeystore(path, certPEM(ca)); err == nil {
 		t.Fatal("want the decode failure to be reported")
 	}
 }
@@ -190,7 +190,7 @@ func TestInsertIntoKeystoreReportsADecodeFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAStatFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failStat: true})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the stat failure", err)
 	}
 }
@@ -198,7 +198,7 @@ func TestInsertIntoKeystoreReportsAStatFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAReadFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failReadAt: 1})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the read failure", err)
 	}
 }
@@ -206,13 +206,13 @@ func TestInsertIntoKeystoreReportsAReadFailure(t *testing.T) {
 func TestInsertIntoKeystoreReportsAWriteFailure(t *testing.T) {
 	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, "digicert", otherDER)))
 	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
-	if err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
+	if _, err := insertIntoKeystore(path, testCA); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want the write failure", err)
 	}
 }
 
 func TestInsertIntoKeystoreRefusesAPathThatIsNotThere(t *testing.T) {
-	if err := insertIntoKeystore(filepath.Join(t.TempDir(), "gone"), testCA); err == nil {
+	if _, err := insertIntoKeystore(filepath.Join(t.TempDir(), "gone"), testCA); err == nil {
 		t.Fatal("expected a missing keystore to be reported")
 	}
 }
@@ -339,6 +339,103 @@ func TestInjectWritesBackWhenTheStepChangesTheKeystore(t *testing.T) {
 	}
 	if !bytes.Contains(got, []byte("STEP-ROOT")) {
 		t.Fatal("the step's own root was lost in the write-back")
+	}
+}
+
+// A PKCS#12 keystore the step never touched must be committed byte for byte as
+// an unproxied build would have it, even when something else in its directory
+// triggers the write-back. Taking the proxy CA back out decodes and re-encodes
+// the store, which rewrites every alias to its certificate's subject, so without
+// restoring the original the aliases churn on a build that never touched cacerts.
+func TestInjectRestoresAnUntouchedKeystoreBesideAChange(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
+	// A real CA, since injecting into a PKCS#12 parses it, unlike the JKS tests'
+	// stand-in bytes.
+	ca := certPEM(testCert(t, "buildcage"))
+	original := namedStore(t, "keytool-alias", testCert(t, "digicert"))
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts", original)
+	// A sibling the step will change, so the directory is written back at all.
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/other", []byte("BEFORE\n"))
+
+	restore, err := inject(bundle, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mount := findMount(t, loadMounts(t, bundle), "/opt/java/lib/security")
+	scratch, _ := mount["source"].(string)
+	mustWriteFile(t, filepath.Join(scratch, "other"), "AFTER\n")
+
+	if err := restore.finish(true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(rootfs, "opt/java/lib/security/cacerts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatal("the untouched keystore was churned by the inject/strip round trip")
+	}
+	if sib, _ := os.ReadFile(filepath.Join(rootfs, "opt/java/lib/security/other")); string(sib) != "AFTER\n" {
+		t.Fatalf("the step's change to the sibling was lost: %q", sib)
+	}
+}
+
+// A keystore the step deleted is not restored: it is gone from the mirror, so
+// the write-back takes it out of the image rather than putting it back.
+func TestInjectDoesNotRestoreADeletedKeystore(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
+	ca := certPEM(testCert(t, "buildcage"))
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
+		namedStore(t, "keytool-alias", testCert(t, "digicert")))
+
+	restore, err := inject(bundle, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mount := findMount(t, loadMounts(t, bundle), "/opt/java/lib/security")
+	scratch, _ := mount["source"].(string)
+	if err := os.Remove(filepath.Join(scratch, "cacerts")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := restore.finish(true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(rootfs, "opt/java/lib/security/cacerts")); !os.IsNotExist(err) {
+		t.Fatalf("the deleted keystore came back: %v", err)
+	}
+}
+
+// Failing to restore the pristine keystore fails the step: a half-written
+// keystore must not reach the image, so this is fail-closed like the write-back.
+func TestInjectFailsWhenItCannotRestoreAKeystore(t *testing.T) {
+	useFakeRsync(t)
+	old := writeMirrorFile
+	writeMirrorFile = func(string, []byte, os.FileMode) error { return errBrokenFile }
+	t.Cleanup(func() { writeMirrorFile = old })
+
+	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
+	ca := certPEM(testCert(t, "buildcage"))
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
+		namedStore(t, "keytool-alias", testCert(t, "digicert")))
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/other", []byte("BEFORE\n"))
+
+	restore, err := inject(bundle, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mount := findMount(t, loadMounts(t, bundle), "/opt/java/lib/security")
+	scratch, _ := mount["source"].(string)
+	mustWriteFile(t, filepath.Join(scratch, "other"), "AFTER\n")
+
+	if err := restore.finish(true); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("got %v, want the restore failure to fail the step", err)
 	}
 }
 

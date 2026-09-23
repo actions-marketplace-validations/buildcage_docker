@@ -87,30 +87,32 @@ func findJVMKeystores(s *spec) []string {
 
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
 // at path, rewriting it in place. Like removeFromBinaryStore it reads the file
-// once and dispatches on its magic. An error leaves the keystore untouched for
-// the caller to report, so the step's JVM does not trust the CA.
-func insertIntoKeystore(path string, ca []byte) error {
+// once and dispatches on its magic. On success it returns the keystore's
+// pre-injection bytes for the caller to restore later. An error leaves the
+// keystore untouched for the caller to report, so the step's JVM does not trust
+// the CA.
+func insertIntoKeystore(path string, ca []byte) ([]byte, error) {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
-		return errNotACertificate
+		return nil, errNotACertificate
 	}
 
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return asNotRegular(path, err)
+		return nil, asNotRegular(path, err)
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	size := info.Size()
 	if size < int64(len(keystoreMagic)) || size > maxKeystoreBytes {
-		return errNotAKeystore
+		return nil, errNotAKeystore
 	}
 	content := make([]byte, size)
 	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
-		return err
+		return nil, err
 	}
 
 	// Every certificate in the CA file, as appendCA adds for the PEM stores, so
@@ -122,14 +124,15 @@ func insertIntoKeystore(path string, ca []byte) error {
 	case looksLikePKCS12(content):
 		injected, err = pkcs12With(content, ders)
 	default:
-		return errNotAKeystore
+		return nil, errNotAKeystore
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
 	if _, err := f.WriteAt(injected, 0); err != nil {
-		return err
+		return nil, err
 	}
-	return f.Truncate(int64(len(injected)))
+	// Returns content alongside a Truncate error; the caller ignores it there.
+	return content, f.Truncate(int64(len(injected)))
 }
