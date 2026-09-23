@@ -353,7 +353,7 @@ RUN echo "=== [Service discovery, host not allowed] ===" && \
 # five-second timeout, once for every tool that reverse-resolves its own
 # address or the gateway's. NXDOMAIN is final and costs nothing.
 RUN echo "=== [Reverse lookup] ===" && \
-    OUT=$(nslookup 172.20.0.1 2>&1 || true) && \
+    OUT=$(nslookup 198.19.255.1 2>&1 || true) && \
     echo "$OUT" && \
     case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac
 
@@ -427,7 +427,7 @@ RUN echo "=== [Regex IP rule - other port not covered] ===" && \
 # other address. The reply opens with its length, then the query's own id.
 RUN echo "=== [DNS over TCP - gateway] ===" && \
     ID=$(printf '\000\035\253\315\001\000\000\001\000\000\000\000\000\000\007example\003com\000\000\001\000\001' \
-      | nc -w 5 172.20.0.1 53 | od -An -tx1 | tr -d ' \n' | cut -c5-8) && \
+      | nc -w 5 198.19.255.1 53 | od -An -tx1 | tr -d ' \n' | cut -c5-8) && \
     echo "id=$ID" && \
     [ "$ID" = "abcd" ] || (echo "FAILED: expected an answer" && exit 1)
 
