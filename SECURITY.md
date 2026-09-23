@@ -27,8 +27,8 @@ The following are **out of scope** (please report to the respective projects ins
 ## Verifying Releases
 
 Buildcage ships one Docker image at `ghcr.io/buildcage/docker`, published per engine: release
-`vX.Y.Z` is tagged `X.Y.Z-universal` for the default `universal` engine and `X.Y.Z-inspect` for the
-inspect engine (the image tag drops the release tag's leading `v` and carries the engine suffix).
+`vX.Y.Z` is tagged `X.Y.Z-inspect` for the default `inspect` engine and `X.Y.Z-universal` for the
+universal engine (the image tag drops the release tag's leading `v` and carries the engine suffix).
 Each release is signed
 keylessly with [cosign](https://github.com/sigstore/cosign) and carries a GitHub build-provenance
 attestation, both issued via GitHub Actions OIDC at release time. There is no long-lived signing key
