@@ -69,7 +69,6 @@ covers the choice between the two.
   uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: audit # Log every destination, block nothing
-    proxy_engine: inspect # Record the method and URL of every request
 
 - name: Set up Docker Buildx
   uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -103,7 +102,6 @@ Paste that allowlist into the setup step and switch the mode:
   uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: restrict
-    proxy_engine: inspect
     allowed_url_rules: |
       GET http://deb.debian.org/**
       GET https://registry.npmjs.org/**
