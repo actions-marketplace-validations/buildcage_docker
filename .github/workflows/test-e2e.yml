@@ -55,7 +55,9 @@ jobs:
   # involved; see docs/development.md#local-development.
   test_action:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
+    # !cancelled() forces this to evaluate when `changes` is skipped (it runs
+    # only on pull_request); a skipped need otherwise skips the job unevaluated.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -246,7 +248,7 @@ jobs:
   # the step has to pass anyway, which is what the input is for.
   test_action_known_blocked:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

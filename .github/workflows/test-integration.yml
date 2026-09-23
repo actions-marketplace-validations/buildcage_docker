@@ -58,7 +58,9 @@ jobs:
   # kept in the Makefile.
   test:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    # !cancelled() forces this to evaluate when `changes` is skipped (it runs
+    # only on pull_request); a skipped need otherwise skips the job unevaluated.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -132,7 +134,7 @@ jobs:
 
   test_inspect_roundtrip:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -169,7 +171,7 @@ jobs:
 
   test_inspect_byte_exact:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -202,7 +204,7 @@ jobs:
   # from the one interface the jobs above exercise.
   test_listener_scope:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -219,7 +221,7 @@ jobs:
 
   test_multiarch:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_multiarch == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_multiarch == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
