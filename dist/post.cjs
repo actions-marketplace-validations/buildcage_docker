@@ -187,8 +187,8 @@ function getInput(name, options) {
 }
 //#endregion
 //#region src/lib/inputs.ts
-function readBuilderName(getInput$1 = getInput) {
-	return getInput$1("builder_name") || "buildcage";
+function readBuilderName(getInput$2 = getInput) {
+	return getInput$2("builder_name") || "buildcage";
 }
 //#endregion
 //#region src/lib/post-cleanup.ts
