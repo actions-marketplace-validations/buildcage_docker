@@ -8,18 +8,12 @@ import (
 	"testing"
 )
 
-// The fixtures below are the format written out, as jks_test.go does for a
-// keystore: signature lists small enough to read at a glance.
-
-// Another signature type, EFI_CERT_SHA256_GUID, whose data is a hash rather
-// than a certificate.
+// EFI_CERT_SHA256_GUID, a signature type whose data is a hash.
 var efiCertSHA256 = []byte{0x26, 0x16, 0xc4, 0xc1, 0x4c, 0x50, 0x92, 0x40, 0xac, 0xa9, 0x41, 0xf9, 0x36, 0x93, 0x43, 0x28}
 
-// p11-kit's owner GUID, which it writes on every certificate.
 var efiOwner = []byte{0x50, 0x3b, 0xdd, 0xdc, 0x05, 0xf4, 0xfd, 0x43, 0x96, 0xbe, 0xbd, 0x33, 0xb1, 0x73, 0x47, 0x76}
 
-// signatureList builds one list of the given type, header and signatures, all
-// of which must be the same length.
+// signatureList builds one list; every signature must be the same length.
 func signatureList(typ, header []byte, data ...[]byte) []byte {
 	size := efiOwnerSize
 	if len(data) > 0 {
@@ -37,7 +31,7 @@ func signatureList(typ, header []byte, data ...[]byte) []byte {
 	return list
 }
 
-// x509List is the shape p11-kit writes: one certificate per list.
+// x509List is what p11-kit writes: one certificate per list.
 func x509List(der []byte) []byte {
 	return signatureList(efiCertX509, nil, der)
 }
@@ -48,8 +42,6 @@ func concat(parts ...[]byte) []byte {
 
 var thirdDER = []byte("A-THIRD-ROOT")
 
-// The shape update-ca-trust leaves: the certificate's own list goes, and every
-// other list is copied over as it was.
 func TestSignatureListsWithoutRemovesTheCertificatesList(t *testing.T) {
 	content := concat(x509List(otherDER), x509List(testDER), x509List(thirdDER))
 
@@ -62,8 +54,6 @@ func TestSignatureListsWithoutRemovesTheCertificatesList(t *testing.T) {
 	}
 }
 
-// A list carrying several certificates of one length loses only the
-// certificate, and its size says so.
 func TestSignatureListsWithoutCutsOneSignatureOutOfAList(t *testing.T) {
 	content := signatureList(efiCertX509, nil, otherDER, testDER, thirdDER)
 
@@ -76,7 +66,6 @@ func TestSignatureListsWithoutCutsOneSignatureOutOfAList(t *testing.T) {
 	}
 }
 
-// A header is carried over with the list it belongs to.
 func TestSignatureListsWithoutKeepsAListsHeader(t *testing.T) {
 	content := signatureList(efiCertX509, []byte("HDR"), otherDER, testDER)
 
@@ -89,8 +78,7 @@ func TestSignatureListsWithoutKeepsAListsHeader(t *testing.T) {
 	}
 }
 
-// A database holding nothing but the certificate comes out empty, which the
-// sweep then removes as a file the injection put there.
+// The sweep removes the emptied file.
 func TestSignatureListsWithoutEmptiesADatabaseOfOnlyTheCertificate(t *testing.T) {
 	got, removed := signatureListsWithout(x509List(testDER), [][]byte{testDER})
 	if !removed || len(got) != 0 {
@@ -98,8 +86,7 @@ func TestSignatureListsWithoutEmptiesADatabaseOfOnlyTheCertificate(t *testing.T)
 	}
 }
 
-// A list the format allows to carry no signatures at all stays, since the
-// certificate was never in it.
+// The format allows a list with no signatures.
 func TestSignatureListsWithoutKeepsAnEmptyList(t *testing.T) {
 	empty := signatureList(efiCertX509, nil)
 	binary.LittleEndian.PutUint32(empty[24:], efiOwnerSize+uint32(len(testDER)))
@@ -111,7 +98,6 @@ func TestSignatureListsWithoutKeepsAnEmptyList(t *testing.T) {
 	}
 }
 
-// Every certificate of a bundle CA goes.
 func TestSignatureListsWithoutRemovesEveryCertificate(t *testing.T) {
 	content := concat(x509List(testDER), x509List(otherDER), x509List(thirdDER))
 
@@ -121,8 +107,7 @@ func TestSignatureListsWithoutRemovesEveryCertificate(t *testing.T) {
 	}
 }
 
-// A copy of the certificate anywhere but as an X.509 signature of its own is
-// not cut: the caller finds it still there and reports it.
+// The read-back finds these copies and fails the build.
 func TestSignatureListsWithoutLeavesACopyItCannotCut(t *testing.T) {
 	for name, content := range map[string][]byte{
 		"another signature type": signatureList(efiCertSHA256, nil, testDER),
@@ -138,8 +123,6 @@ func TestSignatureListsWithoutLeavesACopyItCannotCut(t *testing.T) {
 	}
 }
 
-// With no magic to go on, content that does not parse as signature lists to
-// its last byte is not a signature database, and nothing in it is cut.
 func TestSignatureListsWithoutRefusesWhatDoesNotParse(t *testing.T) {
 	valid := x509List(testDER)
 	withSizes := func(list, header, signature uint32) []byte {
@@ -168,8 +151,6 @@ func TestSignatureListsWithoutRefusesWhatDoesNotParse(t *testing.T) {
 	}
 }
 
-// Through the sweep, the database update-ca-trust rebuilt is rewritten in place
-// rather than failing the build.
 func TestSweepDirRewritesAnEFISignatureDatabase(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cacerts.bin")

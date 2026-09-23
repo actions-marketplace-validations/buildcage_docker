@@ -43,13 +43,11 @@ var keystoreSalt = []byte("Mighty Aphrodite")
 // var, not a const, so a test can reach the limit without writing 16 MB.
 var maxKeystoreBytes int64 = 16 << 20
 
-// removeFromBinaryStore takes the certificate out of a binary trust store,
-// rewriting it in place, and reports whether it rewrote anything. The file is
-// read once and dispatched on its magic: a JKS (feedfeed) or a PKCS#12 (a DER
-// SEQUENCE), the two shapes a Java keystore ships as, and otherwise an EFI
-// signature database, which has no magic and is recognised by parsing. A file
-// that is none of them is left alone for the caller to report; a keystore that
-// cannot be rewritten safely is an error.
+// removeFromBinaryStore takes the certificate out of a binary trust store in
+// place and reports whether it rewrote anything. A JKS (feedfeed) or PKCS#12
+// (a DER SEQUENCE) keystore is told apart by its magic; anything else is tried
+// as an EFI signature database. A file that is none of them is left for the
+// caller to report; a keystore that cannot be rewritten safely is an error.
 func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
