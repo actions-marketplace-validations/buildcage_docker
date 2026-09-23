@@ -11,6 +11,7 @@
  *
  * Everything but those two log paths is core/lib/report/action-main.ts.
  */
+import { readProxyDroppedLogs } from "#core/lib/docker/proxy-dropped-logs.ts";
 import { readRotatedLog } from "#core/lib/docker/rotated-log.ts";
 import { runReportAction } from "#core/lib/report/action-main.ts";
 import { buildUniversalReportData } from "#core/lib/report/build/universal.ts";
@@ -26,6 +27,7 @@ runReportAction({
       readRotatedLog(docker, containerId, PROXY_LOG_DIR),
       readRotatedLog(docker, containerId, RESOLVER_LOG_DIR),
       parameters,
+      readProxyDroppedLogs(docker, containerId),
     ),
   // Now that universal builds a timeline, it can write the traffic artifact too.
   writesTrafficFile: true,

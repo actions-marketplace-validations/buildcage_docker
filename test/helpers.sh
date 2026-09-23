@@ -36,6 +36,17 @@ assert_results() {
   echo ""
 }
 
+# A report that calls itself incomplete counts nothing it shows as the whole
+# run, and a proxy whose dropped-log count the report cannot read makes every
+# report one. Nothing else in a run like this one drops or rotates a line.
+assert_report_complete() {
+  if grep -qF "This report is incomplete" <<< "$1"; then
+    fail "Report marks the log incomplete"
+  else
+    pass "Report treats the log as complete"
+  fi
+}
+
 # One of the builder's s6 service logs: haproxy (universal/inspect) or coredns
 # (inspect's resolver).
 builder_log() {

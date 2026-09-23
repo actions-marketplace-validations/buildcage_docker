@@ -321,6 +321,10 @@ echo ""
 
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
+echo "[report] the log reads as complete:"
+assert_report_complete "$REPORT_MARKDOWN"
+echo ""
+
 echo "[report] Allowed Hosts:"
 if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
