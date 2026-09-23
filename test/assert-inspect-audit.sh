@@ -59,7 +59,6 @@ echo "[report] the restrict-mode example built from what was observed:"
 # These rules are meant to be pasted into a restrict run, so they are checked
 # against what the build actually did rather than only for being present.
 if grep -qF "Switch to restrict mode" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "proxy_engine: inspect" <<< "$REPORT_MARKDOWN" \
   && grep -qF "allowed_url_rules: |" <<< "$REPORT_MARKDOWN"; then
   pass "the example is offered as URL rules"
 else

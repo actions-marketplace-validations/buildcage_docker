@@ -15,6 +15,7 @@
         uses: buildcage/docker@v2 # 2.1.0
         with:
           proxy_mode: restrict
+          proxy_engine: universal
           allowed_https_rules: >-
             a.example.com:443
           allowed_http_rules: >-

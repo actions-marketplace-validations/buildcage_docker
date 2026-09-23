@@ -175,7 +175,6 @@ export function buildInspectRestrictExample(
   yaml += usesLine(actionRepo, actionRef, actionVersion);
   yaml += "  with:\n";
   yaml += "    proxy_mode: restrict\n";
-  yaml += "    proxy_engine: inspect\n";
   // A literal block, not a folded one: a URL rule contains a space, so the
   // rules are separated by newlines and folding would join them into one.
   if (lines.length > 0) {
