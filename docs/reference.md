@@ -409,6 +409,7 @@ in neither host table. **Communication details** shows it with ⚠️ and how it
 
 ```
 ⚠️ 00:09.123: HTTPS untrusted-ca.example.com:443 -> client-aborted
+⚠️ 00:11.407: HTTPS untrusted-ca.example.com:443 -> client-timeout
 ```
 
 | Reason           | What happened                                                                   |
