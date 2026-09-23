@@ -203,7 +203,7 @@ Three mechanisms make that enforceable:
   never contacted. The only path that reaches an origin is the backend, after a request has already
   passed the rules, and the origin's own certificate is checked on that connection.
 - **The path is normalized before the rules see it**, and traversal encodings that no normaliser can
-  strip (`%2e%2e`, `..%2f`, a raw backslash, `..%5c`) are refused outright, so a rule cannot be
+  strip (`%2e%2e`, `..%2f`, a raw backslash, `..%5c`, `..;`) are refused outright, so a rule cannot be
   walked out of.
 - **`buildcage-runc`**, a wrapper around BuildKit's own `buildkit-runc`, makes each step trust the
   proxy's CA by bind-mounting a scratch copy of the CA store over the step's own view of it, writing

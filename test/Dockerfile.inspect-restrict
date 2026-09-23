@@ -87,10 +87,21 @@ RUN echo "=== [Traversal, backslash] ===" && \
       [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
     done
 
-# An encoded slash on its own is how npm asks for a scoped package, and a name
-# may simply contain dots.
+# Tomcat and Jetty read `..;/` as `../`. This origin does not, so the 403 is
+# what is under test.
+RUN echo "=== [Traversal, path parameter] ===" && \
+    for P in "..;/private/secret" "..%3b/private/secret" "..%3B/private/secret" \
+             "..;jsessionid=x/private/secret" "%2e%2e;/private/secret"; do \
+      CODE=$(curl -sS -o /dev/null -w %{http_code} --path-as-is --max-time 10 \
+             "https://allowed.example.com/public/$P") && \
+      echo "  $P -> $CODE" && \
+      [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
+    done
+
+# An encoded slash on its own is how npm asks for a scoped package, a name
+# may simply contain dots, and a segment may carry a parameter.
 RUN echo "=== [Not traversal] ===" && \
-    for P in "@scope%2fpkg" "my..pkg" "pkg.tgz" "a%5cb"; do \
+    for P in "@scope%2fpkg" "my..pkg" "pkg.tgz" "a%5cb" "pkg;v=1"; do \
       OUT=$(curl -sS --path-as-is --max-time 10 "https://allowed.example.com/public/$P") && \
       echo "  $P -> $OUT" && \
       case "$OUT" in PUBLIC*) : ;; *) echo "FAILED: refused a legitimate path" && exit 1 ;; esac; \
