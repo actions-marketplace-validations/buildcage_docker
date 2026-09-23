@@ -318,8 +318,11 @@ func stripCA(path string, ca []byte, marks caMarks) (bool, error) {
 //
 // Reading it back is the check that matters: the guarantee is about what
 // BuildKit commits, not about what the removals above believed they did.
-func stripLayer(rootfs string, ca []byte) error {
-	upper := upperDirOf(rootfs)
+//
+// upper is the layer found when the injection began, not one located afresh: a
+// mount table that read cleanly at inject but fails to now would otherwise
+// report no layer and let the anchors' scattered copies through unswept.
+func stripLayer(rootfs, upper string, ca []byte) error {
 	if upper == "" {
 		// Nothing to read the removal back from. The mirrors' own undo is
 		// unaffected, so this is the behaviour the engine had before.

@@ -148,6 +148,12 @@ type injection struct {
 	binds        []*dirBind
 	createdOwnCA string
 	created      createdDirs
+	// The step's layer as found when the injection began. Kept rather than
+	// recomputed at finish: a transient failure to read the mount table would
+	// otherwise report no layer and commit the anchors' scattered copies
+	// unswept. Empty when there was no overlay to read, in which case no
+	// anchors were placed either.
+	upper string
 }
 
 // finish diffs each mirrored directory against its pre-step state, writes back
@@ -171,8 +177,15 @@ func (in *injection) finish(committing bool) error {
 		b.cleanup()
 	}
 	if in.createdOwnCA != "" {
-		if err := os.Remove(in.createdOwnCA); err != nil && !os.IsNotExist(err) {
-			logf("cannot remove %s: %v", in.createdOwnCA, err)
+		// Re-resolve and remove only the path that still lands where inject
+		// wrote it, for the same reason removeCreatedDirs does: an ancestor the
+		// step turned into an absolute symlink would otherwise send os.Remove
+		// out of the rootfs.
+		resolved, err := resolveInRoot(in.rootfs, ownCAPath)
+		if err != nil || resolved != in.createdOwnCA {
+			logf("not removing %s: it no longer resolves there (%v)", ownCAPath, err)
+		} else if err := os.Remove(resolved); err != nil && !os.IsNotExist(err) {
+			logf("cannot remove %s: %v", ownCAPath, err)
 		}
 	}
 	if firstErr != nil || !committing {
@@ -181,7 +194,7 @@ func (in *injection) finish(committing bool) error {
 		return firstErr
 	}
 	// After the write-back, whose own result lands in the layer.
-	if err := stripLayer(in.rootfs, in.ca); err != nil {
+	if err := stripLayer(in.rootfs, in.upper, in.ca); err != nil {
 		return err
 	}
 	// After the sweep, which has by now emptied and removed the anchor files,
@@ -210,8 +223,9 @@ func inject(bundle string, ca []byte) (*injection, error) {
 	// takes the copies a rebuild scatters back out, and without it the anchor is
 	// not placed, leaving the engine the behaviour it had before (see
 	// README.md#limitations).
+	upper := upperDirOf(s.rootfs)
 	var created createdDirs
-	if upperDirOf(s.rootfs) != "" {
+	if upper != "" {
 		created = placeAnchors(s.rootfs, ca)
 	} else {
 		logf("the step's layer is not an overlay upper directory; not placing anchors")
@@ -259,7 +273,7 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("cannot update the process spec: %v", err)
 	}
 
-	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created}, nil
+	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created, upper: upper}, nil
 }
 
 // bindCovering returns the bind whose mirrored directory contains containerDir,

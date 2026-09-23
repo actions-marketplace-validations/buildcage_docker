@@ -598,6 +598,44 @@ func TestInjectFinishReportsAnOwnCAFileItCannotRemove(t *testing.T) {
 	}
 }
 
+// A step that swaps an ancestor of the own-CA file for an absolute symlink of
+// its own must not have the removal follow it out of the rootfs. Re-resolving
+// the path disagrees with where inject wrote it, so it is left rather than
+// unlinked.
+func TestInjectFinishRefusesAnOwnCAPathASymlinkNowLeadsOutOf(t *testing.T) {
+	useTempLog(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A file outside the rootfs the old removal would have unlinked by following
+	// an absolute symlink out of it.
+	outside := t.TempDir()
+	mustWriteFile(t, filepath.Join(outside, filepath.Base(ownCAPath)), "OUTSIDE\n")
+
+	// The step points /etc, the own-CA file's parent, at that outside path.
+	etc := filepath.Join(rootfs, "etc")
+	if err := os.RemoveAll(etc); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, outside, etc)
+
+	if err := restore.finish(true); err != nil {
+		t.Fatalf("the mismatch must not fail the step: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, filepath.Base(ownCAPath))); err != nil {
+		t.Fatalf("the removal followed a symlink out of the rootfs: %v", err)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "no longer resolves there") {
+		t.Errorf("the refusal is not in the log:\n%s", out.String())
+	}
+}
+
 // A bundle without a spec is not something to guess at: there is nothing to
 // read the rootfs or the environment out of.
 func TestInjectRefusesABundleWithoutASpec(t *testing.T) {
