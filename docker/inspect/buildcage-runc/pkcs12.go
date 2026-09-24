@@ -29,14 +29,11 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-// Most key-derivation iterations a PKCS#12 may name before it is left unread.
-// go-pkcs12 runs whatever count the file names, at about 0.3 µs an iteration,
-// so a 1 KB file naming 2^40 holds a decode for days. Real encoders stay well
-// under this: OpenSSL writes 2048, the JDK 10,000 to 100,000.
+// go-pkcs12 runs whatever count a file names, and 2^40 takes days. Real
+// encoders write 2048 to 100,000.
 const maxPKCS12Iterations = 1_000_000
 
-// How deep iterationsWithin descends. go-pkcs12 reads no count deeper than
-// PBKDF2's parameters inside a shrouded key bag, 16 levels down.
+// go-pkcs12 reads no count deeper than 16 levels.
 const maxPKCS12Depth = 24
 
 var errTooManyIterations = errors.New("the PKCS#12 names more key-derivation iterations than this runs")
@@ -62,13 +59,9 @@ func decodePKCS12(content []byte) ([]*x509.Certificate, error) {
 }
 
 // iterationsWithin reports whether every iteration count der names in the clear
-// is at most maxPKCS12Iterations.
-//
-// The counts are found by shape rather than by walking the PFX structure:
-// MacData, the PBE parameters and PBKDF2's all put the count right after the
-// salt, an INTEGER following an OCTET STRING. Octet strings are read into,
-// since the authenticated safe and its bags sit inside them; one that does not
-// parse is ciphertext, and no count inside it is reached before decrypting it.
+// is at most maxPKCS12Iterations. MacData, PBE and PBKDF2 parameters all put
+// the count right after the salt, so an INTEGER following an OCTET STRING is
+// taken as one. Octet strings are read into, since the bags sit inside them.
 func iterationsWithin(der []byte, depth int) bool {
 	if depth > maxPKCS12Depth {
 		return true
@@ -187,9 +180,8 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 		return false, nil
 	}
 	for _, password := range sealedKeystorePasswords {
-		// A trust store only: go-pkcs12 decodes a key with its chain by
-		// decrypting the key too, under a count that can sit inside a bag it has
-		// to decrypt first, where iterationsWithin cannot read it.
+		// Not DecodeChain: it also decrypts the key, whose count can sit inside
+		// an encrypted bag where iterationsWithin cannot read it.
 		certs, err := pkcs12.DecodeTrustStore(content, password)
 		if err != nil {
 			continue

@@ -416,8 +416,7 @@ func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	}
 }
 
-// A key with its chain is not decoded: that decrypts the key as well, under a
-// count iterationsWithin cannot read.
+// Only trust stores are decoded, so a key with its chain passes too.
 func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	caLeaf, caLeafKey := testLeaf(t, ca, caKey, "app.example")
@@ -577,7 +576,6 @@ func TestIterationsWithin(t *testing.T) {
 	}
 }
 
-// Stores the encoders in use write are all under the limit.
 func TestIterationsWithinAcceptsRealEncoders(t *testing.T) {
 	cert := testCert(t, "digicert")
 	for name, enc := range map[string]*pkcs12.Encoder{
@@ -594,8 +592,7 @@ func TestIterationsWithinAcceptsRealEncoders(t *testing.T) {
 	}
 }
 
-// Sealed under the empty password, which every PKCS#12 path here tries, and
-// past the limit, so none of them may run the derivation.
+// Sealed under the empty password, so every PKCS#12 path would otherwise open it.
 func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	content := mustEncodeTrustStore(t, pkcs12.Modern.WithIterations(maxPKCS12Iterations+1), "", ca)
