@@ -16,7 +16,9 @@ package main
 // unencrypted and carry no MAC, the one shape the JVM's default loader trusts
 // as a cacerts: the Modern encoders encrypt the bags with PBES2, which that
 // loader does not decrypt. A "changeit" store is resealed Modern, the shape
-// keytool writes, so whatever read it before still does.
+// keytool writes, so whatever read it before still does. Entries keep their
+// aliases: the JVM loads one entry per alias, so naming them after their
+// subjects would merge any that share one.
 // removeFromBinaryStore reads the file and dispatches on its magic.
 
 import (
@@ -50,16 +52,25 @@ func looksLikePKCS12(content []byte) bool {
 	return len(content) >= 2 && content[0] == 0x30 && content[1]&0x80 != 0
 }
 
-// decodePKCS12 reads the trusted certificates out of a trust store under the
-// passwords the sweep's detection tries, so a copy it finds can also be removed,
-// and returns the password that opened it.
-func decodePKCS12(content []byte) (certs []*x509.Certificate, password string, err error) {
+// decodePKCS12 reads the trusted certificates and their aliases out of a trust
+// store under the passwords the sweep's detection tries, so a copy it finds can
+// also be removed, and returns the password that opened it.
+func decodePKCS12(content []byte) (entries []pkcs12.TrustStoreEntry, password string, err error) {
 	if !iterationsWithin(content, 0) {
 		return nil, "", errTooManyIterations
 	}
 	for _, password = range sealedKeystorePasswords {
-		if certs, err = pkcs12.DecodeTrustStore(content, password); err == nil {
-			return certs, password, nil
+		if entries, err = pkcs12.DecodeTrustStoreEntries(content, password); err == nil {
+			return entries, password, nil
+		}
+		// A malformed alias fails only the entry decode. The certificates are
+		// still read so a copy of the CA in the store is found.
+		if certs, certErr := pkcs12.DecodeTrustStore(content, password); certErr == nil {
+			entries = make([]pkcs12.TrustStoreEntry, 0, len(certs))
+			for _, cert := range certs {
+				entries = append(entries, pkcs12.TrustStoreEntry{Cert: cert})
+			}
+			return entries, password, nil
 		}
 	}
 	return nil, "", err
@@ -98,14 +109,21 @@ func iterationsWithin(der []byte, depth int) bool {
 	return true
 }
 
-// encodePKCS12 writes certs back as a trust store under password (see the file
-// comment). It is a var so a test can make the encode fail, which valid
+// encodePKCS12 writes entries back as a trust store under password (see the
+// file comment). It is a var so a test can make the encode fail, which valid
 // certificates otherwise never do.
-var encodePKCS12 = func(certs []*x509.Certificate, password string) ([]byte, error) {
-	if password == "" {
-		return pkcs12.Passwordless.EncodeTrustStore(certs, "")
+var encodePKCS12 = func(entries []pkcs12.TrustStoreEntry, password string) ([]byte, error) {
+	named := slices.Clone(entries)
+	for i := range named {
+		// Entries sharing the empty alias would merge in the JVM.
+		if named[i].FriendlyName == "" {
+			named[i].FriendlyName = named[i].Cert.Subject.String()
+		}
 	}
-	return pkcs12.Modern.EncodeTrustStore(certs, password)
+	if password == "" {
+		return pkcs12.Passwordless.EncodeTrustStoreEntries(named, "")
+	}
+	return pkcs12.Modern.EncodeTrustStoreEntries(named, password)
 }
 
 // pkcs12With returns a PKCS#12 trust store holding everything in content plus
@@ -114,18 +132,18 @@ var encodePKCS12 = func(certs []*x509.Certificate, password string) ([]byte, err
 // decodePKCS12 will not open is one this cannot rewrite, so injection is
 // skipped for it and the step's JVM is left not trusting the CA.
 func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
-	certs, password, err := decodePKCS12(content)
+	entries, password, err := decodePKCS12(content)
 	if err != nil {
 		return nil, err
 	}
-	for _, der := range ders {
+	for i, der := range ders {
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
 			return nil, err
 		}
-		certs = append(certs, cert)
+		entries = append(entries, pkcs12.TrustStoreEntry{Cert: cert, FriendlyName: injectedAliasFor(i)})
 	}
-	return encodePKCS12(certs, password)
+	return encodePKCS12(entries, password)
 }
 
 // pkcs12Without returns a PKCS#12 trust store holding everything in content but
@@ -139,17 +157,17 @@ func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
 // certificate is fine: the emptied store re-encodes and decodes cleanly,
 // carrying no DER.
 func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
-	certs, password, err := decodePKCS12(content)
+	entries, password, err := decodePKCS12(content)
 	if err != nil {
 		logf("a PKCS#12 keystore this cannot decode as a trust store: %v", err)
 		return nil, false, nil
 	}
-	// Captured before the delete: slices.DeleteFunc rewrites certs' backing array
-	// in place and returns a shorter slice, leaving certs' own length unchanged,
-	// so comparing kept against it is what says a copy was found.
-	before := len(certs)
-	kept := slices.DeleteFunc(certs, func(cert *x509.Certificate) bool {
-		return holdsAnyDER(cert.Raw, ders)
+	// Captured before the delete: slices.DeleteFunc rewrites entries' backing
+	// array in place and returns a shorter slice, leaving entries' own length
+	// unchanged, so comparing kept against it is what says a copy was found.
+	before := len(entries)
+	kept := slices.DeleteFunc(entries, func(entry pkcs12.TrustStoreEntry) bool {
+		return holdsAnyDER(entry.Cert.Raw, ders)
 	})
 	if len(kept) == before {
 		return nil, false, nil
@@ -190,12 +208,12 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 	// can take out. Trust stores only, not DecodeChain: that also decrypts the
 	// key, whose count can sit inside an encrypted bag where iterationsWithin
 	// cannot read it.
-	certs, _, err := decodePKCS12(content)
+	entries, _, err := decodePKCS12(content)
 	if errors.Is(err, errTooManyIterations) {
 		logf("left a PKCS#12 unread: %v", err)
 	}
-	for _, cert := range certs {
-		if holdsAnyDER(cert.Raw, needles) {
+	for _, entry := range entries {
+		if holdsAnyDER(entry.Cert.Raw, needles) {
 			return true, nil
 		}
 	}

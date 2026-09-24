@@ -59,6 +59,20 @@
       "description": "@vitest/coverage-v8 must equal the vitest that vite-plus bundles, which Renovate cannot see, so pin it by hand when upgrading vite-plus instead of letting Renovate bump it.",
       "matchPackageNames": ["@vitest/coverage-v8"],
       "enabled": false
+    },
+    {
+      "description": "buildcage-runc builds this fork through a replace. The fork also has upstream's tags, which semver ranks above the -buildcage.N prereleases, so only those are candidates. The tags are ours, so no release-age wait.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/buildcage/go-pkcs12"],
+      "allowedVersions": "/-buildcage\\.\\d+$/",
+      "ignoreUnstable": false,
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Overridden by the replace above. An upstream release arrives as a new fork tag instead.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["software.sslmate.com/src/go-pkcs12"],
+      "enabled": false
     }
   ]
 }
