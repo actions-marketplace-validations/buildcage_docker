@@ -497,6 +497,32 @@ func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
 	findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
 }
 
+// A store too large to mirror is treated as no store at all: the variables
+// that would have pointed at it fall back to the proxy-CA-only file, rather
+// than at a store the CA never went into.
+func TestInjectFallsBackWhenTheStoreCannotBeMirrored(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	mustMkdirAll(t, filepath.Join(rootfs, "usr"))
+	mustWriteFile(t, filepath.Join(rootfs, "usr/ca.crt"), "ORIGINAL-ROOTS\n")
+	mustSparseFile(t, filepath.Join(rootfs, "usr/libhuge.so"), maxStoreDirBytes)
+	mustMkdirAll(t, filepath.Join(rootfs, "etc/ssl/certs"))
+	mustSymlink(t, "/usr/ca.crt", filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
+		t.Errorf("mounted %v, want nothing mirrored", mounts)
+	}
+	if got := loadEnv(t, bundle)["SSL_CERT_FILE"]; got != ownCAPath {
+		t.Errorf("SSL_CERT_FILE = %q, want %q", got, ownCAPath)
+	}
+}
+
 // A file already at the wrapper's own path belongs to the image, not to this
 // run: it is neither overwritten nor removed, and the variables that would
 // have pointed at it stay unset.

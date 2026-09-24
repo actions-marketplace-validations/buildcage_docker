@@ -571,15 +571,28 @@ func (s systemStore) dir() string {
 	return filepath.Dir(s.hostPath)
 }
 
+// findSystemStore returns the first candidate that is there and whose
+// directory can be mirrored. One whose directory cannot be is passed over: the
+// variables planned around a store would point at a copy without the CA.
 func findSystemStore(rootfs string) (systemStore, error) {
 	for _, candidate := range systemCertFiles {
 		resolved, err := resolveInRoot(rootfs, candidate)
 		if err != nil {
 			continue
 		}
-		if _, err := os.Stat(resolved); err == nil {
-			return systemStore{hostPath: resolved, containerPath: candidate, found: true}, nil
+		if _, err := os.Stat(resolved); err != nil {
+			continue
 		}
+		store := systemStore{hostPath: resolved, containerPath: candidate, found: true}
+		if containerPathOf(rootfs, store.dir()) == "/" {
+			logf("not using %s as the CA store: it is in the container root, which cannot be bound", candidate)
+			continue
+		}
+		if err := checkMirrorable(store.dir(), maxStoreDirBytes, maxStoreDirFiles); err != nil {
+			logf("not using %s as the CA store: %v", candidate, err)
+			continue
+		}
+		return store, nil
 	}
 	return systemStore{}, errors.New("no CA bundle found in the rootfs")
 }
