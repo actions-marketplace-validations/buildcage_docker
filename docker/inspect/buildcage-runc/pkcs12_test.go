@@ -652,3 +652,25 @@ func TestPKCS12CertificatesStopsAtTheBudget(t *testing.T) {
 		t.Errorf("decoded %d times, want the second keystore left unread", calls.Load())
 	}
 }
+
+// Found once, a copy stays found after the budget runs out, so the strip's
+// rechecks and the read-back cannot take it for removed.
+func TestSealedPKCS12HoldsKeepsWhatItFoundOnceTheBudgetIsSpent(t *testing.T) {
+	withSealedDecodeBudget(t, time.Hour)
+	ca, _ := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca))
+
+	if found, err := fileHoldsCA(path, caMarksOf(caPEM).needles); err != nil || !found {
+		t.Fatalf("fileHoldsCA: found=%v err=%v, want the CA found", found, err)
+	}
+	sealedDecodeBudget = 0
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a keystore it found the CA in once the budget ran out")
+	}
+}

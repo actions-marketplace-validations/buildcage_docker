@@ -19,6 +19,7 @@ package main
 // dispatches on its magic.
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
@@ -187,14 +188,32 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 		logf("left a PKCS#12 unread: %v", errTooManyIterations)
 		return false, nil
 	}
-	for _, password := range sealedKeystorePasswords {
-		for _, cert := range pkcs12Certificates(content, password) {
-			if holdsAnyDER(cert.Raw, needles) {
-				return true, nil
-			}
-		}
+	key := sealedResultKey(content, needles)
+	if found, ok := sealedResults[key]; ok {
+		return found, nil
 	}
-	return false, nil
+	found := slices.ContainsFunc(sealedKeystorePasswords, func(password string) bool {
+		return slices.ContainsFunc(pkcs12Certificates(content, password), func(cert *x509.Certificate) bool {
+			return holdsAnyDER(cert.Raw, needles)
+		})
+	})
+	sealedResults[key] = found
+	return found, nil
+}
+
+// sealedResults remembers what sealedPKCS12Holds said of each keystore. A file
+// is checked several times (found, rechecked before the strip, again after it,
+// and in the read-back), and once sealedDecodeBudget runs out a fresh decode
+// would say false: a copy found but not removable would then pass as removed.
+var sealedResults = map[[sha256.Size]byte]bool{}
+
+func sealedResultKey(content []byte, needles [][]byte) [sha256.Size]byte {
+	h := sha256.New()
+	h.Write(content)
+	for _, needle := range needles {
+		h.Write(needle)
+	}
+	return [sha256.Size]byte(h.Sum(nil))
 }
 
 // How long the decodes pkcs12Certificates runs may take in total, across the
