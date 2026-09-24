@@ -342,7 +342,8 @@ test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests agains
 
 # Each case hides a copy of the CA the sweep finds but cannot remove, and must
 # fail the build naming the file. The control writes an unrelated encrypted
-# keystore and must build.
+# keystore and must build. The resealed case must build with the CA taken out
+# and the keystore still sealed under changeit.
 .PHONY: test_integration_buildkit_inspect_hidden_ca
 test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that hides a copy of the CA the sweep cannot remove
 	@echo "Running inspect-engine hidden CA copy tests..."
@@ -371,6 +372,26 @@ test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that
 	  --build-arg CASE=control \
 	  --progress=plain -f test/Dockerfile.inspect-hidden-ca test/
 	@echo "PASS: the build kept a keystore that is not the CA's"
+	@echo "=== A keystore under changeit the sweep takes the CA out of ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --build-arg CASE=resealed \
+	  --progress=plain -f test/Dockerfile.inspect-hidden-ca test/ \
+	  --load -t $(TEST_IMAGE)
+	@listing=$$(docker run --rm $(TEST_IMAGE) keytool -list -keystore /app/trust.p12 -storepass changeit) \
+	  || { echo "FAIL: the resealed keystore does not open under changeit"; exit 1; }; \
+	if echo "$$listing" | grep -qi buildcage; then \
+	  echo "FAIL: the resealed keystore still trusts the CA"; exit 1; \
+	fi; \
+	roots=$$(echo "$$listing" | grep -c trustedCertEntry || true); \
+	if [ "$${roots:-0}" -lt 100 ]; then \
+	  echo "FAIL: the resealed keystore kept only $$roots roots"; exit 1; \
+	fi; \
+	if docker run --rm $(TEST_IMAGE) keytool -list -keystore /app/trust.p12 -storepass not-the-password >/dev/null 2>&1; then \
+	  echo "FAIL: the resealed keystore opens without changeit"; exit 1; \
+	fi; \
+	echo "PASS: the sweep took the CA out, kept $$roots roots, and resealed under changeit"
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_inspect_byte_exact
