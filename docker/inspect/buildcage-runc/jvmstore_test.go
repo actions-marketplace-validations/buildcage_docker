@@ -138,7 +138,7 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certs, err := decodePKCS12(content)
+	certs, _, err := decodePKCS12(content)
 	if err != nil {
 		t.Fatalf("the injected store no longer decodes: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestPKCS12WithInsertsEveryCert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certs, err := decodePKCS12(out)
+	certs, _, err := decodePKCS12(out)
 	if err != nil {
 		t.Fatal(err)
 	}
