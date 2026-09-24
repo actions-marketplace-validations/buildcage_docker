@@ -35,10 +35,13 @@ export function runReportScript(
   containerId: string,
   { trafficFile, env = process.env, run = runNode }: RunReportScriptOptions = {},
 ): number {
+  // Set or removed, never inherited: an earlier step can put it in the runner's
+  // environment through GITHUB_ENV.
+  const { BUILDCAGE_TRAFFIC_FILE: _inherited, ...rest } = env;
   try {
     run(
       [scriptPath, containerId],
-      trafficFile ? { ...env, BUILDCAGE_TRAFFIC_FILE: trafficFile } : env,
+      trafficFile ? { ...rest, BUILDCAGE_TRAFFIC_FILE: trafficFile } : rest,
     );
   } catch (e) {
     const status = (e as { status?: number | null }).status;

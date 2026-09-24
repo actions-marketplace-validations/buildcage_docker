@@ -10854,11 +10854,12 @@ const runNode = (args, env) => {
 	});
 };
 function runReportScript(scriptPath, containerId, { trafficFile, env = process.env, run = runNode } = {}) {
+	let { BUILDCAGE_TRAFFIC_FILE: _inherited, ...rest } = env;
 	try {
 		run([scriptPath, containerId], trafficFile ? {
-			...env,
+			...rest,
 			BUILDCAGE_TRAFFIC_FILE: trafficFile
-		} : env);
+		} : rest);
 	} catch (e) {
 		let status = e.status;
 		if (typeof status != "number") throw new ReportError(`Failed to run report-action.js: ${errorMessage(e)}`, "REPORT_SCRIPT_FAILED");
