@@ -3,6 +3,7 @@ import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import { buildRestrictExample } from "./build-example.ts";
 import { renderInspectDetails } from "./inspect-details.ts";
 import { buildInspectRestrictExample } from "./inspect-example.ts";
+import { escapeCell } from "./markdown-table.ts";
 import type { ReportData } from "../types.ts";
 
 export interface RenderReportMarkdownOptions {
@@ -30,7 +31,10 @@ export function renderReportMarkdown(
   // restrict is what a real run normally uses day to day, so its heading
   // stays bare; audit is the occasional, deliberately different mode and
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
-  let markdown = `## ${title}${isAudit ? " (audit mode)" : ""}\n\n`;
+  // escapeCell as defense in depth: the report scripts only ever pass the
+  // bare default title, but the renderer must not depend on that to keep
+  // Markdown out of the heading.
+  let markdown = `## ${escapeCell(title)}${isAudit ? " (audit mode)" : ""}\n\n`;
 
   // The tables would otherwise read as the whole story.
   if (!report.logLooksPlausible) {
