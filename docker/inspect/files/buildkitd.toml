@@ -1,5 +1,3 @@
-debug = true
-
 [dns]
 # The steps' resolver, not buildkitd's own: the daemon keeps using the builder
 # container's resolv.conf, so `FROM` still reaches a real registry.
