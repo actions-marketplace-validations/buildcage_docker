@@ -49,12 +49,22 @@ describe("runReportScript", () => {
     expect(calls[0].env).toStrictEqual({ ...ENV, BUILDCAGE_TRAFFIC_FILE: TRAFFIC_FILE });
   });
 
-  it("leaves the environment alone when no artifact is wanted", () => {
+  it("removes an inherited traffic file when no artifact is wanted", () => {
     const { run, calls } = fakeRun();
+    const planted = { ...ENV, BUILDCAGE_TRAFFIC_FILE: "/home/runner/leak.json" };
 
-    runReportScript(SCRIPT, CONTAINER_ID, { env: ENV, run });
+    runReportScript(SCRIPT, CONTAINER_ID, { env: planted, run });
 
-    expect(calls[0].env).not.toHaveProperty("BUILDCAGE_TRAFFIC_FILE");
+    expect(calls[0].env).toStrictEqual(ENV);
+  });
+
+  it("replaces an inherited traffic file with its own", () => {
+    const { run, calls } = fakeRun();
+    const planted = { ...ENV, BUILDCAGE_TRAFFIC_FILE: "/home/runner/leak.json" };
+
+    runReportScript(SCRIPT, CONTAINER_ID, { trafficFile: TRAFFIC_FILE, env: planted, run });
+
+    expect(calls[0].env).toStrictEqual({ ...ENV, BUILDCAGE_TRAFFIC_FILE: TRAFFIC_FILE });
   });
 
   // The script explains itself over inherited stdio, so the caller only has to
