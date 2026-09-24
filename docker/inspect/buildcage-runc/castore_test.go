@@ -780,7 +780,6 @@ func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
 	}
 }
 
-// wrapped breaks s into lines of width characters.
 func wrapped(s string, width int) string {
 	var out strings.Builder
 	for len(s) > width {
