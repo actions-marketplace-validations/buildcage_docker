@@ -74,16 +74,19 @@ function errorMessage(e) {
 }
 //#endregion
 //#region src/core/lib/actions/annotation.ts
+function escapeData$1(message) {
+	return message.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
 function createAnnotation(enabled) {
 	return enabled ? {
 		notice(message) {
-			console.log(`::notice::${message}`);
+			console.log(`::notice::${escapeData$1(message)}`);
 		},
 		warning(message) {
-			console.log(`::warning::${message}`);
+			console.log(`::warning::${escapeData$1(message)}`);
 		},
 		error(message) {
-			console.log(`::error::${message}`);
+			console.log(`::error::${escapeData$1(message)}`);
 		}
 	} : {
 		notice() {},
