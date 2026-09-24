@@ -456,8 +456,8 @@ Two assertions then run against the verified bundle, both fail-closed:
 | How the action is pinned       | Identity check                                              | Mechanism                                                              |
 | ------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `@<40-char SHA>`               | Source Repository Digest **strictly equals** the pinned SHA | `certificateOIDs`: Fulcio OID `1.3.6.1.4.1.57264.1.13`, raw byte match |
-| `@v2.2.0` (exact version)      | SAN matches `...@refs/tags/v2\.2\.0(\.\|$)`                 | `certificateIdentityURI` regexp                                        |
-| `@v2` (major-floating)         | SAN matches `...@refs/tags/v2(\.\|$)`                       | `certificateIdentityURI` regexp                                        |
+| `@v4.0.0` (exact version)      | SAN matches `...@refs/tags/v4\.0\.0(\.\|$)`                 | `certificateIdentityURI` regexp                                        |
+| `@v4` (major-floating)         | SAN matches `...@refs/tags/v4(\.\|$)`                       | `certificateIdentityURI` regexp                                        |
 | A branch name, or a local path | **Hard fail**: pin to a version tag or commit SHA           |                                                                        |
 
 For the strongest guarantee, pin to a **commit SHA**:
@@ -485,7 +485,7 @@ Verification establishes where the image came from. Here is what it leaves uncov
   the damage: with a commit-SHA pin, a new release cannot reach your workflow until you change the
   pin yourself, and every signature is recorded in the Rekor transparency log, so an unintended
   release is discoverable after the fact.
-- **A floating tag is a pointer someone else moves.** Under `@v3` or `@v3.2` the signing identity
+- **A floating tag is a pointer someone else moves.** Under `@v4` or `@v4.0` the signing identity
   accepts any release in that series, so the tag can also be moved back to an older one. Both the
   registry tag and the git tag are writable by whoever publishes releases, which is the reason to
   prefer a commit SHA: it puts you in charge of when you move.
