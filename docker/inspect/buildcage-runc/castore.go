@@ -307,14 +307,15 @@ func removeCA(path string, ca []byte) error {
 	}
 
 	size := info.Size()
-	cuts, err := findCertificates(f, ders, size)
+	w := newFileWindow(f, size)
+	cuts, err := findCertificates(w, ders)
 	if err != nil || len(cuts) == 0 {
 		return err
 	}
 	// Closing the gap shifts every later byte, which breaks a binary's offsets
 	// and checksums. Binaries hold a NUL and PEM bundles never do, so a binary is
 	// left for the caller to refuse.
-	nul, err := findInFile(f, []byte{0}, 0, size)
+	nul, err := findInFile(w, []byte{0}, 0)
 	if err != nil || nul != -1 {
 		return err
 	}
@@ -327,17 +328,17 @@ func removeCA(path string, ca []byte) error {
 
 // findCertificates returns, in order, the range each armoured copy of the
 // certificate occupies, including the line break that closes it.
-func findCertificates(f bundleFile, ders [][]byte, size int64) ([]span, error) {
+func findCertificates(w *fileWindow, ders [][]byte) ([]span, error) {
 	var cuts []span
-	for off := int64(0); off < size; {
-		begin, err := findInFile(f, beginPEM, off, size)
+	for off := int64(0); off < w.size; {
+		begin, err := findInFile(w, beginPEM, off)
 		if err != nil {
 			return nil, err
 		}
 		if begin == -1 {
 			return cuts, nil
 		}
-		block, end, err := readPEMBlock(f, begin, size)
+		block, end, err := readPEMBlock(w, begin)
 		if err != nil {
 			return nil, err
 		}
@@ -369,13 +370,25 @@ func findCertificates(f bundleFile, ders [][]byte, size int64) ([]span, error) {
 // past a block it cannot read and returns a later one instead. The span would
 // then reach across both, and cutting it would take a bundle's own
 // certificate with it.
-func readPEMBlock(f bundleFile, begin, size int64) (*pem.Block, int64, error) {
-	buf := make([]byte, min(size-begin, maxCertificateBytes))
-	if _, err := f.ReadAt(buf, begin); err != nil && err != io.EOF {
+func readPEMBlock(w *fileWindow, begin int64) (*pem.Block, int64, error) {
+	buf, err := w.at(begin, maxCertificateBytes)
+	if err != nil {
 		return nil, 0, err
 	}
-	newline := bytes.IndexByte(buf, '\n')
-	if newline == -1 {
+	// The block's own lines all come before the next opening line: one before
+	// the closing line means this block has no end of its own, and the closing
+	// line after it belongs to whatever came next. Looking no further also keeps
+	// a block that cannot be read to the cost of the bytes up to the next one,
+	// which a search restarting just past it would otherwise pay a whole read of
+	// every time.
+	next := len(buf)
+	if len(buf) >= len(beginPEM) {
+		if at := bytes.Index(buf[len(beginPEM):], beginPEM); at != -1 {
+			next = len(beginPEM) + at
+		}
+	}
+	newline := bytes.IndexByte(buf[:next], '\n')
+	if newline < len(beginPEM) {
 		return nil, 0, nil
 	}
 	label, ok := bytes.CutSuffix(bytes.TrimSuffix(buf[len(beginPEM):newline], []byte("\r")), []byte("-----"))
@@ -383,14 +396,8 @@ func readPEMBlock(f bundleFile, begin, size int64) (*pem.Block, int64, error) {
 		return nil, 0, nil
 	}
 	closing := []byte("\n-----END " + string(label) + "-----")
-	end := bytes.Index(buf, closing)
+	end := bytes.Index(buf[:min(len(buf), next+len(closing)-1)], closing)
 	if end == -1 {
-		return nil, 0, nil
-	}
-	// Another opening line before the closing one means this block has no end
-	// of its own: it is one the step truncated, and the closing line found
-	// belongs to whatever came after it.
-	if bytes.Contains(buf[len(beginPEM):end], beginPEM) {
 		return nil, 0, nil
 	}
 	end += len(closing)
@@ -405,32 +412,72 @@ func readPEMBlock(f bundleFile, begin, size int64) (*pem.Block, int64, error) {
 	return block, begin + int64(end), nil
 }
 
+// fileWindow reads a file through one buffer, refilled only when a read runs
+// past what it holds. The searches below restart just past every opening line
+// they cannot read a block from, and reading afresh at each restart made a file
+// packed with such lines cost thousands of times what its size does.
+type fileWindow struct {
+	f    io.ReaderAt
+	size int64
+	buf  []byte
+	off  int64 // where buf starts in the file
+}
+
+func newFileWindow(f io.ReaderAt, size int64) *fileWindow {
+	return &fileWindow{f: f, size: size}
+}
+
+// at returns n bytes of the file from off, or up to where it ends. The bytes
+// are the window's own and valid until the next call. Fewer come back only
+// when the file ended early, which means it changed under the wrapper.
+func (w *fileWindow) at(off int64, n int) ([]byte, error) {
+	end := min(off+int64(n), w.size)
+	if off >= w.off && end <= w.off+int64(len(w.buf)) {
+		return w.buf[off-w.off : end-w.off], nil
+	}
+	// Twice what was asked, so reads moving forward a little at a time are
+	// served from memory until they have moved on by a whole read.
+	if cap(w.buf) < 2*n {
+		w.buf = make([]byte, 2*n)
+	}
+	read, err := w.f.ReadAt(w.buf[:cap(w.buf)], off)
+	if err != nil && err != io.EOF {
+		w.buf = w.buf[:0]
+		return nil, err
+	}
+	w.buf, w.off = w.buf[:read], off
+	return w.buf[:min(int64(read), end-off)], nil
+}
+
 // findInFile returns the offset of needle at or after from, or -1.
-func findInFile(f io.ReaderAt, needle []byte, from, size int64) (int64, error) {
-	at, _, err := findAnyInFile(f, [][]byte{needle}, from, size)
+func findInFile(w *fileWindow, needle []byte, from int64) (int64, error) {
+	at, _, err := findAnyInFile(w, [][]byte{needle}, from)
 	return at, err
 }
 
 // findAnyInFile returns the offset of the earliest of needles at or after
 // from, and which one was found, or -1 for both. Each read carries the longest
 // needle's length over, so one lying on a chunk boundary still matches.
-func findAnyInFile(f io.ReaderAt, needles [][]byte, from, size int64) (int64, int, error) {
+//
+// Once one needle is found, the rest are looked for only where they would
+// start before it, so the needle likeliest to come first belongs first.
+func findAnyInFile(w *fileWindow, needles [][]byte, from int64) (int64, int, error) {
 	longest := 0
 	for _, needle := range needles {
 		longest = max(longest, len(needle))
 	}
-	buf := make([]byte, scanChunk+longest-1)
-	for off := from; off < size; {
-		n, err := f.ReadAt(buf, off)
-		if err != nil && err != io.EOF {
+	for off := from; off < w.size; {
+		buf, err := w.at(off, scanChunk+longest-1)
+		if err != nil {
 			return -1, -1, err
 		}
 		at, which := -1, -1
 		for i, needle := range needles {
-			if n < len(needle) {
-				continue
+			haystack := buf
+			if at != -1 {
+				haystack = buf[:min(len(buf), at+len(needle)-1)]
 			}
-			if found := bytes.Index(buf[:n], needle); found != -1 && (at == -1 || found < at) {
+			if found := bytes.Index(haystack, needle); found != -1 {
 				at, which = found, i
 			}
 		}
@@ -439,10 +486,10 @@ func findAnyInFile(f io.ReaderAt, needles [][]byte, from, size int64) (int64, in
 		}
 		// A read shorter than the longest needle is the tail of the file, and
 		// every needle that could still fit has just been looked for.
-		if n < longest {
+		if len(buf) < longest {
 			return -1, -1, nil
 		}
-		off += int64(n - longest + 1)
+		off += int64(len(buf) - longest + 1)
 	}
 	return -1, -1, nil
 }
@@ -453,19 +500,22 @@ func findAnyInFile(f io.ReaderAt, needles [][]byte, from, size int64) (int64, in
 // One pass, because the sweep reads every byte a step wrote and then reads
 // them all again to check itself.
 func scanForCA(f bundleFile, size int64, needles [][]byte) (bool, error) {
-	search := append(slices.Clone(needles), beginPEM)
+	w := newFileWindow(f, size)
+	// The opening line first, since a file full of PEM has one every few lines
+	// and the needles are then looked for only up to it.
+	search := append([][]byte{beginPEM}, needles...)
 	for off := int64(0); off < size; {
-		at, which, err := findAnyInFile(f, search, off, size)
+		at, which, err := findAnyInFile(w, search, off)
 		if err != nil {
 			return false, err
 		}
 		if at == -1 {
 			return false, nil
 		}
-		if which < len(needles) {
+		if which > 0 {
 			return true, nil
 		}
-		block, end, err := readPEMBlock(f, at, size)
+		block, end, err := readPEMBlock(w, at)
 		if err != nil {
 			return false, err
 		}
