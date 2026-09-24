@@ -214,12 +214,14 @@ Three mechanisms make that enforceable:
   shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
   cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
   and takes the certificate, and the anchor, out of every text file carrying it as PEM, every JKS
-  or PKCS#12 keystore carrying it as DER, each bare DER a trust store splits the bundle into (Mono's
+  or PKCS#12 trust store carrying it (a PKCS#12 one opened with no password or `changeit`), each
+  bare DER a trust store splits the bundle into (Mono's
   `cert-sync` writes one per certificate), and the EFI signature database RHEL's `update-ca-trust`
   writes. A copy it finds but cannot remove fails the build: one
   inside any other binary, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line), a
-  certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 holding either
-  that opens with no password or `changeit`. A copy it cannot read stays in the image: one in a
+  certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 that opens
+  with no password or `changeit` and holds such a certificate, or the CA alongside a private key. A
+  copy it cannot read stays in the image: one in a
   compressed archive, or in a keystore encrypted under another password. Those are not failed on,
   since dependencies ship encrypted test keystores and failing on them would break builds that never
   touched the CA. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
@@ -295,8 +297,8 @@ port, so the method and the path are neither enforced nor reported.
 TLS is terminated, so a tool that pins a certificate, or ships a bundled trust store it never lets
 the system update, will not work. The JVM (Java, Kotlin, Scala) reads only its own keystore rather
 than the CA-trust variables; a JVM already in the base image is handled by injecting into that
-keystore, but a password-sealed one, or a step that rewrites a PKCS#12 `cacerts` with `keytool`,
-falls back to `universal`. See [Limitations](../README.md#limitations) for the rest of the
+keystore, but one sealed with a password other than the JDK default falls back to `universal`.
+See [Limitations](../README.md#limitations) for the rest of the
 compatibility picture.
 
 `audit` is not a passive observer here either. TLS is terminated in both modes, so a tool that

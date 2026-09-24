@@ -299,7 +299,7 @@ func (b *dirBind) prepare(ca []byte) error {
 		target := filepath.Join(b.scratchDir, name)
 		if b.keystore {
 			// A keystore that cannot be injected into (an unusual format, or a
-			// PKCS#12 the empty password will not open) leaves the step's JVM not
+			// PKCS#12 under a password of its own) leaves the step's JVM not
 			// trusting the CA rather than failing the build.
 			original, err := insertIntoKeystore(target, ca)
 			if err != nil {

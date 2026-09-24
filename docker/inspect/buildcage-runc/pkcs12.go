@@ -9,14 +9,13 @@ package main
 //
 // The JDK's own cacerts carries no MAC (the password guards only the MAC, and
 // the certificate bags are never encrypted), so it decodes under the empty
-// password even though it is nominally sealed with "changeit". It is written
-// back Passwordless, whose bags are unencrypted and carry no MAC, the one shape
-// the JVM's default loader trusts as a cacerts: the Modern encoders encrypt the
-// bags with PBES2, which that loader does not decrypt. A cacerts keytool or a
-// Modern encoder wrote seals a MAC under its own password, so the empty-password
-// decode will not open it and it stays fail-closed (errUnstrippableCA) rather
-// than being passed silently. removeFromBinaryStore reads the file and
-// dispatches on its magic.
+// password even though it is nominally sealed with "changeit". A trust store
+// keytool creates, rather than edits, is sealed under the password it was
+// given, so "changeit" is tried as well. Either is written back Passwordless,
+// whose bags are unencrypted and carry no MAC, the one shape the JVM's default
+// loader trusts as a cacerts: the Modern encoders encrypt the bags with PBES2,
+// which that loader does not decrypt. A reader passing "changeit" still opens
+// it. removeFromBinaryStore reads the file and dispatches on its magic.
 
 import (
 	"crypto/x509"
@@ -37,10 +36,15 @@ func looksLikePKCS12(content []byte) bool {
 	return len(content) >= 2 && content[0] == 0x30 && content[1]&0x80 != 0
 }
 
-// decodePKCS12 reads the trusted certificates out of a JDK trust store under
-// the empty password. See the file comment for why that is the right password.
-func decodePKCS12(content []byte) ([]*x509.Certificate, error) {
-	return pkcs12.DecodeTrustStore(content, "")
+// decodePKCS12 reads the trusted certificates out of a trust store under the
+// passwords the sweep's detection tries, so a copy it finds can also be removed.
+func decodePKCS12(content []byte) (certs []*x509.Certificate, err error) {
+	for _, password := range sealedKeystorePasswords {
+		if certs, err = pkcs12.DecodeTrustStore(content, password); err == nil {
+			return certs, nil
+		}
+	}
+	return nil, err
 }
 
 // encodePKCS12 writes certs back as a passwordless trust store (see the file
@@ -50,20 +54,11 @@ var encodePKCS12 = func(certs []*x509.Certificate) ([]byte, error) {
 	return pkcs12.Passwordless.EncodeTrustStore(certs, "")
 }
 
-// pkcs12Without returns a passwordless PKCS#12 trust store holding everything in
-// content but the certificate, and reports whether it removed anything. content
-// is already known to begin with the PKCS#12 magic.
-//
-// A store the empty password will not open, or one holding the DER among its
-// bytes but not as a decoded trusted certificate, is one this cannot rewrite: it
-// returns (nil, false, nil) and leaves the caller to report it. Removing the
-// last certificate is fine: the emptied store re-encodes and decodes cleanly,
-// carrying no DER.
 // pkcs12With returns a passwordless PKCS#12 trust store holding everything in
 // content plus a trusted certificate for each der. content is already known to
-// begin with the PKCS#12 magic. A store the empty password will not open is one
-// this cannot rewrite, so injection is skipped for it and the step's JVM is left
-// not trusting the CA.
+// begin with the PKCS#12 magic. A store decodePKCS12 will not open is one this
+// cannot rewrite, so injection is skipped for it and the step's JVM is left not
+// trusting the CA.
 func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
 	certs, err := decodePKCS12(content)
 	if err != nil {
@@ -79,10 +74,20 @@ func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
 	return encodePKCS12(certs)
 }
 
+// pkcs12Without returns a passwordless PKCS#12 trust store holding everything in
+// content but the certificate, and reports whether it removed anything. content
+// is already known to begin with the PKCS#12 magic.
+//
+// A store decodePKCS12 will not open (a key with its chain, or a trust store
+// under another password), or one holding the DER among its bytes but not as a
+// decoded trusted certificate, is one this cannot rewrite: it returns
+// (nil, false, nil) and leaves the caller to report it. Removing the last
+// certificate is fine: the emptied store re-encodes and decodes cleanly,
+// carrying no DER.
 func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	certs, err := decodePKCS12(content)
 	if err != nil {
-		logf("a PKCS#12 keystore this cannot decode under the empty password: %v", err)
+		logf("a PKCS#12 keystore this cannot decode as a trust store: %v", err)
 		return nil, false, nil
 	}
 	// Captured before the delete: slices.DeleteFunc rewrites certs' backing array
@@ -102,10 +107,10 @@ func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	return out, true, nil
 }
 
-// Passwords tried on an encrypted PKCS#12: none, and the JDK default a copy of
-// cacerts usually keeps. Others pass unread: dependencies ship encrypted test
-// keystores (the Azure SDK for Go does), and failing on those would fail
-// builds that never touched the CA.
+// Passwords tried on a PKCS#12, both to find the CA and to rewrite the store:
+// none, and the JDK default a copy of cacerts usually keeps. Others pass
+// unread: dependencies ship encrypted test keystores (the Azure SDK for Go
+// does), and failing on those would fail builds that never touched the CA.
 var sealedKeystorePasswords = []string{"", keystorePassword}
 
 // sealedPKCS12Holds reports whether f is a PKCS#12 that opens under one of
