@@ -375,12 +375,8 @@ func readPEMBlock(w *fileWindow, begin int64) (*pem.Block, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	// The block's own lines all come before the next opening line: one before
-	// the closing line means this block has no end of its own, and the closing
-	// line after it belongs to whatever came next. Looking no further also keeps
-	// a block that cannot be read to the cost of the bytes up to the next one,
-	// which a search restarting just past it would otherwise pay a whole read of
-	// every time.
+	// A closing line past the next opening line belongs to that block, so
+	// nothing is looked for past it. That also keeps a failed read this cheap.
 	next := len(buf)
 	if len(buf) >= len(beginPEM) {
 		if at := bytes.Index(buf[len(beginPEM):], beginPEM); at != -1 {
@@ -413,9 +409,8 @@ func readPEMBlock(w *fileWindow, begin int64) (*pem.Block, int64, error) {
 }
 
 // fileWindow reads a file through one buffer, refilled only when a read runs
-// past what it holds. The searches below restart just past every opening line
-// they cannot read a block from, and reading afresh at each restart made a file
-// packed with such lines cost thousands of times what its size does.
+// past what it holds, so a search restarting just past an opening line reads
+// nothing again.
 type fileWindow struct {
 	f    io.ReaderAt
 	size int64

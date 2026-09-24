@@ -898,9 +898,7 @@ func TestBlockReadPastTheWindowReportsAFailedRead(t *testing.T) {
 	})
 }
 
-// Every opening line that has no block restarts the search just past it. A file
-// packed with them is still read about once, and the certificate after them is
-// still found.
+// Each opening line without a block restarts the search just past it.
 func TestUnterminatedOpeningLinesAreReadOnce(t *testing.T) {
 	flood := strings.Repeat("-----BEGIN X-----\n", (1<<20)/18)
 	content := flood + string(testCA)
