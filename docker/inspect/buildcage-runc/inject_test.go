@@ -248,8 +248,7 @@ func TestInjectLeavesAVariableUnderAMissingDirectoryAlone(t *testing.T) {
 	}
 }
 
-// A variable naming a directory is a misconfiguration, not a bundle to append
-// to, and mirroring it would nest the host path inside the store's mirror.
+// Treated as a bundle, a directory would nest the host path inside the store's mirror.
 func TestInjectLeavesAVariableNamingADirectoryAlone(t *testing.T) {
 	useFakeRsync(t)
 	bundle, _ := newBundle(t, []string{"SSL_CERT_FILE=/etc/ssl/certs"})
