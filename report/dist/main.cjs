@@ -56208,7 +56208,7 @@ async function runReportStep(env, overrides = {}) {
 	let { readBuilderName, readTrafficArtifactInputs, createDocker, findReportSourceContainer, copyFromContainerImage, runReportScript, uploadTrafficArtifact, makeScratchDir, removeScratchDir, warn } = {
 		...realDeps,
 		...overrides
-	}, builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(warn), projectName = resolveProjectName(builderName, env.BUILDCAGE_BUILD_TEST_HOOKS === "1" ? env.COMPOSE_PROJECT_NAME : void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = makeScratchDir(), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
+	}, builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(warn), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = makeScratchDir(), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
 		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile }), reportScriptFinished = !0;
