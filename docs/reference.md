@@ -184,9 +184,11 @@ Besides the wildcards, a label holds letters, digits, `-` and `_`, and nothing e
 internationalized name in its punycode form (`xn--mnchen-3ya.de`, not `münchen.de`), the form a
 connection carries. A leading, trailing or doubled dot is refused.
 
-`**` on its own matches any host, an address written as the host included: `**:443` lets a request
-for `10.0.0.5` through, since private ranges are deliberately left reachable (see
-[A name may not resolve inward](./security.md#a-name-may-not-resolve-inward)).
+`**` on its own matches any host a request names, an address included: under `**:443`, a request
+that reaches the proxy through a name but carries `Host: 10.0.0.5` goes to that address, since
+private ranges are deliberately left reachable (see
+[A name may not resolve inward](./security.md#a-name-may-not-resolve-inward)). A connection made
+straight to an address is matched against `allowed_ip_rules` only.
 
 #### Ports
 
@@ -317,7 +319,7 @@ the resolver matches it with RE2. Lookaround (`(?=`, `(?!`, `(?<=`, `(?<!`) and 
 therefore refused there, in a URL rule's host half as well.
 
 Setup checks a pattern with JavaScript's regular expressions, but the proxy runs it with PCRE2.
-Syntax only JavaScript accepts, such as `A` or `[\d-z]`, passes setup and then stops the proxy
+Syntax only JavaScript accepts, such as `\u0041` or `[\d-z]`, passes setup and then stops the proxy
 from starting.
 
 In `allowed_url_rules` a `~` expression covers the URL, and is split at the first `/` after `://`:
