@@ -20,11 +20,27 @@ package main
 
 import (
 	"crypto/x509"
+	"encoding/asn1"
+	"errors"
 	"io"
+	"math/big"
 	"slices"
+	"time"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
+
+// Most key-derivation iterations a PKCS#12 may name before it is left unread.
+// go-pkcs12 runs whatever count the file names, at about 0.3 µs an iteration,
+// so a 1 KB file naming 2^40 holds a decode for days. Real encoders stay well
+// under this: OpenSSL writes 2048, the JDK 10,000 to 100,000.
+const maxPKCS12Iterations = 1_000_000
+
+// How deep iterationsWithin descends. go-pkcs12 reads no count deeper than
+// PBKDF2's parameters inside a shrouded key bag, 16 levels down.
+const maxPKCS12Depth = 24
+
+var errTooManyIterations = errors.New("the PKCS#12 names more key-derivation iterations than this runs")
 
 // looksLikePKCS12 reports whether content opens the way a PKCS#12 keystore
 // does: the DER SEQUENCE tag 0x30 followed by a long-form length, the 0x80 bit
@@ -40,7 +56,47 @@ func looksLikePKCS12(content []byte) bool {
 // decodePKCS12 reads the trusted certificates out of a JDK trust store under
 // the empty password. See the file comment for why that is the right password.
 func decodePKCS12(content []byte) ([]*x509.Certificate, error) {
+	if !iterationsWithin(content, 0) {
+		return nil, errTooManyIterations
+	}
 	return pkcs12.DecodeTrustStore(content, "")
+}
+
+// iterationsWithin reports whether every iteration count der names in the clear
+// is at most maxPKCS12Iterations.
+//
+// The counts are found by shape rather than by walking the PFX structure:
+// MacData, the PBE parameters and PBKDF2's all put the count right after the
+// salt, an INTEGER following an OCTET STRING. Octet strings are read into,
+// since the authenticated safe and its bags sit inside them; one that does not
+// parse is ciphertext, and no count inside it is reached before decrypting it.
+func iterationsWithin(der []byte, depth int) bool {
+	if depth > maxPKCS12Depth {
+		return true
+	}
+	afterSalt := false
+	for len(der) > 0 {
+		var v asn1.RawValue
+		rest, err := asn1.Unmarshal(der, &v)
+		if err != nil {
+			return true
+		}
+		der = rest
+		universal := v.Class == asn1.ClassUniversal
+		switch {
+		case universal && v.Tag == asn1.TagInteger && afterSalt:
+			var count *big.Int
+			if _, err := asn1.Unmarshal(v.FullBytes, &count); err != nil || count.Cmp(big.NewInt(maxPKCS12Iterations)) > 0 {
+				return false
+			}
+		case v.IsCompound || universal && v.Tag == asn1.TagOctetString:
+			if !iterationsWithin(v.Bytes, depth+1) {
+				return false
+			}
+		}
+		afterSalt = universal && v.Tag == asn1.TagOctetString && !v.IsCompound
+	}
+	return true
 }
 
 // encodePKCS12 writes certs back as a passwordless trust store (see the file
@@ -127,6 +183,10 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 	if _, err := f.ReadAt(content, 0); err != nil && err != io.EOF {
 		return false, err
 	}
+	if !iterationsWithin(content, 0) {
+		logf("left a PKCS#12 unread: %v", errTooManyIterations)
+		return false, nil
+	}
 	for _, password := range sealedKeystorePasswords {
 		for _, cert := range pkcs12Certificates(content, password) {
 			if holdsAnyDER(cert.Raw, needles) {
@@ -137,9 +197,40 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 	return false, nil
 }
 
-// pkcs12Certificates decodes content as a trust store or as a key with its
-// chain, the two shapes go-pkcs12 supports. Nil if neither opens.
+// How long the decodes pkcs12Certificates runs may take in total, across the
+// whole step. A key bag's count can sit inside a bag encrypted under the same
+// password, which iterationsWithin cannot read, so the decodes are timed too.
+// Past it, encrypted keystores pass unread, the same as one under a password
+// not in sealedKeystorePasswords.
+var sealedDecodeBudget = 30 * time.Second
+
+// pkcs12Certificates decodes content as sealedDecode does, within what is left
+// of sealedDecodeBudget. A decode that runs out of it is left running: nothing
+// stops go-pkcs12 partway, and the process exits once the step is swept.
 func pkcs12Certificates(content []byte, password string) []*x509.Certificate {
+	if sealedDecodeBudget <= 0 {
+		return nil
+	}
+	started := time.Now()
+	done := make(chan []*x509.Certificate, 1)
+	go func() { done <- sealedDecode(content, password) }()
+	timeout := time.NewTimer(sealedDecodeBudget)
+	defer timeout.Stop()
+	select {
+	case certs := <-done:
+		sealedDecodeBudget -= time.Since(started)
+		return certs
+	case <-timeout.C:
+		sealedDecodeBudget = 0
+		logf("decoding encrypted PKCS#12 keystores ran out of time; the rest of this step's pass unread")
+		return nil
+	}
+}
+
+// sealedDecode decodes content as a trust store or as a key with its chain, the
+// two shapes go-pkcs12 supports. Nil if neither opens. It is a var so a test can
+// stand in a decode that never returns.
+var sealedDecode = func(content []byte, password string) []*x509.Certificate {
 	if certs, err := pkcs12.DecodeTrustStore(content, password); err == nil {
 		return certs
 	}

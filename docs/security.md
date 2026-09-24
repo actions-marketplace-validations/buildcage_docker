@@ -222,7 +222,9 @@ Three mechanisms make that enforceable:
   that opens with no password or `changeit`. A copy it cannot read stays in the image: one in a
   compressed archive, or in a keystore encrypted under another password. Those are not failed on,
   since dependencies ship encrypted test keystores and failing on them would break builds that never
-  touched the CA. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
+  touched the CA. A PKCS#12 names its own key-derivation cost, so one asking for more than a million
+  iterations is left unread rather than decoded, and once decoding encrypted keystores has taken 30
+  seconds in a step, the rest of that step's pass unread too. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
   started by this action gets. On a builder whose data root cannot hold an overlay upper directory,
   BuildKit falls back to another snapshotter, the wrapper logs that it is leaving the layer unread,
   and only the store directory's own undo applies, as before the engine read layers back.
