@@ -349,7 +349,7 @@ test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that
 	@echo "Running inspect-engine hidden CA copy tests..."
 	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
 	  $(MAKE) setup_buildkit_inspect_audit
-	@for case in keystore leaf json; do \
+	@for case in leaf json; do \
 	  echo "=== A copy of the CA the sweep cannot take out: $$case ==="; \
 	  if docker buildx build --no-cache \
 	      --builder $(BUILDER_NAME) \

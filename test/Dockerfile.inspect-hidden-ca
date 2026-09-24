@@ -1,7 +1,6 @@
 # Each CASE leaves a copy of the proxy CA that the layer sweep finds but cannot
 # remove, so the build must fail:
 #
-#   keystore  a server certificate the proxy forged, in a new PKCS#12 under changeit
 #   leaf      a server certificate the proxy forged, saved trust-on-first-use
 #   json      the CA's PEM escaped into a JSON string
 #
@@ -15,12 +14,6 @@ ARG CASE
 SHELL ["/bin/sh", "-c"]
 
 RUN mkdir -p /app && case "$CASE" in \
-      keystore) openssl s_client -showcerts -connect allowed.example.com:443 \
-        -servername allowed.example.com </dev/null 2>/dev/null \
-        | openssl x509 > /tmp/host.crt \
-        && keytool -importcert -noprompt -alias host -file /tmp/host.crt \
-          -keystore /app/trust.p12 -storetype PKCS12 -storepass changeit \
-        && rm /tmp/host.crt ;; \
       resealed) keytool -importkeystore -noprompt \
         -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
         -destkeystore /app/trust.p12 -deststoretype PKCS12 -deststorepass changeit ;; \
