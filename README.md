@@ -393,11 +393,7 @@ reported as blocked; see
 - The JVM (Java, Kotlin, Scala) reads only its own keystore rather than the CA-trust variables, and
   a JVM already in the base image is handled: the CA is added to its `$JAVA_HOME/lib/security/cacerts`
   for the step and removed before the layer is committed. A keystore sealed with a password other
-  than the JDK default still falls back to `proxy_engine: universal`: Buildcage will not rewrite it.
-- A `RUN` step that saves a certificate the proxy issued (`openssl s_client -showcerts`, or a tool
-  that caches the server certificates it has seen) fails, naming the file: the saved certificate
-  records the build's CA as its issuer, and leaving it in the layer would ship that trace.
-- A `RUN` step that copies the system CA bundle into a binary or an uncompressed archive
+  than the JDK default still falls back to `proxy_engine: universal`: Buildcage will not rewrite it.- A `RUN` step that copies the system CA bundle into a binary or an uncompressed archive
   (`go:embed`, `include_str!`, `tar cf`) fails: the copy carries the build's CA, which cannot be cut
   out of a binary without corrupting it. Copy the bundle in an earlier `RUN` step instead:
 
