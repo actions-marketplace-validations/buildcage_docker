@@ -507,6 +507,21 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 // If the password argument is empty, DecodeTrustStore will decode either password-less
 // PKCS#12 files (i.e. those without encryption) or files with a literal empty password.
 func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificate, err error) {
+	entries, err := DecodeTrustStoreEntries(pfxData, password)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		certs = append(certs, entry.Cert)
+	}
+	return certs, nil
+}
+
+// DecodeTrustStoreEntries is like [DecodeTrustStore], but also returns the
+// Friendly Name (Alias) of each certificate, the inverse of
+// [Encoder.EncodeTrustStoreEntries]. A certificate without a Friendly Name
+// has an empty FriendlyName.
+func DecodeTrustStoreEntries(pfxData []byte, password string) (entries []TrustStoreEntry, err error) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
 		return nil, err
@@ -537,7 +552,11 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 				return nil, err
 			}
 
-			certs = append(certs, parsedCerts[0])
+			friendlyName, err := bag.friendlyName()
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, TrustStoreEntry{Cert: parsedCerts[0], FriendlyName: friendlyName})
 
 		default:
 			return nil, errors.New("pkcs12: expected only certificate bags")
@@ -545,6 +564,24 @@ func DecodeTrustStore(pfxData []byte, password string) (certs []*x509.Certificat
 	}
 
 	return
+}
+
+// friendlyName returns the bag's Friendly Name attribute, or "" if it has none.
+func (bag *safeBag) friendlyName() (string, error) {
+	for _, attr := range bag.Attributes {
+		if !attr.Id.Equal(oidFriendlyName) {
+			continue
+		}
+		var value asn1.RawValue
+		if err := unmarshal(attr.Value.Bytes, &value); err != nil {
+			return "", err
+		}
+		if value.Class != asn1.ClassUniversal || value.Tag != asn1.TagBMPString {
+			return "", errors.New("pkcs12: friendlyName is not a BMPString")
+		}
+		return decodeBMPString(value.Bytes)
+	}
+	return "", nil
 }
 
 func getSafeContents(p12Data, password []byte, expectedItemsMin int, expectedItemsMax int) (bags []safeBag, updatedPassword []byte, err error) {

@@ -57,10 +57,10 @@ QuickJS
 
 ------------------------------------------------------------------------------
 
-go-pkcs12 (linked into /opt/buildcage/bin/buildcage-runc)
+go-pkcs12, modified (linked into /opt/buildcage/bin/buildcage-runc)
   Website : https://github.com/SSLMate/go-pkcs12
   License : BSD 3-Clause License (BSD-3-Clause)
-  Source  : https://github.com/SSLMate/go-pkcs12
+  Source  : https://github.com/buildcage/go-pkcs12 (fork of SSLMate/go-pkcs12)
 
 ------------------------------------------------------------------------------
 

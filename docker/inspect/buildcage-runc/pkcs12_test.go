@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -58,14 +59,15 @@ func passwordlessStore(t *testing.T, certs ...*x509.Certificate) []byte {
 	return data
 }
 
-// namedStore is a passwordless trust store whose entry carries an alias of its
-// own, the way keytool writes a JDK's cacerts (a short label, not the subject
-// DN). Re-encoding it through decode/EncodeTrustStore would replace that alias
-// with the subject, which is the churn restoreUntouchedKeystores prevents.
-func namedStore(t *testing.T, alias string, cert *x509.Certificate) []byte {
+// keytoolStore is a trust store the way keytool creates one: sealed under
+// changeit, its entry under an alias of its own. The round trip keeps the alias
+// but draws a fresh salt, so it never reproduces these bytes, which is the churn
+// restoreUntouchedKeystores prevents. A JDK's own cacerts does not survive it
+// byte for byte either.
+func keytoolStore(t *testing.T, alias string, cert *x509.Certificate) []byte {
 	t.Helper()
-	data, err := pkcs12.Passwordless.EncodeTrustStoreEntries(
-		[]pkcs12.TrustStoreEntry{{Cert: cert, FriendlyName: alias}}, "")
+	data, err := pkcs12.Modern.EncodeTrustStoreEntries(
+		[]pkcs12.TrustStoreEntry{{Cert: cert, FriendlyName: alias}}, keystorePassword)
 	if err != nil {
 		t.Fatalf("encoding a named trust store: %v", err)
 	}
@@ -127,7 +129,7 @@ func TestPKCS12Without(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the rewritten keystore no longer decodes: %v", err)
 	}
-	if len(certs) != 1 || certs[0].Subject.CommonName != "digicert" {
+	if len(certs) != 1 || certs[0].Cert.Subject.CommonName != "digicert" {
 		t.Errorf("the rewrite left %d certificates, want only digicert", len(certs))
 	}
 }
@@ -202,7 +204,7 @@ func TestPKCS12WithoutEncodeFails(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
 	old := encodePKCS12
-	encodePKCS12 = func([]*x509.Certificate, string) ([]byte, error) { return nil, errBrokenFile }
+	encodePKCS12 = func([]pkcs12.TrustStoreEntry, string) ([]byte, error) { return nil, errBrokenFile }
 	t.Cleanup(func() { encodePKCS12 = old })
 	if _, _, err := pkcs12Without(passwordlessStore(t, root, ca), [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the encode failure, got %v", err)
@@ -272,7 +274,7 @@ func TestRemoveFromKeystorePKCS12Error(t *testing.T) {
 	root := testCert(t, "digicert")
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
 	old := encodePKCS12
-	encodePKCS12 = func([]*x509.Certificate, string) ([]byte, error) { return nil, errBrokenFile }
+	encodePKCS12 = func([]pkcs12.TrustStoreEntry, string) ([]byte, error) { return nil, errBrokenFile }
 	t.Cleanup(func() { encodePKCS12 = old })
 	if _, err := removeFromBinaryStore(path, [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the encode failure, got %v", err)
@@ -342,7 +344,7 @@ func TestPKCS12With(t *testing.T) {
 	}
 	names := map[string]bool{}
 	for _, c := range certs {
-		names[c.Subject.CommonName] = true
+		names[c.Cert.Subject.CommonName] = true
 	}
 	if !names["digicert"] || !names["buildcage"] {
 		t.Errorf("injected store holds %v, want both digicert and buildcage", names)
@@ -381,6 +383,85 @@ func TestPKCS12WithRejectsBadDER(t *testing.T) {
 	root := testCert(t, "digicert")
 	if _, err := pkcs12With(passwordlessStore(t, root), [][]byte{[]byte("not a certificate")}); err == nil {
 		t.Fatal("want a parse error for a non-certificate DER")
+	}
+}
+
+func mustEncodeEntries(t *testing.T, password string, entries ...pkcs12.TrustStoreEntry) []byte {
+	t.Helper()
+	enc := pkcs12.Passwordless
+	if password != "" {
+		enc = pkcs12.Modern
+	}
+	data, err := enc.EncodeTrustStoreEntries(entries, password)
+	if err != nil {
+		t.Fatalf("encoding a trust store: %v", err)
+	}
+	return data
+}
+
+func aliasesOf(t *testing.T, content []byte) []string {
+	t.Helper()
+	entries, _, err := decodePKCS12(content)
+	if err != nil {
+		t.Fatalf("decoding the rewritten store: %v", err)
+	}
+	var aliases []string
+	for _, entry := range entries {
+		aliases = append(aliases, entry.FriendlyName)
+	}
+	return aliases
+}
+
+// Taking the CA out keeps every other entry under its own alias, including two
+// that share a subject, which re-encoding under the subject would merge into one
+// alias the JVM loads only once.
+func TestPKCS12WithoutKeepsAliases(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	oldRoot := testCert(t, "Corp Root")
+	newRoot := testCert(t, "Corp Root")
+	for _, password := range sealedKeystorePasswords {
+		t.Run("password "+password, func(t *testing.T) {
+			content := mustEncodeEntries(t, password,
+				pkcs12.TrustStoreEntry{Cert: oldRoot, FriendlyName: "corp-2025"},
+				pkcs12.TrustStoreEntry{Cert: ca, FriendlyName: injectedAlias},
+				pkcs12.TrustStoreEntry{Cert: newRoot, FriendlyName: "corp-2026"})
+			out, removed, err := pkcs12Without(content, [][]byte{ca.Raw})
+			if err != nil || !removed {
+				t.Fatalf("removing the CA: removed=%v err=%v", removed, err)
+			}
+			if got := aliasesOf(t, out); !slices.Equal(got, []string{"corp-2025", "corp-2026"}) {
+				t.Errorf("aliases after the strip = %q, want [corp-2025 corp-2026]", got)
+			}
+		})
+	}
+}
+
+// Injection keeps the store's aliases and names each injected certificate the
+// way a JKS injection does.
+func TestPKCS12WithNamesInjectedEntries(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca1, ca2 := testCert(t, "buildcage"), testCert(t, "buildcage cross-signed")
+	content := mustEncodeEntries(t, "", pkcs12.TrustStoreEntry{Cert: root, FriendlyName: "digicertglobalrootca [jdk]"})
+	out, err := pkcs12With(content, [][]byte{ca1.Raw, ca2.Raw})
+	if err != nil {
+		t.Fatalf("pkcs12With: %v", err)
+	}
+	want := []string{"digicertglobalrootca [jdk]", injectedAlias, injectedAlias + "-1"}
+	if got := aliasesOf(t, out); !slices.Equal(got, want) {
+		t.Errorf("aliases after injection = %q, want %q", got, want)
+	}
+}
+
+// An entry that came without an alias is written under its subject rather than
+// the empty alias, which every such entry would otherwise share.
+func TestEncodePKCS12NamesAnEntryWithoutAnAlias(t *testing.T) {
+	a, b := testCert(t, "first"), testCert(t, "second")
+	out, err := encodePKCS12([]pkcs12.TrustStoreEntry{{Cert: a}, {Cert: b, FriendlyName: "kept"}}, "")
+	if err != nil {
+		t.Fatalf("encodePKCS12: %v", err)
+	}
+	if got := aliasesOf(t, out); !slices.Equal(got, []string{"CN=first", "kept"}) {
+		t.Errorf("aliases = %q, want [CN=first kept]", got)
 	}
 }
 

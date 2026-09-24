@@ -163,14 +163,7 @@ func keystoreWith(content []byte, ders [][]byte) ([]byte, error) {
 
 	out := slices.Clone(content[:body])
 	for i, der := range ders {
-		// One entry keeps the plain alias, so the common single-certificate CA
-		// injects byte for byte the same every build; a bundle's later entries
-		// take a suffix, since a JKS drops all but one entry under a given alias.
-		alias := injectedAlias
-		if i > 0 {
-			alias = fmt.Sprintf("%s-%d", injectedAlias, i)
-		}
-		out = append(out, buildTrustedEntry(version, alias, der)...)
+		out = append(out, buildTrustedEntry(version, injectedAliasFor(i), der)...)
 	}
 	binary.BigEndian.PutUint32(out[8:], binary.BigEndian.Uint32(out[8:])+uint32(len(ders)))
 	return append(out, keystoreDigest(out)...), nil

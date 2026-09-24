@@ -388,10 +388,14 @@ test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that
 	if [ "$${roots:-0}" -lt 100 ]; then \
 	  echo "FAIL: the resealed keystore kept only $$roots roots"; exit 1; \
 	fi; \
+	named=$$(echo "$$listing" | grep trustedCertEntry | grep -c ' \[jdk\],' || true); \
+	if [ "$$named" != "$$roots" ]; then \
+	  echo "FAIL: only $$named of $$roots roots kept their [jdk] alias"; exit 1; \
+	fi; \
 	if docker run --rm $(TEST_IMAGE) keytool -list -keystore /app/trust.p12 -storepass not-the-password >/dev/null 2>&1; then \
 	  echo "FAIL: the resealed keystore opens without changeit"; exit 1; \
 	fi; \
-	echo "PASS: the sweep took the CA out, kept $$roots roots, and resealed under changeit"
+	echo "PASS: the sweep took the CA out, kept $$roots roots under their aliases, and resealed under changeit"
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_inspect_byte_exact

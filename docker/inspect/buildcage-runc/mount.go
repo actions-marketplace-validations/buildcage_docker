@@ -68,9 +68,9 @@ type dirBind struct {
 
 	// keystoreOriginals holds each injected keystore's pre-injection bytes, keyed
 	// by its path relative to scratchDir. A keystore does not survive the
-	// inject/strip round trip byte for byte (go-pkcs12 rewrites aliases to the
-	// subject, a JKS re-serialises), so one the step never changed is restored
-	// from these instead.
+	// inject/strip round trip byte for byte (a PKCS#12 is re-encoded with fresh
+	// salts or a different bag layout, a JKS re-serialises), so one the step
+	// never changed is restored from these instead.
 	keystoreOriginals map[string][]byte
 }
 

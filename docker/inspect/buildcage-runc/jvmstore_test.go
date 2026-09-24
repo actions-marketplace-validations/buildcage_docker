@@ -345,15 +345,15 @@ func TestInjectWritesBackWhenTheStepChangesTheKeystore(t *testing.T) {
 // A PKCS#12 keystore the step never touched must be committed byte for byte as
 // an unproxied build would have it, even when something else in its directory
 // triggers the write-back. Taking the proxy CA back out decodes and re-encodes
-// the store, which rewrites every alias to its certificate's subject, so without
-// restoring the original the aliases churn on a build that never touched cacerts.
+// the store, which keeps its aliases but not its bytes, so without restoring the
+// original the keystore churns on a build that never touched cacerts.
 func TestInjectRestoresAnUntouchedKeystoreBesideAChange(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
 	// A real CA, since injecting into a PKCS#12 parses it, unlike the JKS tests'
 	// stand-in bytes.
 	ca := certPEM(testCert(t, "buildcage"))
-	original := namedStore(t, "keytool-alias", testCert(t, "digicert"))
+	original := keytoolStore(t, "keytool-alias", testCert(t, "digicert"))
 	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts", original)
 	// A sibling the step will change, so the directory is written back at all.
 	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/other", []byte("BEFORE\n"))
@@ -390,7 +390,7 @@ func TestInjectDoesNotRestoreADeletedKeystore(t *testing.T) {
 	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
 	ca := certPEM(testCert(t, "buildcage"))
 	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
-		namedStore(t, "keytool-alias", testCert(t, "digicert")))
+		keytoolStore(t, "keytool-alias", testCert(t, "digicert")))
 
 	restore, err := inject(bundle, ca)
 	if err != nil {
@@ -422,7 +422,7 @@ func TestInjectFailsWhenItCannotRestoreAKeystore(t *testing.T) {
 	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})
 	ca := certPEM(testCert(t, "buildcage"))
 	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
-		namedStore(t, "keytool-alias", testCert(t, "digicert")))
+		keytoolStore(t, "keytool-alias", testCert(t, "digicert")))
 	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/other", []byte("BEFORE\n"))
 
 	restore, err := inject(bundle, ca)
