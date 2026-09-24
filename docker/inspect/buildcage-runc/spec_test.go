@@ -20,6 +20,12 @@ func TestMountConflicts(t *testing.T) {
 		{"existing is an ancestor", []any{map[string]any{"destination": "/etc"}}, "/etc/ssl/certs", true},
 		{"existing is a descendant", []any{map[string]any{"destination": "/etc/ssl/certs/sub"}}, "/etc/ssl/certs", true},
 		{"unrelated sibling", []any{map[string]any{"destination": "/etc/ssl/other"}}, "/etc/ssl/certs", false},
+		{"a sibling sharing the prefix", []any{map[string]any{"destination": "/etc/ssl/certs2"}}, "/etc/ssl/certs", false},
+		{"existing has a doubled slash", []any{map[string]any{"destination": "/etc//ssl/certs"}}, "/etc/ssl/certs", true},
+		{"existing has a dot segment", []any{map[string]any{"destination": "/etc/./ssl/certs/"}}, "/etc/ssl/certs", true},
+		{"existing climbs back with dot-dot", []any{map[string]any{"destination": "/etc/pki/../ssl/certs/sub"}}, "/etc/ssl/certs", true},
+		{"dest is not clean", []any{map[string]any{"destination": "/etc/ssl"}}, "/etc//ssl/./certs", true},
+		{"existing is the root", []any{map[string]any{"destination": "/"}}, "/etc/ssl/certs", true},
 		{"an entry that is not a mount at all", []any{"/etc/ssl/certs"}, "/etc/ssl/certs", false},
 		{"a mount with no destination", []any{map[string]any{"source": "/somewhere"}}, "/etc/ssl/certs", false},
 	}

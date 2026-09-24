@@ -93,7 +93,12 @@ func (s *spec) save() error {
 	return os.WriteFile(s.path, out, 0o644)
 }
 
+// mountConflicts reports whether a mount already in the spec sits at, above or
+// below dest. Destinations are compared cleaned: a step's --mount target is
+// passed through as written, and /etc//ssl/certs names the same directory runc
+// mounts over.
 func (s *spec) mountConflicts(dest string) bool {
+	dest = filepath.Clean(dest)
 	mounts, _ := s.raw["mounts"].([]any)
 	for _, m := range mounts {
 		entry, ok := m.(map[string]any)
@@ -104,11 +109,17 @@ func (s *spec) mountConflicts(dest string) bool {
 		if existing == "" {
 			continue
 		}
-		if existing == dest || strings.HasPrefix(dest, existing+"/") || strings.HasPrefix(existing, dest+"/") {
+		existing = filepath.Clean(existing)
+		if pathWithin(dest, existing) || pathWithin(existing, dest) {
 			return true
 		}
 	}
 	return false
+}
+
+// pathWithin reports whether the clean path p is dir or lies under it.
+func pathWithin(p, dir string) bool {
+	return p == dir || strings.HasPrefix(p, strings.TrimSuffix(dir, "/")+"/")
 }
 
 func (s *spec) addBindMount(dest, src string) {
