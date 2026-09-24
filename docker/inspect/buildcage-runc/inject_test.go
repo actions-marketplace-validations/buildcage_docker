@@ -248,6 +248,33 @@ func TestInjectLeavesAVariableUnderAMissingDirectoryAlone(t *testing.T) {
 	}
 }
 
+// Treated as a bundle, a directory would nest the host path inside the store's mirror.
+func TestInjectLeavesAVariableNamingADirectoryAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"SSL_CERT_FILE=/etc/ssl/certs"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	for _, m := range loadMounts(t, bundle) {
+		entries, err := os.ReadDir(m["source"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				t.Fatalf("the mirror of %v holds a directory %s", m["destination"], e.Name())
+			}
+		}
+	}
+	if env := loadEnv(t, bundle)["SSL_CERT_FILE"]; env != "/etc/ssl/certs" {
+		t.Fatalf("SSL_CERT_FILE was disturbed: %q", env)
+	}
+}
+
 // A step that never touches the store leaves the real rootfs file alone:
 // finish() finds the scratch mirror unchanged from its post-injection
 // baseline and never writes back.

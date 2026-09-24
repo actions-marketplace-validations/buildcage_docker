@@ -375,16 +375,18 @@ func (b *dirBind) finish() error {
 		return err
 	}
 
-	// Nothing in the step can move a mounted directory or its ancestors, so
-	// this cannot legitimately differ. Checking anyway keeps the write-back's
-	// confinement to the rootfs a property of this code rather than of how
-	// runc applied the mounts.
+	// The step cannot remove the mounted directory, but it can rename an
+	// ancestor and leave a symlink in its place, which must not redirect the
+	// write-back.
 	resolved, err := resolveInRoot(b.rootfs, b.containerDir)
 	if err != nil {
 		return fmt.Errorf("re-resolving the write-back target %s: %w", b.containerDir, err)
 	}
 	if resolved != b.hostDir {
 		return fmt.Errorf("write-back target %s now resolves to %s, not %s", b.containerDir, resolved, b.hostDir)
+	}
+	if _, err := os.Stat(b.hostDir); err != nil {
+		return fmt.Errorf("the step changed the CA store in %s and moved that directory away, leaving nowhere to write it back: %w", b.containerDir, err)
 	}
 
 	return writeBack(b.scratchDir, b.hostDir)

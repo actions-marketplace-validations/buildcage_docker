@@ -327,6 +327,8 @@ func stripLayer(rootfs, upper string, ca []byte) error {
 		// Nothing to read the removal back from. The mirrors' own undo is
 		// unaffected, so this is the behaviour the engine had before.
 		logf("the step's layer is not an overlay upper directory; leaving it unswept")
+		// Also to stderr, which is the step's output in the build log.
+		fmt.Fprintln(os.Stderr, "buildcage: this step's layer is not an overlay upper directory that can be read back, so it is not checked for copies of the proxy CA")
 		return nil
 	}
 

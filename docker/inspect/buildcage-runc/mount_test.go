@@ -262,6 +262,24 @@ func TestFinishRefusesARedirectedWriteBackTarget(t *testing.T) {
 	}
 }
 
+func TestFinishRefusesAWriteBackTargetMovedAway(t *testing.T) {
+	useFakeRsync(t)
+	b, rootfs := newCAStoreBind(t)
+	mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
+	if err := os.Rename(filepath.Join(rootfs, "etc/ssl"), filepath.Join(rootfs, "etc/ssl-moved")); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := countRsync(t)
+	err := b.finish()
+	if err == nil || !strings.Contains(err.Error(), "moved that directory away") {
+		t.Fatalf("got %v, want the move named", err)
+	}
+	if *calls != 0 {
+		t.Errorf("got %d rsync invocations, want none", *calls)
+	}
+}
+
 func TestFinishWritesBackWhenTheTargetStillResolves(t *testing.T) {
 	useFakeRsync(t)
 	b, rootfs := newCAStoreBind(t)
