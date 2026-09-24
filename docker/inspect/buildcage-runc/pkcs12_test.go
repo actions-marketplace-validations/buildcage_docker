@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -392,20 +393,12 @@ func mustEncodeTrustStore(t *testing.T, enc *pkcs12.Encoder, password string, ce
 func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	root := testCert(t, "digicert")
-	leaf, leafKey := testLeaf(t, ca, caKey, "app.example")
-	chain := func(password string) []byte {
-		data, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{ca}, password)
-		if err != nil {
-			t.Fatalf("encoding a keystore: %v", err)
-		}
-		return data
-	}
+	leaf, _ := testLeaf(t, ca, caKey, "app.example")
 	marks := caMarksOf(certPEM(ca))
 
 	for name, content := range map[string][]byte{
 		"a trust store under changeit":        mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca),
 		"a trust store under no password":     mustEncodeTrustStore(t, pkcs12.Modern, "", root, ca),
-		"a key and chain under changeit":      chain(keystorePassword),
 		"a trust store holding a forged leaf": mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -423,8 +416,14 @@ func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	}
 }
 
+// Only trust stores are decoded, so a key with its chain passes too.
 func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
-	ca, _ := testIssuer(t, "this run")
+	ca, caKey := testIssuer(t, "this run")
+	caLeaf, caLeafKey := testLeaf(t, ca, caKey, "app.example")
+	chainWithCA, err := pkcs12.Modern.Encode(caLeafKey, caLeaf, []*x509.Certificate{ca}, keystorePassword)
+	if err != nil {
+		t.Fatalf("encoding a keystore: %v", err)
+	}
 	other, otherKey := testIssuer(t, "another run")
 	leaf, leafKey := testLeaf(t, other, otherKey, "app.example")
 	withKey, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{other}, keystorePassword)
@@ -437,6 +436,7 @@ func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
 		"the CA under a password of its own": mustEncodeTrustStore(t, pkcs12.Modern, "a-real-password", ca),
 		"another CA under changeit":          mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, other),
 		"a key and chain of another CA":      withKey,
+		"a key and chain holding the CA":     chainWithCA,
 	} {
 		t.Run(name, func(t *testing.T) {
 			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
@@ -520,5 +520,88 @@ func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
 	}
 	if !left {
 		t.Error("stripCA cleared a changeit-sealed keystore it cannot rewrite")
+	}
+}
+
+// saltThen is a SEQUENCE shaped the way MacData and the PBE parameters are: a
+// salt, then whatever count follows it.
+func saltThen(t *testing.T, count []byte) []byte {
+	t.Helper()
+	salt, err := asn1.Marshal([]byte("salt"))
+	if err != nil {
+		t.Fatalf("marshalling the salt: %v", err)
+	}
+	seq, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: append(salt, count...)})
+	if err != nil {
+		t.Fatalf("marshalling the parameters: %v", err)
+	}
+	return seq
+}
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	der, err := asn1.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshalling %v: %v", v, err)
+	}
+	return der
+}
+
+func TestIterationsWithin(t *testing.T) {
+	over := saltThen(t, mustMarshal(t, maxPKCS12Iterations+1))
+	nested := func(der []byte, levels int) []byte {
+		for range levels {
+			der = mustMarshal(t, der)
+		}
+		return der
+	}
+	for name, tc := range map[string]struct {
+		der  []byte
+		want bool
+	}{
+		"a count at the limit":            {saltThen(t, mustMarshal(t, maxPKCS12Iterations)), true},
+		"a count past the limit":          {over, false},
+		"a count past what an int holds":  {saltThen(t, mustMarshal(t, new(big.Int).Lsh(big.NewInt(1), 80))), false},
+		"a count encoded with padding":    {saltThen(t, []byte{0x02, 0x02, 0x00, 0x01}), false},
+		"a large integer after no salt":   {mustMarshal(t, []int64{1 << 40}), true},
+		"a count inside an octet string":  {mustMarshal(t, over), false},
+		"a count below where any is read": {nested(over, maxPKCS12Depth), true},
+		"bytes that are not DER":          {[]byte{0x30, 0x80}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := iterationsWithin(tc.der, 0); got != tc.want {
+				t.Errorf("iterationsWithin = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIterationsWithinAcceptsRealEncoders(t *testing.T) {
+	cert := testCert(t, "digicert")
+	for name, enc := range map[string]*pkcs12.Encoder{
+		"Passwordless": pkcs12.Passwordless,
+		"Legacy":       pkcs12.LegacyDES,
+		"Modern":       pkcs12.Modern,
+		"Modern2023":   pkcs12.Modern2023,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !iterationsWithin(mustEncodeTrustStore(t, enc, "", cert), 0) {
+				t.Error("refused a store its encoder wrote")
+			}
+		})
+	}
+}
+
+// Sealed under the empty password, so every PKCS#12 path would otherwise open it.
+func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := mustEncodeTrustStore(t, pkcs12.Modern.WithIterations(maxPKCS12Iterations+1), "", ca)
+
+	if _, err := decodePKCS12(content); !errors.Is(err, errTooManyIterations) {
+		t.Errorf("decodePKCS12: got %v, want errTooManyIterations", err)
+	}
+	found, err := fileHoldsCA(mustWritePKCS12(t, content), caMarksOf(certPEM(ca)).needles)
+	if err != nil || found {
+		t.Errorf("fileHoldsCA: got found=%v err=%v, want the keystore left unread", found, err)
 	}
 }

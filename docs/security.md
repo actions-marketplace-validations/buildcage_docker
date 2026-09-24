@@ -218,10 +218,11 @@ Three mechanisms make that enforceable:
   `cert-sync` writes one per certificate), and the EFI signature database RHEL's `update-ca-trust`
   writes. A copy it finds but cannot remove fails the build: one
   inside any other binary, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line), a
-  certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 holding either
-  that opens with no password or `changeit`. A copy it cannot read stays in the image: one in a
-  compressed archive, or in a keystore encrypted under another password. Those are not failed on,
-  since dependencies ship encrypted test keystores and failing on them would break builds that never
+  certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 trust store
+  holding either that opens with no password or `changeit`. A copy it cannot read stays in the
+  image: one in a compressed archive, in a keystore encrypted under another password, or in a
+  PKCS#12 naming more than a million key-derivation iterations. Those are not failed on, since
+  dependencies ship encrypted test keystores and failing on them would break builds that never
   touched the CA. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
   started by this action gets. On a builder whose data root cannot hold an overlay upper directory,
   BuildKit falls back to another snapshotter, the wrapper logs that it is leaving the layer unread,
