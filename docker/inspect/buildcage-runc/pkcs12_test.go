@@ -13,7 +13,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -394,20 +393,12 @@ func mustEncodeTrustStore(t *testing.T, enc *pkcs12.Encoder, password string, ce
 func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	root := testCert(t, "digicert")
-	leaf, leafKey := testLeaf(t, ca, caKey, "app.example")
-	chain := func(password string) []byte {
-		data, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{ca}, password)
-		if err != nil {
-			t.Fatalf("encoding a keystore: %v", err)
-		}
-		return data
-	}
+	leaf, _ := testLeaf(t, ca, caKey, "app.example")
 	marks := caMarksOf(certPEM(ca))
 
 	for name, content := range map[string][]byte{
 		"a trust store under changeit":        mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca),
 		"a trust store under no password":     mustEncodeTrustStore(t, pkcs12.Modern, "", root, ca),
-		"a key and chain under changeit":      chain(keystorePassword),
 		"a trust store holding a forged leaf": mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -425,8 +416,15 @@ func TestFileHoldsCAReadsAnEncryptedPKCS12ItCanOpen(t *testing.T) {
 	}
 }
 
+// A key with its chain is not decoded: that decrypts the key as well, under a
+// count iterationsWithin cannot read.
 func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
-	ca, _ := testIssuer(t, "this run")
+	ca, caKey := testIssuer(t, "this run")
+	caLeaf, caLeafKey := testLeaf(t, ca, caKey, "app.example")
+	chainWithCA, err := pkcs12.Modern.Encode(caLeafKey, caLeaf, []*x509.Certificate{ca}, keystorePassword)
+	if err != nil {
+		t.Fatalf("encoding a keystore: %v", err)
+	}
 	other, otherKey := testIssuer(t, "another run")
 	leaf, leafKey := testLeaf(t, other, otherKey, "app.example")
 	withKey, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{other}, keystorePassword)
@@ -439,6 +437,7 @@ func TestFileHoldsCAPassesAnEncryptedPKCS12WithoutTheCA(t *testing.T) {
 		"the CA under a password of its own": mustEncodeTrustStore(t, pkcs12.Modern, "a-real-password", ca),
 		"another CA under changeit":          mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, other),
 		"a key and chain of another CA":      withKey,
+		"a key and chain holding the CA":     chainWithCA,
 	} {
 		t.Run(name, func(t *testing.T) {
 			found, err := fileHoldsCA(mustWritePKCS12(t, content), marks.needles)
@@ -607,70 +606,5 @@ func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
 	found, err := fileHoldsCA(mustWritePKCS12(t, content), caMarksOf(certPEM(ca)).needles)
 	if err != nil || found {
 		t.Errorf("fileHoldsCA: got found=%v err=%v, want the keystore left unread", found, err)
-	}
-}
-
-func withSealedDecodeBudget(t *testing.T, budget time.Duration) {
-	t.Helper()
-	old := sealedDecodeBudget
-	sealedDecodeBudget = budget
-	t.Cleanup(func() { sealedDecodeBudget = old })
-}
-
-func TestPKCS12CertificatesSpendsTheBudget(t *testing.T) {
-	withSealedDecodeBudget(t, time.Hour)
-	ca, _ := testIssuer(t, "this run")
-	if certs := pkcs12Certificates(mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, ca), keystorePassword); len(certs) != 1 {
-		t.Fatalf("decoded %d certificates, want 1", len(certs))
-	}
-	if sealedDecodeBudget >= time.Hour {
-		t.Error("the decode took nothing from the budget")
-	}
-}
-
-// A decode that never returns ends the budget, and no later keystore is decoded.
-func TestPKCS12CertificatesStopsAtTheBudget(t *testing.T) {
-	withSealedDecodeBudget(t, 10*time.Millisecond)
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	var calls atomic.Int32
-	old := sealedDecode
-	sealedDecode = func([]byte, string) []*x509.Certificate {
-		calls.Add(1)
-		<-release
-		return nil
-	}
-	t.Cleanup(func() { sealedDecode = old })
-
-	if certs := pkcs12Certificates(nil, ""); certs != nil {
-		t.Errorf("got %d certificates from a decode that never returned", len(certs))
-	}
-	if sealedDecodeBudget != 0 {
-		t.Errorf("budget left: %v, want none", sealedDecodeBudget)
-	}
-	if pkcs12Certificates(nil, ""); calls.Load() != 1 {
-		t.Errorf("decoded %d times, want the second keystore left unread", calls.Load())
-	}
-}
-
-// Found once, a copy stays found after the budget runs out, so the strip's
-// rechecks and the read-back cannot take it for removed.
-func TestSealedPKCS12HoldsKeepsWhatItFoundOnceTheBudgetIsSpent(t *testing.T) {
-	withSealedDecodeBudget(t, time.Hour)
-	ca, _ := testIssuer(t, "this run")
-	root := testCert(t, "digicert")
-	caPEM := certPEM(ca)
-	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca))
-
-	if found, err := fileHoldsCA(path, caMarksOf(caPEM).needles); err != nil || !found {
-		t.Fatalf("fileHoldsCA: found=%v err=%v, want the CA found", found, err)
-	}
-	sealedDecodeBudget = 0
-	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
-	if err != nil {
-		t.Fatalf("stripCA: %v", err)
-	}
-	if !left {
-		t.Error("stripCA cleared a keystore it found the CA in once the budget ran out")
 	}
 }

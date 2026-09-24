@@ -19,14 +19,12 @@ package main
 // dispatches on its magic.
 
 import (
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"io"
 	"math/big"
 	"slices"
-	"time"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
@@ -188,73 +186,19 @@ func sealedPKCS12Holds(f io.ReaderAt, size int64, needles [][]byte) (bool, error
 		logf("left a PKCS#12 unread: %v", errTooManyIterations)
 		return false, nil
 	}
-	key := sealedResultKey(content, needles)
-	if found, ok := sealedResults[key]; ok {
-		return found, nil
+	for _, password := range sealedKeystorePasswords {
+		// A trust store only: go-pkcs12 decodes a key with its chain by
+		// decrypting the key too, under a count that can sit inside a bag it has
+		// to decrypt first, where iterationsWithin cannot read it.
+		certs, err := pkcs12.DecodeTrustStore(content, password)
+		if err != nil {
+			continue
+		}
+		for _, cert := range certs {
+			if holdsAnyDER(cert.Raw, needles) {
+				return true, nil
+			}
+		}
 	}
-	found := slices.ContainsFunc(sealedKeystorePasswords, func(password string) bool {
-		return slices.ContainsFunc(pkcs12Certificates(content, password), func(cert *x509.Certificate) bool {
-			return holdsAnyDER(cert.Raw, needles)
-		})
-	})
-	sealedResults[key] = found
-	return found, nil
-}
-
-// sealedResults remembers what sealedPKCS12Holds said of each keystore. A file
-// is checked several times (found, rechecked before the strip, again after it,
-// and in the read-back), and once sealedDecodeBudget runs out a fresh decode
-// would say false: a copy found but not removable would then pass as removed.
-var sealedResults = map[[sha256.Size]byte]bool{}
-
-func sealedResultKey(content []byte, needles [][]byte) [sha256.Size]byte {
-	h := sha256.New()
-	h.Write(content)
-	for _, needle := range needles {
-		h.Write(needle)
-	}
-	return [sha256.Size]byte(h.Sum(nil))
-}
-
-// How long the decodes pkcs12Certificates runs may take in total, across the
-// whole step. A key bag's count can sit inside a bag encrypted under the same
-// password, which iterationsWithin cannot read, so the decodes are timed too.
-// Past it, encrypted keystores pass unread, the same as one under a password
-// not in sealedKeystorePasswords.
-var sealedDecodeBudget = 30 * time.Second
-
-// pkcs12Certificates decodes content as sealedDecode does, within what is left
-// of sealedDecodeBudget. A decode that runs out of it is left running: nothing
-// stops go-pkcs12 partway, and the process exits once the step is swept.
-func pkcs12Certificates(content []byte, password string) []*x509.Certificate {
-	if sealedDecodeBudget <= 0 {
-		return nil
-	}
-	started := time.Now()
-	done := make(chan []*x509.Certificate, 1)
-	go func() { done <- sealedDecode(content, password) }()
-	timeout := time.NewTimer(sealedDecodeBudget)
-	defer timeout.Stop()
-	select {
-	case certs := <-done:
-		sealedDecodeBudget -= time.Since(started)
-		return certs
-	case <-timeout.C:
-		sealedDecodeBudget = 0
-		logf("decoding encrypted PKCS#12 keystores ran out of time; the rest of this step's pass unread")
-		return nil
-	}
-}
-
-// sealedDecode decodes content as a trust store or as a key with its chain, the
-// two shapes go-pkcs12 supports. Nil if neither opens. It is a var so a test can
-// stand in a decode that never returns.
-var sealedDecode = func(content []byte, password string) []*x509.Certificate {
-	if certs, err := pkcs12.DecodeTrustStore(content, password); err == nil {
-		return certs
-	}
-	if _, cert, chain, err := pkcs12.DecodeChain(content, password); err == nil {
-		return append(chain, cert)
-	}
-	return nil
+	return false, nil
 }
