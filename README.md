@@ -407,7 +407,8 @@ reported as blocked; see
 - A copy of the CA left in a step's layer is removed, or fails the build if it cannot be. A copy
   that cannot be read, in a compressed archive or a keystore encrypted under a password other than
   none or `changeit` or naming more than a million key-derivation iterations, is not found and stays
-  in the image. See
+  in the image, as is one hex-dumped or re-encoded as base64 outside a PEM block in lines shorter
+  than 48 characters. See
   [Security Details](./docs/security.md#inspect-proxy-engine).
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.

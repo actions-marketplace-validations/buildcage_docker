@@ -239,13 +239,15 @@ type caMarks struct {
 	ders [][]byte
 	// What detection searches for: ders, plus traces removal cannot take out,
 	// which fail the build. The subject is the issuer of every certificate
-	// the proxy forged. The first PEM body line includes the random serial
-	// and survives re-wrapping (JSON's escaped \n, YAML indentation, no
-	// breaks).
+	// the proxy forged. The base64 prefix includes the random serial and
+	// survives re-wrapping (JSON's escaped \n, YAML indentation, no breaks,
+	// lines of any width from base64PrefixLength up).
 	needles [][]byte
 }
 
-const pemLineLength = 64
+// The first 48 base64 characters encode the first 36 DER bytes, which end
+// past the 20-byte serial openssl req -x509 gives the CA.
+const base64PrefixLength = 48
 
 func caMarksOf(ca []byte) caMarks {
 	marks := caMarks{ders: certificateDERs(ca)}
@@ -255,7 +257,7 @@ func caMarksOf(ca []byte) caMarks {
 			marks.needles = append(marks.needles, cert.RawSubject)
 		}
 		line := base64.StdEncoding.EncodeToString(der)
-		marks.needles = append(marks.needles, []byte(line[:min(len(line), pemLineLength)]))
+		marks.needles = append(marks.needles, []byte(line[:min(len(line), base64PrefixLength)]))
 	}
 	return marks
 }

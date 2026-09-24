@@ -780,6 +780,16 @@ func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
 	}
 }
 
+func wrapped(s string, width int) string {
+	var out strings.Builder
+	for len(s) > width {
+		out.WriteString(s[:width] + "\n")
+		s = s[width:]
+	}
+	out.WriteString(s + "\n")
+	return out.String()
+}
+
 func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
 	ca, caKey := testIssuer(t, "this run")
 	leaf, _ := testLeaf(t, ca, caKey, "allowed.example")
@@ -790,12 +800,18 @@ func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
 	for _, line := range strings.SplitAfter(caPEM, "\n") {
 		indented += "    " + line
 	}
+	body := base64.StdEncoding.EncodeToString(ca.Raw)
+	pemAt60 := "-----BEGIN CERTIFICATE-----\n" + wrapped(body, 60) + "-----END CERTIFICATE-----\n"
 	for name, content := range map[string]string{
-		"PEM escaped into JSON":  `{"ca":"` + strings.ReplaceAll(caPEM, "\n", `\n`) + `"}`,
-		"PEM indented into YAML": "tls:\n  ca: |\n" + indented,
-		"base64 with no breaks":  base64.StdEncoding.EncodeToString(ca.Raw),
-		"a forged leaf as PEM":   string(certPEM(leaf)),
-		"a forged leaf as DER":   string(leaf.Raw),
+		"PEM escaped into JSON":        `{"ca":"` + strings.ReplaceAll(caPEM, "\n", `\n`) + `"}`,
+		"PEM indented into YAML":       "tls:\n  ca: |\n" + indented,
+		"PEM at 60 escaped into JSON":  `{"ca":"` + strings.ReplaceAll(pemAt60, "\n", `\n`) + `"}`,
+		"PEM at 60 indented into YAML": "ca: |\n  " + strings.ReplaceAll(pemAt60, "\n", "\n  "),
+		"base64 with no breaks":        body,
+		"base64 at 48 with no armour":  wrapped(body, 48),
+		"base64 at 76 with no armour":  wrapped(body, 76),
+		"a forged leaf as PEM":         string(certPEM(leaf)),
+		"a forged leaf as DER":         string(leaf.Raw),
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "copy")
@@ -839,7 +855,7 @@ func TestCAMarksOfACertificateThatDoesNotParse(t *testing.T) {
 	}
 }
 
-func TestCAMarksOfTakesOnePEMLine(t *testing.T) {
+func TestCAMarksOfTakesABase64Prefix(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	marks := caMarksOf(certPEM(ca))
 	if len(marks.needles) != 3 {
@@ -848,7 +864,7 @@ func TestCAMarksOfTakesOnePEMLine(t *testing.T) {
 	if !bytes.Equal(marks.needles[1], ca.RawSubject) {
 		t.Error("the second needle is not the CA's subject")
 	}
-	if got := string(marks.needles[2]); got != base64.StdEncoding.EncodeToString(ca.Raw)[:pemLineLength] {
+	if got := string(marks.needles[2]); got != base64.StdEncoding.EncodeToString(ca.Raw)[:base64PrefixLength] {
 		t.Errorf("the base64 needle is %q", got)
 	}
 }
