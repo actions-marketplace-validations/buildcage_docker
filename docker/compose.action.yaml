@@ -39,7 +39,7 @@ services:
       - HOST_ADDRESSES=${HOST_ADDRESSES:-}
       - PROXY_ENGINE=${PROXY_ENGINE:-inspect}
     # `--wait` would otherwise return on "running" alone, which says nothing
-    # about buildkitd. buildctl works in all three engines. No restart policy
+    # about buildkitd. buildctl works in both engines. No restart policy
     # goes with it: a container that stopped itself has to stay stopped for the
     # wait to see it.
     healthcheck:
