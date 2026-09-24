@@ -27,7 +27,15 @@ const (
 	// something like an application directory wholesale.
 	maxCustomDirBytes = 20 << 20
 	maxCustomDirFiles = 512
+
+	// Looser, since a distribution's store runs to a few hundred hash links.
+	// Bounded at all because the image decides where it is: a store symlinked
+	// to /usr/ca.crt makes it /usr.
+	maxStoreDirBytes = 64 << 20
+	maxStoreDirFiles = 4096
 )
+
+var errTooLargeToMirror = errors.New("too large to mirror")
 
 // runRsync is the only place this file spawns a process, so tests can
 // replace it to exercise the decision logic without rsync installed.
@@ -230,8 +238,13 @@ func manifestsEqual(a, b []fileEntry) bool {
 	return slices.EqualFunc(a, b, fileEntry.sameExceptMtime)
 }
 
-func sizeAndCount(root string) (bytes int64, files int, err error) {
-	err = walkDir(root, func(path string, d fs.DirEntry, err error) error {
+// checkMirrorable fails when root holds more than maxFiles files or maxBytes
+// bytes. It stops counting there, since root can be as large as the image
+// makes it.
+func checkMirrorable(root string, maxBytes int64, maxFiles int) error {
+	var bytes int64
+	files := 0
+	err := walkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -244,9 +257,12 @@ func sizeAndCount(root string) (bytes int64, files int, err error) {
 		}
 		files++
 		bytes += info.Size()
+		if bytes > maxBytes || files > maxFiles {
+			return fmt.Errorf("%s is %w (more than %d bytes or %d files)", root, errTooLargeToMirror, maxBytes, maxFiles)
+		}
 		return nil
 	})
-	return bytes, files, err
+	return err
 }
 
 // restoreUnchangedMtimes resets an untouched entry's mtime to what it was
@@ -275,13 +291,10 @@ func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) er
 
 func (b *dirBind) prepare(ca []byte) error {
 	b.ca = ca
+	// The store directory was checked against its own limits when it was found.
 	if b.custom {
-		size, count, err := sizeAndCount(b.hostDir)
-		if err != nil {
+		if err := checkMirrorable(b.hostDir, maxCustomDirBytes, maxCustomDirFiles); err != nil {
 			return err
-		}
-		if size > maxCustomDirBytes || count > maxCustomDirFiles {
-			return fmt.Errorf("%s is too large to mirror (%d bytes, %d files)", b.hostDir, size, count)
 		}
 	}
 

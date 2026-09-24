@@ -406,7 +406,8 @@ reported as blocked; see
 
 - A copy of the CA left in a step's layer is removed, or fails the build if it cannot be. A copy
   that cannot be read, in a compressed archive or a keystore encrypted under a password other than
-  none or `changeit`, is not found and stays in the image. See
+  none or `changeit` or naming more than a million key-derivation iterations, is not found and stays
+  in the image. See
   [Security Details](./docs/security.md#inspect-proxy-engine).
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
@@ -436,7 +437,9 @@ reported as blocked; see
   ```
 
 - A custom CA path that is unexpectedly large (more than 20 MiB or 512 files) has injection skipped
-  for that variable only, the same degradation as when no CA bundle is found at all.
+  for that variable only, the same degradation as when no CA bundle is found at all. A system CA
+  bundle whose directory holds more than 64 MiB or 4,096 files, or is the container root, is
+  treated as no bundle at all.
 - Neither engine produces SLSA provenance. The traffic artifact is an observation record with no
   content digest.
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -607,13 +608,11 @@ func withCA(t *testing.T) string {
 // the strip rather than leave the file half-shifted and call it done.
 func TestRemoveCAReportsAFailurePartwayThrough(t *testing.T) {
 	cases := map[string]*brokenFile{
-		"stat":                                    {failStat: true},
-		"the scan for the opening line":           {failReadAt: 1},
-		"the scan for the closing line":           {failReadAt: 2},
-		"the read of the certificate itself":      {failReadAt: 3},
-		"the newline check after the certificate": {failReadAt: 4},
-		"the check for a binary":                  {failReadAt: 5},
-		"the shift that closes the gap":           {failWriteAt: 1},
+		"stat": {failStat: true},
+		// A bundle this small is read once, and every search is served from that.
+		"the read the searches go through": {failReadAt: 1},
+		"the read that closes the gap":     {failReadAt: 2},
+		"the write that closes the gap":    {failWriteAt: 1},
 	}
 	for name, broken := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -689,7 +688,7 @@ func TestFindInFileIsANoOpOnAnEmptyRange(t *testing.T) {
 	}
 	defer f.Close()
 
-	at, err := findInFile(f, beginPEM, 0, 0)
+	at, err := findInFile(newFileWindow(f, 0), beginPEM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +712,7 @@ func TestFindInFileReportsAFailedRead(t *testing.T) {
 	}
 
 	broken := &brokenFile{bundleFile: f, failReadAt: 1}
-	if _, err := findInFile(broken, beginPEM, 0, info.Size()); !errors.Is(err, errBrokenFile) {
+	if _, err := findInFile(newFileWindow(broken, info.Size()), beginPEM, 0); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want it to name the I/O failure", err)
 	}
 	broken = &brokenFile{bundleFile: f, failReadAt: 1}
@@ -851,5 +850,86 @@ func TestCAMarksOfTakesOnePEMLine(t *testing.T) {
 	}
 	if got := string(marks.needles[2]); got != base64.StdEncoding.EncodeToString(ca.Raw)[:pemLineLength] {
 		t.Errorf("the base64 needle is %q", got)
+	}
+}
+
+// lateOpeningLines is a file whose second opening line sits where the search
+// that finds it is still served from the window, but the block read after it
+// runs past the window's end, so that read is the file's second.
+func lateOpeningLines(t *testing.T, needles [][]byte) (string, int64) {
+	t.Helper()
+	longest := len(beginPEM)
+	for _, needle := range needles {
+		longest = max(longest, len(needle))
+	}
+	n := scanChunk + longest - 1
+	first, second := n-200, 2*n-200
+	content := strings.Repeat("a", first) + string(beginPEM) +
+		strings.Repeat("a", second-first-len(beginPEM)) + string(beginPEM) +
+		strings.Repeat("a", n)
+	path := filepath.Join(t.TempDir(), "late.pem")
+	mustWriteFile(t, path, content)
+	return path, int64(len(content))
+}
+
+func TestBlockReadPastTheWindowReportsAFailedRead(t *testing.T) {
+	marks := caMarksOf(testCA)
+	open := func(t *testing.T, path string) *brokenFile {
+		t.Helper()
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { f.Close() })
+		return &brokenFile{bundleFile: f, failReadAt: 2}
+	}
+
+	t.Run("scanForCA", func(t *testing.T) {
+		path, size := lateOpeningLines(t, append([][]byte{beginPEM}, marks.needles...))
+		if _, err := scanForCA(open(t, path), size, marks.needles); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+	t.Run("findCertificates", func(t *testing.T) {
+		path, size := lateOpeningLines(t, [][]byte{beginPEM})
+		if _, err := findCertificates(newFileWindow(open(t, path), size), marks.ders); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+}
+
+// Each opening line without a block restarts the search just past it.
+func TestUnterminatedOpeningLinesAreReadOnce(t *testing.T) {
+	flood := strings.Repeat("-----BEGIN X-----\n", (1<<20)/18)
+	content := flood + string(testCA)
+	path := filepath.Join(t.TempDir(), "flood.pem")
+	mustWriteFile(t, path, content)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	size := int64(len(content))
+	maxReads := int(size/scanChunk) + 1
+
+	counted := &brokenFile{bundleFile: f}
+	found, err := scanForCA(counted, size, caMarksOf(testCA).needles)
+	if err != nil || !found {
+		t.Fatalf("scanForCA: found=%v err=%v, want the certificate found", found, err)
+	}
+	if counted.reads > maxReads {
+		t.Errorf("scanForCA read %d times, want at most %d", counted.reads, maxReads)
+	}
+
+	counted = &brokenFile{bundleFile: f}
+	cuts, err := findCertificates(newFileWindow(counted, size), caMarksOf(testCA).ders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []span{{int64(len(flood)), size}}; !slices.Equal(cuts, want) {
+		t.Errorf("cuts = %v, want %v", cuts, want)
+	}
+	if counted.reads > maxReads {
+		t.Errorf("findCertificates read %d times, want at most %d", counted.reads, maxReads)
 	}
 }
