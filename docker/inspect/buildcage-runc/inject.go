@@ -117,6 +117,10 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 				logf("%s=%s names a directory that is not there; leaving it alone", variable.name, value)
 				continue
 			}
+			if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+				logf("%s=%s is a directory, not a bundle; leaving it alone", variable.name, value)
+				continue
+			}
 			plan.targets[resolved] = true
 			continue
 		}
