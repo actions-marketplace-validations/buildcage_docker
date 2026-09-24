@@ -286,7 +286,7 @@ work. Comments follow the same rule as [`allowed_url_rules`](#url-rules-allowed_
 the start of a line, or after whitespace, runs to the end of the line, and a `#` with no space
 before it is reported as a mistake rather than silently trimmed, since `#` is part of no host. The
 second rule above is the shape to use for a JVM build whose keystore Buildcage cannot inject into
-(a password-sealed one, or a step that rewrites a PKCS#12 `cacerts` with `keytool`); a JVM already
+(one sealed with a password other than the JDK default); a JVM already
 in the base image otherwise trusts the injected CA without a passthrough.
 
 ### Regular expressions

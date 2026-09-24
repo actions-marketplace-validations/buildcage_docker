@@ -138,7 +138,7 @@ func TestInsertIntoKeystorePKCS12(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certs, err := decodePKCS12(content)
+	certs, _, err := decodePKCS12(content)
 	if err != nil {
 		t.Fatalf("the injected store no longer decodes: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestInsertIntoKeystoreRejectsTooLarge(t *testing.T) {
 	}
 }
 
-// A PKCS#12 the empty password will not open reaches injection as a keystore
+// A PKCS#12 under a password of its own reaches injection as a keystore
 // but cannot be rewritten; the error is reported for the caller to skip on.
 func TestInsertIntoKeystoreReportsADecodeFailure(t *testing.T) {
 	ca := testCert(t, "buildcage")
@@ -439,8 +439,8 @@ func TestInjectFailsWhenItCannotRestoreAKeystore(t *testing.T) {
 	}
 }
 
-// A keystore that cannot be injected into (here a PKCS#12 the empty password
-// will not open) is bound but left un-injected, so the step's JVM simply does
+// A keystore that cannot be injected into (here a PKCS#12 under a password of
+// its own) is bound but left un-injected, so the step's JVM simply does
 // not trust the CA rather than the build failing.
 func TestInjectSkipsAnUninjectableKeystore(t *testing.T) {
 	useFakeRsync(t)
@@ -506,7 +506,7 @@ func TestPKCS12WithInsertsEveryCert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	certs, err := decodePKCS12(out)
+	certs, _, err := decodePKCS12(out)
 	if err != nil {
 		t.Fatal(err)
 	}

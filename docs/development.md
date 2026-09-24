@@ -377,8 +377,8 @@ If you encounter issues, try reproducing the problem locally to get detailed log
    certificate error there but works fine under `universal`, the tool likely pins a certificate or
    ships its own trust store rather than reading the CA-trust environment variables Buildcage sets.
    A JVM already in the base image is handled (`buildcage-runc` injects into its
-   `$JAVA_HOME/lib/security/cacerts`, JKS or PKCS#12); the fallbacks that still need `universal` are
-   a password-sealed keystore and a step that rewrites a PKCS#12 `cacerts` with `keytool`. See
+   `$JAVA_HOME/lib/security/cacerts`, JKS or PKCS#12); a keystore sealed with a password other than
+   the JDK default still needs `universal`. See
    [Limitations](../README.md#limitations).
 
 4. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug

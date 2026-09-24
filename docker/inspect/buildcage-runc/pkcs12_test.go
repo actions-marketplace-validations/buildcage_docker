@@ -73,9 +73,9 @@ func namedStore(t *testing.T, alias string, cert *x509.Certificate) []byte {
 }
 
 // encryptedStore is a Modern trust store: its certificate bags are PBES2
-// encrypted under a real password, so the empty-password decode this uses
-// cannot open it. It stands in for a keystore a step replaced with one of its
-// own that this cannot rewrite.
+// encrypted under a password of its own, so decodePKCS12 cannot open it. It
+// stands in for a keystore a step replaced with one of its own that this cannot
+// rewrite.
 func encryptedStore(t *testing.T, certs ...*x509.Certificate) []byte {
 	t.Helper()
 	data, err := pkcs12.Modern.EncodeTrustStore(certs, "a-real-password")
@@ -104,7 +104,7 @@ func mustWritePKCS12(t *testing.T, content []byte) string {
 func TestDecodePKCS12EmptyPassword(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
-	certs, err := decodePKCS12(passwordlessStore(t, root, ca))
+	certs, _, err := decodePKCS12(passwordlessStore(t, root, ca))
 	if err != nil {
 		t.Fatalf("decoding under the empty password: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestPKCS12Without(t *testing.T) {
 	if bytes.Contains(out, ca.Raw) {
 		t.Error("the CA's DER is still in the rewritten keystore")
 	}
-	certs, err := decodePKCS12(out)
+	certs, _, err := decodePKCS12(out)
 	if err != nil {
 		t.Fatalf("the rewritten keystore no longer decodes: %v", err)
 	}
@@ -132,13 +132,48 @@ func TestPKCS12Without(t *testing.T) {
 	}
 }
 
-// A store that will not open under the empty password is one this cannot
-// rewrite: it removes nothing and leaves the caller to report it.
-func TestPKCS12WithoutUndecodable(t *testing.T) {
+// A trust store keytool creates is sealed under "changeit" with its bags
+// encrypted; the CA found in it by detection is taken out the same way, and the
+// store stays sealed under "changeit".
+func TestPKCS12WithoutChangeitSealed(t *testing.T) {
 	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	for name, enc := range map[string]*pkcs12.Encoder{
+		"Modern (keytool on JDK 17 on)": pkcs12.Modern,
+		"LegacyRC2 (keytool on JDK 8)":  pkcs12.LegacyRC2,
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, removed, err := pkcs12Without(mustEncodeTrustStore(t, enc, keystorePassword, root, ca), [][]byte{ca.Raw})
+			if err != nil || !removed {
+				t.Fatalf("removing the CA: removed=%v err=%v", removed, err)
+			}
+			if _, err := pkcs12.DecodeTrustStore(out, ""); err == nil {
+				t.Fatal("the rewrite opens without the password")
+			}
+			certs, err := pkcs12.DecodeTrustStore(out, keystorePassword)
+			if err != nil {
+				t.Fatalf("the rewrite does not open under changeit: %v", err)
+			}
+			if len(certs) != 1 || certs[0].Subject.CommonName != "digicert" {
+				t.Errorf("the rewrite left %d certificates, want only digicert", len(certs))
+			}
+		})
+	}
+}
+
+// A store decodePKCS12 will not open is one this cannot rewrite: it removes
+// nothing and leaves the caller to report it.
+func TestPKCS12WithoutUndecodable(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	leaf, leafKey := testLeaf(t, ca, caKey, "app.example")
+	chain, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{ca}, keystorePassword)
+	if err != nil {
+		t.Fatalf("encoding a keystore: %v", err)
+	}
 	for name, content := range map[string][]byte{
-		"a Modern encrypted store": encryptedStore(t, ca),
-		"pkcs12-shaped garbage":    append([]byte{0x30, 0x82}, ca.Raw...),
+		"a Modern encrypted store":       encryptedStore(t, ca),
+		"a key and chain under changeit": chain,
+		"pkcs12-shaped garbage":          append([]byte{0x30, 0x82}, ca.Raw...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, removed, err := pkcs12Without(content, [][]byte{ca.Raw})
@@ -167,7 +202,7 @@ func TestPKCS12WithoutEncodeFails(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
 	old := encodePKCS12
-	encodePKCS12 = func([]*x509.Certificate) ([]byte, error) { return nil, errBrokenFile }
+	encodePKCS12 = func([]*x509.Certificate, string) ([]byte, error) { return nil, errBrokenFile }
 	t.Cleanup(func() { encodePKCS12 = old })
 	if _, _, err := pkcs12Without(passwordlessStore(t, root, ca), [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the encode failure, got %v", err)
@@ -183,7 +218,7 @@ func TestPKCS12WithoutRemovesLastCert(t *testing.T) {
 	if err != nil || !removed {
 		t.Fatalf("removing the only cert: removed=%v err=%v", removed, err)
 	}
-	certs, err := decodePKCS12(out)
+	certs, _, err := decodePKCS12(out)
 	if err != nil {
 		t.Fatalf("the emptied keystore no longer decodes: %v", err)
 	}
@@ -237,7 +272,7 @@ func TestRemoveFromKeystorePKCS12Error(t *testing.T) {
 	root := testCert(t, "digicert")
 	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
 	old := encodePKCS12
-	encodePKCS12 = func([]*x509.Certificate) ([]byte, error) { return nil, errBrokenFile }
+	encodePKCS12 = func([]*x509.Certificate, string) ([]byte, error) { return nil, errBrokenFile }
 	t.Cleanup(func() { encodePKCS12 = old })
 	if _, err := removeFromBinaryStore(path, [][]byte{ca.Raw}); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("want the encode failure, got %v", err)
@@ -301,7 +336,7 @@ func TestPKCS12With(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pkcs12With: %v", err)
 	}
-	certs, err := decodePKCS12(out)
+	certs, _, err := decodePKCS12(out)
 	if err != nil {
 		t.Fatalf("the injected store no longer decodes: %v", err)
 	}
@@ -314,7 +349,25 @@ func TestPKCS12With(t *testing.T) {
 	}
 }
 
-// A store the empty password will not open cannot be injected into.
+// A store keytool created under "changeit" is injected into like the JDK's own
+// and stays sealed under "changeit".
+func TestPKCS12WithChangeitSealed(t *testing.T) {
+	root := testCert(t, "digicert")
+	ca := testCert(t, "buildcage")
+	out, err := pkcs12With(mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root), [][]byte{ca.Raw})
+	if err != nil {
+		t.Fatalf("pkcs12With: %v", err)
+	}
+	certs, password, err := decodePKCS12(out)
+	if err != nil || password != keystorePassword {
+		t.Fatalf("the injected store opens under %q (err %v), want changeit", password, err)
+	}
+	if len(certs) != 2 {
+		t.Errorf("injected store holds %d certificates, want 2", len(certs))
+	}
+}
+
+// A store decodePKCS12 will not open cannot be injected into.
 func TestPKCS12WithUndecodable(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	if _, err := pkcs12With(encryptedStore(t, ca), [][]byte{ca.Raw}); err == nil {
@@ -508,8 +561,8 @@ func TestSealedPKCS12HoldsReadsOnlyTheMagicOfOtherFiles(t *testing.T) {
 	}
 }
 
-// Sealed under changeit, so it can be read but not rewritten.
-func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
+// What detection opens under changeit, stripCA takes the CA back out of.
+func TestStripCAStripsAChangeitSealedPKCS12(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	root := testCert(t, "digicert")
 	caPEM := certPEM(ca)
@@ -518,8 +571,28 @@ func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stripCA: %v", err)
 	}
+	if left {
+		t.Error("stripCA left the CA in a changeit-sealed trust store")
+	}
+	if found, err := fileHoldsCA(path, caMarksOf(caPEM).needles); err != nil || found {
+		t.Errorf("after the strip: found=%v err=%v", found, err)
+	}
+}
+
+// A certificate the proxy issued is found by the CA's name but is not the CA,
+// so there is nothing to take out and it is reported.
+func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	leaf, _ := testLeaf(t, ca, caKey, "app.example")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	store := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf)
+	left, err := stripCA(mustWritePKCS12(t, store), caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
 	if !left {
-		t.Error("stripCA cleared a changeit-sealed keystore it cannot rewrite")
+		t.Error("stripCA cleared a keystore it cannot rewrite")
 	}
 }
 
@@ -597,7 +670,7 @@ func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	content := mustEncodeTrustStore(t, pkcs12.Modern.WithIterations(maxPKCS12Iterations+1), "", ca)
 
-	if _, err := decodePKCS12(content); !errors.Is(err, errTooManyIterations) {
+	if _, _, err := decodePKCS12(content); !errors.Is(err, errTooManyIterations) {
 		t.Errorf("decodePKCS12: got %v, want errTooManyIterations", err)
 	}
 	found, err := fileHoldsCA(mustWritePKCS12(t, content), caMarksOf(certPEM(ca)).needles)
