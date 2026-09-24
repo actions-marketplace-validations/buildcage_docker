@@ -138,18 +138,29 @@ func TestManifestsEqualIgnoresMtimeButNotContent(t *testing.T) {
 	}
 }
 
-func TestSizeAndCount(t *testing.T) {
+// Files in subdirectories count, and directories themselves do not.
+func TestCheckMirrorable(t *testing.T) {
 	dir := t.TempDir()
 	mustMkdirAll(t, filepath.Join(dir, "sub"))
 	mustWriteFile(t, filepath.Join(dir, "a"), "1234567890")
 	mustWriteFile(t, filepath.Join(dir, "sub", "b"), "12345")
 
-	bytes, files, err := sizeAndCount(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes != 15 || files != 2 {
-		t.Errorf("got bytes=%d files=%d, want bytes=15 files=2", bytes, files)
+	for name, tc := range map[string]struct {
+		maxBytes int64
+		maxFiles int
+		wantErr  bool
+	}{
+		"at both limits":    {15, 2, false},
+		"one byte over":     {14, 2, true},
+		"one file over":     {15, 1, true},
+		"well under either": {1 << 20, 100, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := checkMirrorable(dir, tc.maxBytes, tc.maxFiles)
+			if got := errors.Is(err, errTooLargeToMirror); got != tc.wantErr {
+				t.Errorf("checkMirrorable = %v, want too large: %v", err, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -332,9 +343,8 @@ func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
 	}
 }
 
-// The store directory is not a custom path, so the limits do not apply to it:
-// a distribution that ships a large trust store still gets the CA.
-func TestPrepareDoesNotBoundTheSystemStoreDir(t *testing.T) {
+// findSystemStore bounds it under limits of its own.
+func TestPrepareDoesNotHoldTheStoreDirToTheCustomLimits(t *testing.T) {
 	useFakeRsync(t)
 	rootfs := t.TempDir()
 	hostDir := filepath.Join(rootfs, "etc/ssl/certs")
@@ -353,7 +363,45 @@ func TestPrepareDoesNotBoundTheSystemStoreDir(t *testing.T) {
 		bundleFiles:  []string{"ca-certificates.crt"},
 	}
 	if err := b.prepare(testCA); err != nil {
-		t.Fatalf("the store directory must not be bounded: %v", err)
+		t.Fatalf("the store directory must not be held to the custom limits: %v", err)
+	}
+}
+
+func TestFindSystemStorePassesOverADirectoryItCannotMirror(t *testing.T) {
+	for name, tc := range map[string]struct {
+		lay  func(t *testing.T, root string)
+		want string
+	}{
+		"a store symlinked into a large tree": {func(t *testing.T, root string) {
+			mustMkdirAll(t, filepath.Join(root, "usr"))
+			mustWriteFile(t, filepath.Join(root, "usr/ca.crt"), "ROOTS")
+			mustSparseFile(t, filepath.Join(root, "usr/libhuge.so"), maxStoreDirBytes)
+			mustMkdirAll(t, filepath.Join(root, "etc/ssl/certs"))
+			mustSymlink(t, "/usr/ca.crt", filepath.Join(root, "etc/ssl/certs/ca-certificates.crt"))
+		}, ""},
+		"a store in the container root": {func(t *testing.T, root string) {
+			mustWriteFile(t, filepath.Join(root, "ca.crt"), "ROOTS")
+			mustMkdirAll(t, filepath.Join(root, "etc/ssl/certs"))
+			mustSymlink(t, "/ca.crt", filepath.Join(root, "etc/ssl/certs/ca-certificates.crt"))
+		}, ""},
+		"a later candidate that can be": {func(t *testing.T, root string) {
+			mustMkdirAll(t, filepath.Join(root, "etc/ssl/certs"))
+			for i := range maxStoreDirFiles {
+				mustWriteFile(t, filepath.Join(root, fmt.Sprintf("etc/ssl/certs/%d.pem", i)), "x")
+			}
+			mustWriteFile(t, filepath.Join(root, "etc/ssl/certs/ca-certificates.crt"), "ROOTS")
+			mustMkdirAll(t, filepath.Join(root, "etc/pki/tls/certs"))
+			mustWriteFile(t, filepath.Join(root, "etc/pki/tls/certs/ca-bundle.crt"), "ROOTS")
+		}, "/etc/pki/tls/certs/ca-bundle.crt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			tc.lay(t, root)
+			store, err := findSystemStore(root)
+			if store.containerPath != tc.want {
+				t.Errorf("found %q (%v), want %q", store.containerPath, err, tc.want)
+			}
+		})
 	}
 }
 
@@ -407,8 +455,8 @@ func TestWalkingSomethingThatIsNotThere(t *testing.T) {
 	if _, err := captureManifest(missing); err == nil {
 		t.Error("captureManifest reported no error for a missing root")
 	}
-	if _, _, err := sizeAndCount(missing); err == nil {
-		t.Error("sizeAndCount reported no error for a missing root")
+	if err := checkMirrorable(missing, maxCustomDirBytes, maxCustomDirFiles); err == nil {
+		t.Error("checkMirrorable reported no error for a missing root")
 	}
 }
 
@@ -645,7 +693,7 @@ func TestCaptureManifestRefusesAnEntryItCannotRead(t *testing.T) {
 // The size check is the bound on how far a Dockerfile-chosen path can drag the
 // mirror, so an entry it cannot measure has to stop it rather than count as
 // nothing.
-func TestSizeAndCountRefusesAnEntryItCannotRead(t *testing.T) {
+func TestCheckMirrorableRefusesAnEntryItCannotRead(t *testing.T) {
 	dir := t.TempDir()
 	mustWriteFile(t, dir+"/regular.pem", "ROOTS")
 	useStubWalk(t, dir, 1, walkStep{
@@ -653,8 +701,8 @@ func TestSizeAndCountRefusesAnEntryItCannotRead(t *testing.T) {
 		d:    unreadableEntry{realEntry(t, dir, "regular.pem")},
 	})
 
-	if _, _, err := sizeAndCount(dir); err == nil {
-		t.Fatal("expected sizeAndCount to refuse the entry")
+	if err := checkMirrorable(dir, maxCustomDirBytes, maxCustomDirFiles); err == nil {
+		t.Fatal("expected checkMirrorable to refuse the entry")
 	}
 }
 
