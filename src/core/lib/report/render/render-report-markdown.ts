@@ -32,8 +32,8 @@ export function renderReportMarkdown(
   // stays bare; audit is the occasional, deliberately different mode and
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
   // escapeCell as defense in depth: the report scripts only ever pass the
-  // bare default title, but the renderer must not depend on that to keep the
-  // heading from carrying Markdown, and it shares the tables' one escaper.
+  // bare default title, but the renderer must not depend on that to keep
+  // Markdown out of the heading.
   let markdown = `## ${escapeCell(title)}${isAudit ? " (audit mode)" : ""}\n\n`;
 
   // The tables would otherwise read as the whole story.
