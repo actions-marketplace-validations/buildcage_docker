@@ -1,5 +1,3 @@
-debug = true
-
 [dns]
 nameservers = ["198.19.255.1"]
 
