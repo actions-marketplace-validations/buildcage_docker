@@ -1025,6 +1025,7 @@ const ENGINES = ["universal", "inspect"];
 function resolveProxyEngine(input) {
 	let trimmed = input?.trim() || "inspect";
 	if (trimmed === "explicit") throw new SetupError("proxy_engine: explicit has been removed. Use proxy_engine: universal (network-level SNI/Host inspection) or inspect (TLS-terminating URL enforcement).", "INVALID_PROXY_ENGINE");
+	if (trimmed === "transparent") throw new SetupError("proxy_engine: transparent has been renamed. Use proxy_engine: universal.", "INVALID_PROXY_ENGINE");
 	if (!ENGINES.includes(trimmed)) throw new SetupError(`Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`, "INVALID_PROXY_ENGINE");
 	return trimmed;
 }

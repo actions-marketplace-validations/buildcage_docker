@@ -21,6 +21,12 @@ export function resolveProxyEngine(input: string | undefined): ProxyEngine {
       "INVALID_PROXY_ENGINE",
     );
   }
+  if (trimmed === "transparent") {
+    throw new SetupError(
+      "proxy_engine: transparent has been renamed. Use proxy_engine: universal.",
+      "INVALID_PROXY_ENGINE",
+    );
+  }
   if (!(ENGINES as readonly string[]).includes(trimmed)) {
     throw new SetupError(
       `Invalid proxy_engine: ${JSON.stringify(input)}. Must be one of ${ENGINES.join(", ")}.`,
