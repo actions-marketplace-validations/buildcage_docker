@@ -24,7 +24,7 @@ let node_crypto = require("node:crypto"), child_process = require("child_process
 child_process = __toESM(child_process, 1), require("timers");
 let node_os = require("node:os");
 node_os = __toESM(node_os, 1);
-let node_fs = require("node:fs");
+let node_fs = require("node:fs"), node_fs_promises = require("node:fs/promises");
 //#region src/core/lib/errors.ts
 var ActionError = class extends Error {
 	code;
@@ -197,7 +197,7 @@ new class {
 		return this.addRaw(element).addEOL();
 	}
 }();
-const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs.promises;
+const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm: rm$1, rmdir, stat, symlink, unlink } = fs.promises;
 process.platform, fs.constants.O_RDONLY, process.platform, events.EventEmitter, events.EventEmitter, os.default.platform(), os.default.arch();
 var ExitCode;
 (function(ExitCode) {
@@ -7696,8 +7696,19 @@ function assertSignedDigest(bundleJson, expectedDigest) {
 }
 //#endregion
 //#region src/core/lib/provenance/sigstore.ts
+async function fetchTrustedRoot() {
+	let cachePath = await (0, node_fs_promises.mkdtemp)((0, node_path.join)(process.env.RUNNER_TEMP || (0, node_os.tmpdir)(), "buildcage-tuf-"));
+	try {
+		return await (0, import_dist$1.getTrustedRoot)({ cachePath });
+	} finally {
+		await (0, node_fs_promises.rm)(cachePath, {
+			recursive: !0,
+			force: !0
+		});
+	}
+}
 async function verifyBundle(bundleJson, options, expectedDigest) {
-	let trustedRoot = await (0, import_dist$1.getTrustedRoot)(), verifier = new import_dist$2.Verifier((0, import_dist$2.toTrustMaterial)(trustedRoot), {
+	let trustedRoot = await fetchTrustedRoot(), verifier = new import_dist$2.Verifier((0, import_dist$2.toTrustMaterial)(trustedRoot), {
 		ctlogThreshold: options.ctLogThreshold,
 		tlogThreshold: options.tlogThreshold
 	}), policy = {};
