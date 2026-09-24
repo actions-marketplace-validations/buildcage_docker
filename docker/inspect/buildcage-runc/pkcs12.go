@@ -63,6 +63,17 @@ func decodePKCS12(content []byte) (entries []pkcs12.TrustStoreEntry, password st
 		if entries, err = pkcs12.DecodeTrustStoreEntries(content, password); err == nil {
 			return entries, password, nil
 		}
+		// A malformed alias fails the entry decode though the certificates
+		// read fine, and a store the sweep cannot read keeps its copy of the
+		// CA. Those entries go without their aliases, which encodePKCS12 then
+		// names after the subject.
+		if certs, certErr := pkcs12.DecodeTrustStore(content, password); certErr == nil {
+			entries = make([]pkcs12.TrustStoreEntry, 0, len(certs))
+			for _, cert := range certs {
+				entries = append(entries, pkcs12.TrustStoreEntry{Cert: cert})
+			}
+			return entries, password, nil
+		}
 	}
 	return nil, "", err
 }

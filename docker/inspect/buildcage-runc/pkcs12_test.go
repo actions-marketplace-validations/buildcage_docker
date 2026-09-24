@@ -452,6 +452,40 @@ func TestPKCS12WithNamesInjectedEntries(t *testing.T) {
 	}
 }
 
+// A store whose alias is not a BMPString still yields its certificates, so the
+// CA in it is found and taken out rather than left unread; the entries lose
+// their aliases to their subjects.
+func TestPKCS12WithoutAMalformedAlias(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	alias := "malformed-alias"
+	content := mustEncodeEntries(t, "",
+		pkcs12.TrustStoreEntry{Cert: root, FriendlyName: alias},
+		pkcs12.TrustStoreEntry{Cert: ca, FriendlyName: injectedAlias})
+	// Retag the alias's BMPString (0x1e) as a UTF8String (0x0c). The store is
+	// passwordless, so the bag is in the clear and carries no MAC to break.
+	bmp := []byte{0x1e, byte(2 * len(alias))}
+	for _, r := range alias {
+		bmp = append(bmp, 0, byte(r))
+	}
+	at := bytes.Index(content, bmp)
+	if at < 0 {
+		t.Fatal("the alias's BMPString is not in the store")
+	}
+	content[at] = 0x0c
+	if _, err := pkcs12.DecodeTrustStoreEntries(content, ""); err == nil {
+		t.Fatal("the retagged alias still decodes, so this tests nothing")
+	}
+
+	out, removed, err := pkcs12Without(content, [][]byte{ca.Raw})
+	if err != nil || !removed {
+		t.Fatalf("removing the CA: removed=%v err=%v", removed, err)
+	}
+	if got := aliasesOf(t, out); !slices.Equal(got, []string{"CN=digicert"}) {
+		t.Errorf("aliases after the strip = %q, want [CN=digicert]", got)
+	}
+}
+
 // An entry that came without an alias is written under its subject rather than
 // the empty alias, which every such entry would otherwise share.
 func TestEncodePKCS12NamesAnEntryWithoutAnAlias(t *testing.T) {
