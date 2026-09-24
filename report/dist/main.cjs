@@ -56177,11 +56177,8 @@ const uploadViaActionsArtifact = async (name, files, rootDirectory, options) => 
 	let { DefaultArtifactClient } = await Promise.resolve().then(() => (init_artifact(), artifact_exports));
 	return new DefaultArtifactClient().uploadArtifact(name, files, rootDirectory, options);
 };
-async function uploadTrafficArtifact(file, builderName, warn, { retentionDays, reportScriptFinished = !0, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
-	if (!fileExists(file)) {
-		reportScriptFinished && warn("upload_traffic_artifact was set, but this engine produces no traffic JSON. Only proxy_engine: inspect does.");
-		return;
-	}
+async function uploadTrafficArtifact(file, builderName, warn, { retentionDays, fileExists = node_fs.existsSync, upload = uploadViaActionsArtifact } = {}) {
+	if (!fileExists(file)) return;
 	let name = artifactName(builderName);
 	try {
 		await upload(name, [file], (0, node_path.dirname)(file), { retentionDays }), console.log(`Uploaded the traffic JSON as ${name}`);
@@ -56208,15 +56205,12 @@ async function runReportStep(env, overrides = {}) {
 	let { readBuilderName, readTrafficArtifactInputs, createDocker, findReportSourceContainer, copyFromContainerImage, runReportScript, uploadTrafficArtifact, makeScratchDir, removeScratchDir, warn } = {
 		...realDeps,
 		...overrides
-	}, builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(warn), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = makeScratchDir(), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0, reportScriptFinished = !1;
+	}, builderName = readBuilderName(), trafficArtifact = readTrafficArtifactInputs(warn), projectName = resolveProjectName(builderName, void 0), containerId = findReportSourceContainer(createDocker(), projectName, builderName), scratchDir = makeScratchDir(), trafficFile = trafficArtifact.wanted ? (0, node_path.join)(scratchDir, "traffic.json") : void 0;
 	try {
 		let reportActionPath = (0, node_path.join)(scratchDir, "report-action.js");
-		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile }), reportScriptFinished = !0;
+		copyFromContainerImage(containerId, "/opt/buildcage/scripts/report-action.js", reportActionPath), process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile });
 	} finally {
-		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, warn, {
-			retentionDays: trafficArtifact.retentionDays,
-			reportScriptFinished
-		}), removeScratchDir(scratchDir);
+		trafficFile && await uploadTrafficArtifact(trafficFile, builderName, warn, { retentionDays: trafficArtifact.retentionDays }), removeScratchDir(scratchDir);
 	}
 }
 //#endregion

@@ -3,11 +3,9 @@
  *
  * Its own module rather than the entry point's body because the orderings
  * here are decisions, not wiring: the traffic file is named before the
- * script runs so the script can write to it, the upload sits in a `finally`
- * so a run whose report failed still keeps the traffic it recorded, and how
- * far the script got travels to the upload as `reportScriptFinished`, which
- * is what tells a missing file apart from an engine that writes none. Those
- * are only visible from here, so this is where they are tested.
+ * script runs so the script can write to it, and the upload sits in a
+ * `finally` so a run whose report failed still keeps the traffic it recorded.
+ * Those are only visible from here, so this is where they are tested.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -108,22 +106,19 @@ export async function runReportStep(
 
   const scratchDir = makeScratchDir();
   // The path is handed to the script, so only a file this step created is
-  // ever uploaded. Only the inspect engine writes it.
+  // ever uploaded.
   const trafficFile = trafficArtifact.wanted ? join(scratchDir, "traffic.json") : undefined;
-  let reportScriptFinished = false;
   try {
     const reportActionPath = join(scratchDir, "report-action.js");
     copyFromContainerImage(containerId, REPORT_ACTION_SCRIPT_PATH, reportActionPath);
 
     process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile });
-    reportScriptFinished = true;
   } finally {
     // Uploaded from here so every path that ran the script keeps the file:
     // a failing run is when it is most wanted.
     if (trafficFile) {
       await uploadTrafficArtifact(trafficFile, builderName, warn, {
         retentionDays: trafficArtifact.retentionDays,
-        reportScriptFinished,
       });
     }
     removeScratchDir(scratchDir);
