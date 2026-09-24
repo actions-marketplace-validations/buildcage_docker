@@ -2871,12 +2871,12 @@ var require_envelope = __commonJSMin(((exports) => {
 		}
 		return out;
 	}
-	function expandSequence(body, isAlphaSequence, max) {
+	function expandSequence(body, isAlphaSequence, max, maxLength) {
 		let n = body.split(/\.\./), N = [];
 		if (n[0] === void 0 || n[1] === void 0) return N;
 		let x = numeric(n[0]), y = numeric(n[1]), width = Math.max(n[0].length, n[1].length), incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1, test = lte;
 		y < x && (incr *= -1, test = gte);
-		let pad = n.some(isPadded);
+		let pad = n.some(isPadded), length = 0;
 		for (let i = x; test(i, y) && N.length < max; i += incr) {
 			let c;
 			if (isAlphaSequence) c = String.fromCharCode(i), c === "\\" && (c = "");
@@ -2887,7 +2887,8 @@ var require_envelope = __commonJSMin(((exports) => {
 					c = i < 0 ? "-" + z + c.slice(1) : z + c;
 				}
 			}
-			N.push(c);
+			if (length + c.length > maxLength) break;
+			N.push(c), length += c.length;
 		}
 		return N;
 	}
@@ -2912,7 +2913,7 @@ var require_envelope = __commonJSMin(((exports) => {
 			}
 			firstGroup &&= (dropEmpties = isTop && !isSequence, !1);
 			let values;
-			if (isSequence) values = expandSequence(m.body, isAlphaSequence, max);
+			if (isSequence) values = expandSequence(m.body, isAlphaSequence, max, maxLength);
 			else {
 				let n = parseCommaParts(m.body);
 				if (n.length === 1 && n[0] !== void 0 && (n = expand_(n[0], max, maxLength, !1).map(embrace), n.length === 1)) {
@@ -2920,8 +2921,20 @@ var require_envelope = __commonJSMin(((exports) => {
 					str = m.post;
 					continue;
 				}
+				let dropsEmpties = dropEmpties && !m.post.length && !pre;
+				for (let d = 0; dropsEmpties && d < acc.length; d++) acc[d] && (dropsEmpties = !1);
 				values = [];
-				for (let j = 0; j < n.length; j++) values.push.apply(values, expand_(n[j], max, maxLength, !1));
+				let valuesLength = 0;
+				outer: for (let j = 0; j < n.length; j++) {
+					let expanded = expand_(n[j], max, maxLength, !1);
+					for (let k = 0; k < expanded.length; k++) {
+						let v = expanded[k];
+						if (!(dropsEmpties && !v)) {
+							if (values.length >= max || valuesLength + v.length > maxLength) break outer;
+							values.push(v), valuesLength += v.length;
+						}
+					}
+				}
 			}
 			if (acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m.post.length), !m.post.length) break;
 			str = m.post;
