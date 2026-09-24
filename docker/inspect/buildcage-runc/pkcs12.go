@@ -16,9 +16,9 @@ package main
 // unencrypted and carry no MAC, the one shape the JVM's default loader trusts
 // as a cacerts: the Modern encoders encrypt the bags with PBES2, which that
 // loader does not decrypt. A "changeit" store is resealed Modern, the shape
-// keytool writes, so whatever read it before still does. Each entry keeps its
-// alias: re-encoding under the subject DN instead would rename every entry, and
-// entries sharing a subject would share an alias, of which the JVM loads one.
+// keytool writes, so whatever read it before still does. Entries keep their
+// aliases: the JVM loads one entry per alias, so naming them after their
+// subjects would merge any that share one.
 // removeFromBinaryStore reads the file and dispatches on its magic.
 
 import (
@@ -63,10 +63,8 @@ func decodePKCS12(content []byte) (entries []pkcs12.TrustStoreEntry, password st
 		if entries, err = pkcs12.DecodeTrustStoreEntries(content, password); err == nil {
 			return entries, password, nil
 		}
-		// A malformed alias fails the entry decode though the certificates
-		// read fine, and a store the sweep cannot read keeps its copy of the
-		// CA. Those entries go without their aliases, which encodePKCS12 then
-		// names after the subject.
+		// A malformed alias fails only the entry decode. The certificates are
+		// still read so a copy of the CA in the store is found.
 		if certs, certErr := pkcs12.DecodeTrustStore(content, password); certErr == nil {
 			entries = make([]pkcs12.TrustStoreEntry, 0, len(certs))
 			for _, cert := range certs {
@@ -117,9 +115,7 @@ func iterationsWithin(der []byte, depth int) bool {
 var encodePKCS12 = func(entries []pkcs12.TrustStoreEntry, password string) ([]byte, error) {
 	named := slices.Clone(entries)
 	for i := range named {
-		// A bag written without an alias would come back under the empty one,
-		// shared by every such entry; the subject is what the JDK's own encoder
-		// would name it.
+		// Entries sharing the empty alias would merge in the JVM.
 		if named[i].FriendlyName == "" {
 			named[i].FriendlyName = named[i].Cert.Subject.String()
 		}

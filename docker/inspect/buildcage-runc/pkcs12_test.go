@@ -60,10 +60,9 @@ func passwordlessStore(t *testing.T, certs ...*x509.Certificate) []byte {
 }
 
 // keytoolStore is a trust store the way keytool creates one: sealed under
-// changeit, its entry under an alias of its own. The round trip keeps the alias
-// but draws a fresh salt, so it never reproduces these bytes, which is the churn
-// restoreUntouchedKeystores prevents. A JDK's own cacerts does not survive it
-// byte for byte either.
+// changeit, its entry under an alias of its own. Re-encoding draws a fresh salt,
+// so the round trip never reproduces these bytes, the churn
+// restoreUntouchedKeystores prevents.
 func keytoolStore(t *testing.T, alias string, cert *x509.Certificate) []byte {
 	t.Helper()
 	data, err := pkcs12.Modern.EncodeTrustStoreEntries(
@@ -413,8 +412,7 @@ func aliasesOf(t *testing.T, content []byte) []string {
 }
 
 // Taking the CA out keeps every other entry under its own alias, including two
-// that share a subject, which re-encoding under the subject would merge into one
-// alias the JVM loads only once.
+// that share a subject.
 func TestPKCS12WithoutKeepsAliases(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	oldRoot := testCert(t, "Corp Root")
@@ -452,9 +450,8 @@ func TestPKCS12WithNamesInjectedEntries(t *testing.T) {
 	}
 }
 
-// A store whose alias is not a BMPString still yields its certificates, so the
-// CA in it is found and taken out rather than left unread; the entries lose
-// their aliases to their subjects.
+// A store with a malformed alias still has the CA taken out, its entries
+// renamed after their subjects.
 func TestPKCS12WithoutAMalformedAlias(t *testing.T) {
 	ca := testCert(t, "buildcage")
 	root := testCert(t, "digicert")
@@ -486,8 +483,7 @@ func TestPKCS12WithoutAMalformedAlias(t *testing.T) {
 	}
 }
 
-// An entry that came without an alias is written under its subject rather than
-// the empty alias, which every such entry would otherwise share.
+// An entry without an alias is written under its subject.
 func TestEncodePKCS12NamesAnEntryWithoutAnAlias(t *testing.T) {
 	a, b := testCert(t, "first"), testCert(t, "second")
 	out, err := encodePKCS12([]pkcs12.TrustStoreEntry{{Cert: a}, {Cert: b, FriendlyName: "kept"}}, "")

@@ -344,9 +344,8 @@ func TestInjectWritesBackWhenTheStepChangesTheKeystore(t *testing.T) {
 
 // A PKCS#12 keystore the step never touched must be committed byte for byte as
 // an unproxied build would have it, even when something else in its directory
-// triggers the write-back. Taking the proxy CA back out decodes and re-encodes
-// the store, which keeps its aliases but not its bytes, so without restoring the
-// original the keystore churns on a build that never touched cacerts.
+// triggers the write-back. Taking the proxy CA back out re-encodes the store,
+// which does not reproduce its bytes.
 func TestInjectRestoresAnUntouchedKeystoreBesideAChange(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundle(t, []string{"JAVA_HOME=/opt/java"})

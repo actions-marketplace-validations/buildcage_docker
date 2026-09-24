@@ -354,11 +354,10 @@ runs under Node on the runner after the report action copies it out of the image
 a QuickJS entry point beside it (`gen-configs.qjs.ts`), so that directory is a second QuickJS build
 target alongside `src/core/scripts/`; `tsconfig.qjs.json` names both.
 
-`buildcage-runc` vendors its dependencies. `go-pkcs12` comes from the
+`buildcage-runc` takes `go-pkcs12` from the
 [buildcage/go-pkcs12](https://github.com/buildcage/go-pkcs12) fork through a `replace` in its
-`go.mod`: upstream has no way to read a trust store's aliases, which a keystore rewrite needs to
-keep. Each `vX.Y.Z-buildcage.N` tag there is upstream `vX.Y.Z` plus that one addition, and Renovate
-proposes a new one as it would any other dependency.
+`go.mod`, because upstream cannot read a trust store's aliases, which a keystore rewrite must keep.
+Its `vX.Y.Z-buildcage.N` tags are upstream `vX.Y.Z` plus that addition.
 
 ## Troubleshooting
 

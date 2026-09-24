@@ -28,20 +28,17 @@ import (
 // either keystore magic, so injection has nothing it knows how to write.
 var errNotAKeystore = errors.New("not a JKS or PKCS#12 keystore")
 
-// The alias the injected trusted-certificate entry carries in either keystore
-// shape, and its creation time in a JKS. The time is fixed so the entry is
-// byte-for-byte the same every build, which keeps the gatekeeper comparing like
-// with like; the alias only has to not collide with one the keystore already
-// uses.
+// The alias of the injected entry in either keystore shape, and its creation
+// time in a JKS. The time is fixed so the entry is byte-for-byte the same every
+// build, which keeps the gatekeeper comparing like with like; the alias only
+// has to not collide with one the keystore already uses.
 const (
 	injectedAlias        = "buildcage-proxy-ca"
 	injectedCreationTime = 1700000000000
 )
 
-// injectedAliasFor is the alias of the i-th injected certificate. One entry
-// keeps the plain alias, so the common single-certificate CA injects the same
-// every build; a bundle's later entries take a suffix, since a keystore keeps
-// one entry per alias.
+// injectedAliasFor suffixes all but the first alias, since a keystore keeps one
+// entry per alias.
 func injectedAliasFor(i int) string {
 	if i == 0 {
 		return injectedAlias
