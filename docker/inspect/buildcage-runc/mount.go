@@ -28,10 +28,9 @@ const (
 	maxCustomDirBytes = 20 << 20
 	maxCustomDirFiles = 512
 
-	// The store directory is bounded far more loosely, since a distribution's
-	// runs to a few hundred hash links. It is still bounded because the image
-	// decides where it is: a store file symlinked to /usr/ca.crt makes it /usr,
-	// mirrored and hashed on every step.
+	// Looser, since a distribution's store runs to a few hundred hash links.
+	// Bounded at all because the image decides where it is: a store symlinked
+	// to /usr/ca.crt makes it /usr.
 	maxStoreDirBytes = 64 << 20
 	maxStoreDirFiles = 4096
 )

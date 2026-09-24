@@ -571,9 +571,8 @@ func (s systemStore) dir() string {
 	return filepath.Dir(s.hostPath)
 }
 
-// findSystemStore returns the first candidate that is there and whose
-// directory can be mirrored. One whose directory cannot be is passed over: the
-// variables planned around a store would point at a copy without the CA.
+// A candidate whose directory cannot be mirrored is passed over: the variables
+// planned around a store would point at a copy without the CA.
 func findSystemStore(rootfs string) (systemStore, error) {
 	for _, candidate := range systemCertFiles {
 		resolved, err := resolveInRoot(rootfs, candidate)

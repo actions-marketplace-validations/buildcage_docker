@@ -343,9 +343,7 @@ func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
 	}
 }
 
-// The store directory is bounded when it is found, under limits of its own, so
-// prepare does not hold it to a custom path's: a distribution that ships a
-// large trust store still gets the CA.
+// findSystemStore bounds it under limits of its own.
 func TestPrepareDoesNotHoldTheStoreDirToTheCustomLimits(t *testing.T) {
 	useFakeRsync(t)
 	rootfs := t.TempDir()
@@ -369,8 +367,6 @@ func TestPrepareDoesNotHoldTheStoreDirToTheCustomLimits(t *testing.T) {
 	}
 }
 
-// The image decides where the store's directory is. One that cannot be mirrored
-// is passed over for the next candidate, or for none.
 func TestFindSystemStorePassesOverADirectoryItCannotMirror(t *testing.T) {
 	for name, tc := range map[string]struct {
 		lay  func(t *testing.T, root string)

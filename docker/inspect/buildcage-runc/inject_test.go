@@ -497,9 +497,7 @@ func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
 	findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
 }
 
-// A store too large to mirror is treated as no store at all: the variables
-// that would have pointed at it fall back to the proxy-CA-only file, rather
-// than at a store the CA never went into.
+// Not at a store the CA never went into.
 func TestInjectFallsBackWhenTheStoreCannotBeMirrored(t *testing.T) {
 	useFakeRsync(t)
 	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
