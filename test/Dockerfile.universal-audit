@@ -64,7 +64,7 @@ RUN echo "=== [DNS over TCP] ===" && \
     node -e ' \
       const q = Buffer.from("abcd01000001000000000000076578616d706c6503636f6d0000010001", "hex"); \
       const len = Buffer.alloc(2); len.writeUInt16BE(q.length); \
-      const s = require("net").connect(53, "172.20.0.1", () => s.write(Buffer.concat([len, q]))); \
+      const s = require("net").connect(53, "198.19.255.1", () => s.write(Buffer.concat([len, q]))); \
       const done = (ok, why) => { console.log(ok ? "✓ DNS over TCP: answered" : `✗ DNS over TCP: ${why}`); process.exit(ok ? 0 : 1); }; \
       s.setTimeout(5000, () => done(false, "timed out")); \
       s.on("error", (e) => done(false, e.message)); \

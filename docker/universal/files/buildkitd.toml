@@ -1,7 +1,7 @@
 debug = true
 
 [dns]
-nameservers = ["172.20.0.1"]
+nameservers = ["198.19.255.1"]
 
 [worker.oci]
 enabled = true

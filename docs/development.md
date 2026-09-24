@@ -146,18 +146,18 @@ worktree name and keeps the unsuffixed names used everywhere else in this
 document. `BUILDCAGE_WORKTREE_SUFFIX` and `TEST_NET_SUBNET` override the derived values.
 
 `test-net`'s subnet comes from the same name, and appears in no assertion. It is
-pinned rather than left to Docker because Docker's own pool includes
-`172.20.0.0/16`, which overlaps the builder's CNI bridge: a daemon-side network
-in that range is shadowed by the longer prefix and becomes unreachable from
-inside the builder. Two worktrees whose names happen to pick the same subnet
-fail with `Pool overlaps with other one on this address space`; rename one, or
-set `TEST_NET_SUBNET`.
+pinned rather than left to Docker because `test/test-net-addr` finds the
+builder's interface on it by that subnet. Two worktrees whose names happen to
+pick the same subnet fail with `Pool overlaps with other one on this address
+space`; rename one, or set `TEST_NET_SUBNET`.
 
-Docker picks the Compose `default` network's subnet from its own pool, which
-includes `172.20.0.0/16` and can collide the same way. If the builder starts
-failing to reach the fixtures or the network for no apparent reason, check that
-subnet with `docker network inspect` and consider narrowing
-`default-address-pools` in the daemon configuration.
+The builder's CNI bridge is `198.19.255.0/24`, from the `198.18.0.0/15` block
+RFC 2544 reserves for benchmarking: outside Docker's default address pools, so
+no network Docker allocates on its own overlaps it. A daemon whose
+`default-address-pools` covers that range can still hand it to the Compose
+`default` network, and a network shadowed that way is unreachable from inside
+the builder. If the builder starts failing to reach the network for no apparent
+reason, check that subnet with `docker network inspect`.
 
 ## Local Development
 

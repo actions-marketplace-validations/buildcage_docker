@@ -92,10 +92,14 @@ export async function runReportStep(
 
   const builderName = readBuilderName();
   const trafficArtifact = readTrafficArtifactInputs(warn);
-  // The COMPOSE_PROJECT_NAME override is gated to this repo's own CI/dev testing.
+  // The COMPOSE_PROJECT_NAME override is gated to this repo's own CI/dev
+  // testing. The gate reads process.env, not the passed env, so rolldown's
+  // replacePlugin folds it to a constant at build time and tree-shakes the
+  // COMPOSE_PROJECT_NAME read out of a published dist, the same as src/post.ts
+  // and src/lib/local-image.ts; env still supplies the value under test.
   const projectName = resolveProjectName(
     builderName,
-    env.BUILDCAGE_BUILD_TEST_HOOKS === "1" ? env.COMPOSE_PROJECT_NAME : undefined,
+    process.env.BUILDCAGE_BUILD_TEST_HOOKS === "1" ? env.COMPOSE_PROJECT_NAME : undefined,
   );
 
   const containerId = findReportSourceContainer(createDocker(), projectName, builderName);
