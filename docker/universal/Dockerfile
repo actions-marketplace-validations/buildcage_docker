@@ -21,7 +21,7 @@ ARG CNI_SHA256_ARM64
 ARG COREDNS_VERSION
 ARG COREDNS_SHA256_AMD64
 ARG COREDNS_SHA256_ARM64
-RUN apk add --no-cache curl gettext && \
+RUN apk add --no-cache curl gettext util-linux-misc && \
     mkdir -p /opt/cni/bin && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     EXPECTED_SHA256=$([ "$ARCH" = "amd64" ] && echo "$CNI_SHA256_AMD64" || echo "$CNI_SHA256_ARM64") && \
@@ -92,6 +92,10 @@ COPY --from=deps /usr/lib/libintl.so* /usr/lib/
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
+# Widens haproxy's log pipe before it starts (s6-rc.d/haproxy/run). The one
+# binary rather than util-linux-misc, which pulls in ~6MB for it; it needs only
+# musl.
+COPY --from=deps /bin/pipesz /usr/bin/pipesz
 
 # CoreDNS answers queries the build controls, so it must not run as root.
 # setcap keeps :53 bindable once it has dropped.
