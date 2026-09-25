@@ -707,19 +707,59 @@ func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
 	}
 }
 
-// saltThen is a SEQUENCE shaped the way MacData and the PBE parameters are: a
-// salt, then whatever count follows it.
-func saltThen(t *testing.T, count []byte) []byte {
+// The cap applies to encoding too, so it is lifted while the store is written.
+func storePastTheIterationLimit(t *testing.T, ca *x509.Certificate) []byte {
 	t.Helper()
-	salt, err := asn1.Marshal([]byte("salt"))
-	if err != nil {
-		t.Fatalf("marshalling the salt: %v", err)
+	pkcs12.MaxIterations = 0
+	defer func() { pkcs12.MaxIterations = maxPKCS12Iterations }()
+	return mustEncodeTrustStore(t, pkcs12.Modern.WithIterations(maxPKCS12Iterations+1), "", ca)
+}
+
+// Sealed under the empty password, so every PKCS#12 path would otherwise open it.
+func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := storePastTheIterationLimit(t, ca)
+
+	if _, _, err := decodePKCS12(content); !errors.Is(err, pkcs12.ErrTooManyIterations) {
+		t.Errorf("decodePKCS12: got %v, want ErrTooManyIterations", err)
 	}
-	seq, err := asn1.Marshal(asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: append(salt, count...)})
-	if err != nil {
-		t.Fatalf("marshalling the parameters: %v", err)
+	found, err := fileHoldsCA(mustWritePKCS12(t, content), caMarksOf(certPEM(ca)).needles)
+	if err != nil || found {
+		t.Errorf("fileHoldsCA: got found=%v err=%v, want the keystore left unread", found, err)
 	}
-	return seq
+}
+
+// go-pkcs12 accepts a salt of any class, which must not hide the count after it.
+func TestPKCS12PastTheIterationLimitBehindAContextSpecificSalt(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	content := storePastTheIterationLimit(t, ca)
+
+	// With no MAC, the retag below breaks nothing and only the bags' count is read.
+	var pfx asn1.RawValue
+	if _, err := asn1.Unmarshal(content, &pfx); err != nil {
+		t.Fatal(err)
+	}
+	var version, authSafe asn1.RawValue
+	rest, err := asn1.Unmarshal(pfx.Bytes, &version)
+	if err == nil {
+		_, err = asn1.Unmarshal(rest, &authSafe)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = mustMarshal(t, asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: append(version.FullBytes, authSafe.FullBytes...)})
+
+	// The PBKDF2 salt: a 16-byte OCTET STRING, then the count.
+	count := mustMarshal(t, maxPKCS12Iterations+1)
+	i := bytes.Index(content, count) - 18
+	if i < 0 || content[i] != 0x04 || content[i+1] != 0x10 {
+		t.Fatal("PBKDF2 salt not found")
+	}
+	content[i] = 0x84
+
+	if _, _, err := decodePKCS12(content); !errors.Is(err, pkcs12.ErrTooManyIterations) {
+		t.Errorf("decodePKCS12: got %v, want ErrTooManyIterations", err)
+	}
 }
 
 func mustMarshal(t *testing.T, v any) []byte {
@@ -729,63 +769,4 @@ func mustMarshal(t *testing.T, v any) []byte {
 		t.Fatalf("marshalling %v: %v", v, err)
 	}
 	return der
-}
-
-func TestIterationsWithin(t *testing.T) {
-	over := saltThen(t, mustMarshal(t, maxPKCS12Iterations+1))
-	nested := func(der []byte, levels int) []byte {
-		for range levels {
-			der = mustMarshal(t, der)
-		}
-		return der
-	}
-	for name, tc := range map[string]struct {
-		der  []byte
-		want bool
-	}{
-		"a count at the limit":            {saltThen(t, mustMarshal(t, maxPKCS12Iterations)), true},
-		"a count past the limit":          {over, false},
-		"a count past what an int holds":  {saltThen(t, mustMarshal(t, new(big.Int).Lsh(big.NewInt(1), 80))), false},
-		"a count encoded with padding":    {saltThen(t, []byte{0x02, 0x02, 0x00, 0x01}), false},
-		"a large integer after no salt":   {mustMarshal(t, []int64{1 << 40}), true},
-		"a count inside an octet string":  {mustMarshal(t, over), false},
-		"a count below where any is read": {nested(over, maxPKCS12Depth), true},
-		"bytes that are not DER":          {[]byte{0x30, 0x80}, true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := iterationsWithin(tc.der, 0); got != tc.want {
-				t.Errorf("iterationsWithin = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestIterationsWithinAcceptsRealEncoders(t *testing.T) {
-	cert := testCert(t, "digicert")
-	for name, enc := range map[string]*pkcs12.Encoder{
-		"Passwordless": pkcs12.Passwordless,
-		"Legacy":       pkcs12.LegacyDES,
-		"Modern":       pkcs12.Modern,
-		"Modern2023":   pkcs12.Modern2023,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if !iterationsWithin(mustEncodeTrustStore(t, enc, "", cert), 0) {
-				t.Error("refused a store its encoder wrote")
-			}
-		})
-	}
-}
-
-// Sealed under the empty password, so every PKCS#12 path would otherwise open it.
-func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
-	ca, _ := testIssuer(t, "this run")
-	content := mustEncodeTrustStore(t, pkcs12.Modern.WithIterations(maxPKCS12Iterations+1), "", ca)
-
-	if _, _, err := decodePKCS12(content); !errors.Is(err, errTooManyIterations) {
-		t.Errorf("decodePKCS12: got %v, want errTooManyIterations", err)
-	}
-	found, err := fileHoldsCA(mustWritePKCS12(t, content), caMarksOf(certPEM(ca)).needles)
-	if err != nil || found {
-		t.Errorf("fileHoldsCA: got found=%v err=%v, want the keystore left unread", found, err)
-	}
 }

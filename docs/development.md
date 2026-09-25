@@ -358,8 +358,10 @@ target alongside `src/core/scripts/`; `tsconfig.qjs.json` names both.
 
 `buildcage-runc` takes `go-pkcs12` from the
 [buildcage/go-pkcs12](https://github.com/buildcage/go-pkcs12) fork through a `replace` in its
-`go.mod`, because upstream cannot read a trust store's aliases, which a keystore rewrite must keep.
-Its `vX.Y.Z-buildcage.N` tags are upstream `vX.Y.Z` plus that addition.
+`go.mod`. The fork adds `DecodeTrustStoreEntries`, since a keystore rewrite must keep the aliases,
+and `MaxIterations`, which the sweep sets to a million so a keystore naming more key-derivation
+iterations is left unread instead of stalling the build. Its `vX.Y.Z-buildcage.N` tags are upstream
+`vX.Y.Z` plus those additions.
 
 ## Troubleshooting
 
