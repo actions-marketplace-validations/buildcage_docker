@@ -18,11 +18,10 @@ The following are **out of scope** (please report to the respective projects ins
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 3.x     | :white_check_mark: |
-| 2.x     | :x:                |
-| 1.x     | :x:                |
+| Version   | Supported          |
+| --------- | ------------------ |
+| 4.x       | :white_check_mark: |
+| 1.x – 3.x | :x:                |
 
 ## Verifying Releases
 
