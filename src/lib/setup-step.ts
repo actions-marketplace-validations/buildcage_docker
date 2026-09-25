@@ -16,7 +16,12 @@ import { fileURLToPath } from "node:url";
 import { SetupError } from "./errors.ts";
 import { annotate } from "#core/lib/actions/annotation.ts";
 import { readBuilderName, readEngineInputs, readRuleInputs } from "./inputs.ts";
-import { checkUrlAndTlsRuleSupport } from "./engine-rule-support.ts";
+import {
+  checkIpRuleSupport,
+  checkKnownBlockedUrlRuleSupport,
+  checkUrlAndTlsRuleSupport,
+} from "./engine-rule-support.ts";
+import { isKnownBlockedUrlRule } from "#core/lib/acl/wildcard-rules.ts";
 import { buildComposeEnv } from "./compose-env.ts";
 import {
   verifyImageDigestOrThrow,
@@ -53,6 +58,8 @@ export interface SetupStepDeps {
   readLocalImageOverride: typeof readLocalImageOverride;
   verifyImageDigestOrThrow: typeof verifyImageDigestOrThrow;
   checkUrlAndTlsRuleSupport: typeof checkUrlAndTlsRuleSupport;
+  checkKnownBlockedUrlRuleSupport: typeof checkKnownBlockedUrlRuleSupport;
+  checkIpRuleSupport: typeof checkIpRuleSupport;
   logRules: typeof logRules;
   withLogGroup: typeof withLogGroup;
   builderStartError: typeof builderStartError;
@@ -60,10 +67,8 @@ export interface SetupStepDeps {
    *  what the job log wants to show. */
   runDocker: (args: string[], env: NodeJS.ProcessEnv) => void;
   log: (message: string) => void;
-  /** A renamed input's migration message and the rule-support warning. Both
-   *  go to the always-on emitter: this action has no report of its own to
-   *  suppress them alongside. */
-  notice: (message: string) => void;
+  /** The rule-support warning goes to the always-on emitter: this action has no
+   *  report of its own to suppress it alongside. */
   warn: (message: string) => void;
 }
 
@@ -82,12 +87,13 @@ const realDeps: SetupStepDeps = {
   readLocalImageOverride,
   verifyImageDigestOrThrow,
   checkUrlAndTlsRuleSupport,
+  checkKnownBlockedUrlRuleSupport,
+  checkIpRuleSupport,
   logRules,
   withLogGroup,
   builderStartError,
   runDocker: runDockerViaExec,
   log: console.log,
-  notice: annotate.notice,
   warn: annotate.warning,
 };
 
@@ -123,12 +129,13 @@ export async function runSetupStep(
     readLocalImageOverride,
     verifyImageDigestOrThrow,
     checkUrlAndTlsRuleSupport,
+    checkKnownBlockedUrlRuleSupport,
+    checkIpRuleSupport,
     logRules,
     withLogGroup,
     builderStartError,
     runDocker,
     log,
-    notice,
     warn,
   } = { ...realDeps, ...overrides };
 
@@ -136,7 +143,7 @@ export async function runSetupStep(
   const actionRepo = env.GITHUB_ACTION_REPOSITORY ?? "";
 
   // Read before the image: each engine has its own image tag.
-  const { proxyEngine } = readEngineInputs(notice);
+  const { proxyEngine } = readEngineInputs();
   log(`Proxy engine: ${proxyEngine}`);
 
   const localOverride = await readLocalImageOverride(env, log);
@@ -155,6 +162,15 @@ export async function runSetupStep(
   // Before the builder starts, so a rule the engine cannot enforce is reported
   // once, up front, rather than silently not enforced.
   checkUrlAndTlsRuleSupport({ proxyEngine, proxyMode, urlRules, tlsRules }, warn);
+  checkKnownBlockedUrlRuleSupport(
+    {
+      proxyEngine,
+      proxyMode,
+      knownBlockedUrlRules: knownBlockedRules.filter(isKnownBlockedUrlRule),
+    },
+    warn,
+  );
+  checkIpRuleSupport({ proxyEngine, proxyMode, ipRules }, warn);
 
   withLogGroup("buildcage: Configured ACL Rules", () => {
     logRules("HTTPS", httpsRules);

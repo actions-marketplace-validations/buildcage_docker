@@ -15,7 +15,7 @@ import { generateHaproxyConfig, type HaproxyConfigOptions } from "./haproxy-conf
 import { buildUrlRules } from "./url-rules.ts";
 import { expectMatchesGolden } from "../test/golden.node.ts";
 
-const PROXY = "172.20.0.1";
+const PROXY = "198.19.255.1";
 
 const CASES: Record<string, HaproxyConfigOptions> = {
   // No options at all: the static skeleton every other case is a delta from.
@@ -50,6 +50,7 @@ const CASES: Record<string, HaproxyConfigOptions> = {
         "GET https://a.example.com/pkg/**",
         "POST https://b.example.com:8443/upload/*",
         "GET ~^https://c\\.example\\.com/[0-9]+$",
+        "GET https://169.254.169.254/latest/meta-data/*",
       ].join("\n"),
     ),
     resolverAddress: ["1.1.1.1"],

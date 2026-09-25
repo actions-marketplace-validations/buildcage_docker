@@ -20,6 +20,7 @@ assert_log_contains ALLOWED "ALLOWED.example.com:80" "-"
 assert_log_contains ALLOWED "ok.regex.example.com:443" "-"
 assert_log_contains ALLOWED "ports.regex.example.com:443" "-"
 assert_log_contains ALLOWED "ports.regex.example.com:8443" "-"
+assert_log_contains ALLOWED "10.200.0.100:8443" "-"
 echo ""
 
 echo "[BLOCKED] expected:"
@@ -31,12 +32,13 @@ assert_log_contains BLOCKED "deep.sub.wildcard.example.com:443" "not-allowed"
 assert_log_contains BLOCKED "not-ok.regex.example.com:443" "not-allowed"
 assert_log_contains BLOCKED "ports.regex.example.com:80" "not-allowed"
 assert_log_contains BLOCKED "10.200.0.100:80" "ip-not-allowed"
+assert_log_contains BLOCKED "10.200.0.101:8443" "ip-not-allowed"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:443" "dns-failed"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:80" "dns-failed"
 assert_log_contains BLOCKED "v6only.wildcard.example.com:443" "dns-failed"
 assert_log_contains BLOCKED "v6only.wildcard.example.com:80" "dns-failed"
-assert_log_contains BLOCKED "172.20.0.1:443" "missing-sni"
-assert_log_contains BLOCKED "172.20.0.1:80" "missing-host-header"
+assert_log_contains BLOCKED "198.19.255.1:443" "missing-sni"
+assert_log_contains BLOCKED "198.19.255.1:80" "missing-host-header"
 assert_log_contains BLOCKED "internal.wildcard.example.com:443" "internal-address"
 assert_log_contains BLOCKED "internal.wildcard.example.com:80" "internal-address"
 assert_log_contains BLOCKED "runner.wildcard.example.com:443" "internal-address"
@@ -61,6 +63,10 @@ assert_no_forged_log_lines
 echo ""
 
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
+
+echo "[report] the log reads as complete:"
+assert_report_complete "$REPORT_MARKDOWN"
+echo ""
 
 echo "[report] Allowed Hosts:"
 if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \

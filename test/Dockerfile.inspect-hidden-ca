@@ -1,0 +1,29 @@
+# Each CASE leaves a copy of the proxy CA that the layer sweep finds but cannot
+# remove, so the build must fail:
+#
+#   leaf      a server certificate the proxy forged, saved trust-on-first-use
+#   json      the CA's PEM escaped into a JSON string
+#
+# CASE=resealed copies cacerts, CA included, into a new PKCS#12 under changeit;
+# the sweep takes the CA out and reseals it, so it must build. CASE=control
+# writes an unrelated encrypted keystore and must build.
+ARG BASE=eclipse-temurin:21
+FROM ${BASE}
+ARG CASE
+
+SHELL ["/bin/sh", "-c"]
+
+RUN mkdir -p /app && case "$CASE" in \
+      resealed) keytool -importkeystore -noprompt \
+        -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
+        -destkeystore /app/trust.p12 -deststoretype PKCS12 -deststorepass changeit ;; \
+      leaf) openssl s_client -showcerts -connect allowed.example.com:443 \
+        -servername allowed.example.com </dev/null 2>/dev/null \
+        | sed -n '/-----BEGIN/,/-----END/p' > /app/host.crt && test -s /app/host.crt ;; \
+      json) { printf '{"ca":"'; awk '{printf "%s\\n", $0}' "$NODE_EXTRA_CA_CERTS"; printf '"}'; } \
+        > /app/ca.json && grep -q 'BEGIN CERTIFICATE' /app/ca.json ;; \
+      control) keytool -genkeypair -noprompt -alias app -keyalg EC -validity 2 \
+        -dname CN=app.example -storetype PKCS12 -keystore /app/server.p12 \
+        -storepass a-real-password ;; \
+      *) echo "unknown CASE=$CASE" >&2; exit 2 ;; \
+    esac

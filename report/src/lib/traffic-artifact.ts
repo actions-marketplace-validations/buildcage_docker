@@ -35,9 +35,6 @@ const uploadViaActionsArtifact: UploadArtifact = async (name, files, rootDirecto
 export interface UploadTrafficArtifactOptions {
   /** Undefined leaves the retention to the repository's own default. */
   retentionDays?: number;
-  /** False when report-action.js died before it could write the file, so its
-   *  absence says nothing about the engine. */
-  reportScriptFinished?: boolean;
   /** `fileExists`/`upload` are injectable so tests can assert on the arguments
    *  instead of mocking node:fs and @actions/artifact directly. */
   fileExists?: (file: string) => boolean;
@@ -45,7 +42,7 @@ export interface UploadTrafficArtifactOptions {
 }
 
 /**
- * Upload the traffic JSON, when the engine produced one. Best-effort: the exit
+ * Upload the traffic JSON the report script wrote. Best-effort: the exit
  * decision is already made, so a failed upload only warns.
  */
 export async function uploadTrafficArtifact(
@@ -54,21 +51,14 @@ export async function uploadTrafficArtifact(
   warn: Warn,
   {
     retentionDays,
-    reportScriptFinished = true,
     fileExists = existsSync,
     upload = uploadViaActionsArtifact,
   }: UploadTrafficArtifactOptions = {},
 ): Promise<void> {
-  if (!fileExists(file)) {
-    // Only the inspect engine writes the file.
-    if (reportScriptFinished) {
-      warn(
-        "upload_traffic_artifact was set, but this engine produces no traffic JSON. " +
-          "Only proxy_engine: inspect does.",
-      );
-    }
-    return;
-  }
+  // Both engines write the file whenever a traffic artifact is asked for, so a
+  // missing file means the report script died before writing one: nothing to
+  // upload, and its absence says nothing worth a warning.
+  if (!fileExists(file)) return;
   const name = artifactName(builderName);
   try {
     await upload(name, [file], dirname(file), { retentionDays });

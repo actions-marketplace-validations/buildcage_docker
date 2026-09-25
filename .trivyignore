@@ -1,21 +1,8 @@
-# buildkit-runc does not use proxy-based HTTP communication or HTML parsing.
-CVE-2025-22870
-CVE-2025-22872
-
 # Go stdlib html/template: XSS via escaping bugs in meta content URL and script type attribute.
 # No component in this product generates or serves HTML.
 CVE-2026-27142
 CVE-2026-39823
 CVE-2026-39826
-
-# Go stdlib net/url: incorrect parsing of IPv6 host literals.
-# CNI plugins do not parse user-supplied URLs.
-CVE-2026-25679
-
-# Go stdlib os: FileInfo can escape from a Root in ReadDir.
-# Same rationale as CVE-2026-32282/CVE-2026-39822 above: no component in
-# this product uses the os.Root sandboxed filesystem API.
-CVE-2026-27139
 
 # Go stdlib mime: excessive CPU on malformed MIME header decode.
 # buildkitd, buildkit-runc, and CNI plugins do not decode external MIME headers.
@@ -83,46 +70,11 @@ CVE-2026-25680
 CVE-2025-58190
 CVE-2025-47911
 
-# containerd CRI plugin vulnerabilities (image cache poisoning via checkpoint/restore,
-# CDI annotation injection, unbounded memory on crafted image, LABEL passthrough).
-# buildkitd embeds containerd only as a client/worker library for its own build execution;
-# it never runs the CRI plugin, and checkpoint/restore (CRIU) and CDI are not enabled.
-CVE-2026-50195
-CVE-2026-47262
-CVE-2026-53492
-CVE-2026-53489
-CVE-2026-53488
-
 # golang.org/x/net/idna: privilege escalation via incorrect Punycode label processing.
 # Only present in buildkit-runc, which handles namespaces/cgroups/rootfs setup and
 # never parses or authorizes hostnames; the idna package is an unused transitive
 # dependency in this binary.
 CVE-2026-39821
-
-# libexpat: additional XML parsing vulnerabilities. No external XML processing
-# path exists in this product.
-CVE-2026-56409
-CVE-2026-56408
-CVE-2026-56407
-CVE-2026-56131
-CVE-2026-56412
-CVE-2026-56411
-CVE-2026-56410
-CVE-2026-56406
-CVE-2026-56405
-CVE-2026-56404
-CVE-2026-56403
-CVE-2026-56132
-CVE-2026-50219
-CVE-2026-41080
-CVE-2026-45186
-
-# c-ares: use-after-free / double-free in query-completion handling.
-# Only present as libcurl's transitive dependency, inherited from the moby/buildkit base image.
-# curl itself is invoked only at build time (fetching CNI plugins from a fixed github.com URL)
-# and at runtime for a Unix-socket healthcheck with no DNS resolution involved: no component
-# resolves attacker-influenced hostnames through c-ares.
-CVE-2026-33630
 
 # Go stdlib os.Root: symlink following allows directory traversal.
 # Same rationale as CVE-2026-32282 above: no component in this product uses
@@ -131,18 +83,16 @@ CVE-2026-39822
 
 # Go stdlib crypto/tls: information disclosure via Encrypted Client Hello (ECH).
 # ECH is an opt-in TLS extension that is never configured by any component in this product;
-# buildkitd/buildkit-runc/buildkit-proxy only ever connect to trusted local endpoints.
+# buildkitd/buildkit-runc only ever connect to trusted local endpoints.
 CVE-2026-42505
 
-# Go stdlib/x/net CVEs requiring a TLS/HTTP server, or parsing of untrusted XML/HTML/DNS.
-# Transparent-engine binaries (CNI plugins, buildkit-runc, buildctl) never run such code;
-# HAProxy/dnsmasq (not Go) handle all untrusted RUN step traffic there. In the explicit
-# engine, buildkitd's built-in --proxy-network MITM proxy (verified against moby/buildkit
-# v0.32.0's util/network/proxyprovider/provider_linux.go) forces client-facing TLS to
-# http/1.1 only and registers no h2c handler, so the HTTP/2 and h2c-preface paths aren't
-# reached either; certs are validated against trusted CAs / its own generated MITM CA only
-# (same constraint as the x509 CVEs above); and DNS responses come from the host's own
-# trusted resolver for real, allowlisted destinations (same rationale as CVE-2026-33811).
+# Go stdlib/x/net CVEs requiring a TLS/HTTP server, or parsing of untrusted XML/HTML/DNS
+# responses. Both engines' CoreDNS (Go) answers untrusted RUN step DNS queries, but its
+# Corefile runs only view+template+log+errors on plain UDP/TCP:53: no HTTP/TLS server
+# (no DoH/DoQ), no HTML/XML, and no forwarding, so every answer is synthesised locally and
+# no untrusted DNS response is ever parsed (same rationale as the CoreDNS block below and as
+# CVE-2026-33811). The other Go binaries (CNI plugins, buildkit-runc, buildctl) never run
+# such code, and HAProxy (not Go) handles the untrusted HTTP/TLS traffic.
 CVE-2026-56860
 CVE-2026-56859
 CVE-2026-56858
@@ -151,12 +101,9 @@ CVE-2026-33818
 CVE-2026-46600
 
 # Go stdlib crypto/tls: no limit on post-handshake messages (e.g. repeated KeyUpdate),
-# letting a peer force unbounded key-derivation work on the server (CPU DoS). Unlike the
-# CVEs above, this one is reachable: buildkitd's --proxy-network MITM proxy (explicit
-# engine) does terminate RUN-step TLS traffic via tls.Server(). But that RUN step already
-# runs fully untrusted code with unrestricted CPU/memory in its own container, so this
-# grants no new capability and doesn't bypass the allowlist or exfiltrate data, so it is out of
-# scope for a tool whose threat model is network exfiltration, not build-step self-DoS.
+# letting a peer force unbounded key-derivation work on a TLS server (CPU DoS). No Go
+# component in this product runs a TLS server: HAProxy (not Go) terminates the only
+# client-facing TLS, so the tls.Server() path is never reached.
 CVE-2026-56862
 
 # golang.org/x/mod: GOPROXY/GOSUMDB sumdb-tile verification can be forged/bypassed,
@@ -183,86 +130,78 @@ CVE-2026-33489
 CVE-2026-35579
 GHSA-gv9j-4w24-q7vx
 
-# libcurl: bugs requiring a malicious server. Only used for a fixed,
-# checksum-verified download, a local healthcheck (same as the c-ares entry
-# above), and git's transport to a trusted git-context source, never an
-# attacker-controlled server.
-CVE-2026-10536
-CVE-2026-11352
-CVE-2026-11564
-CVE-2026-11586
-CVE-2026-11856
-CVE-2026-12064
-CVE-2026-13608
-CVE-2026-18924
-CVE-2026-19931
-CVE-2026-80229
-CVE-2026-80230
-CVE-2026-80231
-CVE-2026-80255
-CVE-2026-80256
-CVE-2026-82208
-CVE-2026-82209
-CVE-2026-8286
-CVE-2026-8458
-CVE-2026-8924
-CVE-2026-8925
-CVE-2026-8926
-CVE-2026-8927
-CVE-2026-8932
-CVE-2026-9079
-CVE-2026-9080
-CVE-2026-9545
-CVE-2026-9546
-CVE-2026-9547
-
-# OpenSSL: QUIC/CMP/CMS/DTLS/RPK bugs and direct EVP_Cipher() misuse.
-# haproxy and git/openssh only do plain TLS 1.2/1.3 over TCP; nothing here
-# speaks QUIC/DTLS, builds a CMP/CMS message, or calls EVP_Cipher() directly.
-CVE-2026-14456
-CVE-2026-14457
-CVE-2026-18798
-CVE-2026-54874
-CVE-2026-63072
-CVE-2026-63073
-CVE-2026-63074
-CVE-2026-63075
-CVE-2026-63076
-CVE-2026-75803
-
-# libexpat: more XML DoS/memory-safety bugs, same as the CVE-2026-56409
-# block above: no untrusted XML is parsed here.
-CVE-2026-66046
-CVE-2026-76641
-CVE-2026-76956
-CVE-2026-76957
+# CoreDNS flagged against its own module version. Trivy reads the Go build-info
+# pseudo-version embedded in the release binary
+# (v0.0.0-20260819003913-427fc80ed9ca) and, comparing it to the fixed version
+# 1.14.7, treats it as older; but that commit is the v1.14.7 release tag itself,
+# so the fix is already present. Version-comparison false positive, not a live
+# exposure.
+CVE-2026-82399
+CVE-2026-86003
 
 # golang.org/x/crypto/ssh: bugs reachable only by a malicious SSH peer.
 # Used only by buildkitd's git-context host-key scan (verified against
 # moby/buildkit v0.32.2's util/sshutil/keyscan.go), which dials a trusted
 # destination the build definition names. A RUN step's own traffic can't
 # reach this code either: it's redirected into the HTTP/TLS-only proxy.
-# The inspect engine's CoreDNS carries the same dependency and never opens an
+# Both engines' CoreDNS carries the same dependency and never opens an
 # SSH connection at all.
 CVE-2026-56854
 CVE-2026-56855
 CVE-2026-78662
 
-# google.golang.org/grpc: memory exhaustion via an unauthenticated remote peer.
-# buildkitd's control API is Unix-socket only (verified against moby/buildkit
-# v0.32.2's util/appdefaults: no tcp:// address is configured), so no
-# network peer can reach it. The inspect engine's CoreDNS carries the same
-# dependency but serves no gRPC endpoint: every Corefile server block is plain
-# UDP/TCP:53 with no scheme prefix, and with no forward plugin there is no
-# gRPC upstream either.
+# google.golang.org/grpc: server-side bugs, each reachable only when the binary
+# runs a gRPC server. CVE-2026-84304 is memory exhaustion from an unauthenticated
+# peer; CVE-2026-84445 (xDS server panic on a request missing :authority/Host)
+# and CVE-2026-84303 (xDS RBAC filter bypass on mixed-case headers) need an xDS
+# gRPC server specifically. buildkitd's control API is Unix-socket only (verified
+# against moby/buildkit v0.32.2's util/appdefaults: no tcp:// address is
+# configured), so no network peer can reach it, and it runs no xDS server. Both
+# engines' CoreDNS carries the same dependency but serves no gRPC endpoint at
+# all: every Corefile server block is plain UDP/TCP:53 with no scheme prefix,
+# with no forward plugin there is no gRPC upstream, and no xDS is configured.
 CVE-2026-84304
+CVE-2026-84445
+CVE-2026-84303
 
 # github.com/moby/go-archive: arbitrary file write via a malicious tar
-# archive. Only hit by buildkitd's own FROM-image layer extraction, as
-# trusted as the build definition itself, out of scope like the x/mod
-# entry above.
+# archive, reached only when buildkitd extracts a layer of an image it
+# fetches itself (a FROM or COPY --from= base image). Such fetches are out
+# of scope by design (docs/security.md, "What buildkitd fetches itself"),
+# addressed by pinning base images rather than by the proxy.
 CVE-2026-17106
 
 # github.com/cilium/ebpf: integer overflow parsing a crafted BTF blob.
 # buildkit-runc only loads its own bundled cgroup-device BPF programs.
 CVE-2026-10722
+
+# Go stdlib net/url: incorrect parsing of IPv6 host literals.
+# CNI plugins do not parse user-supplied URLs.
+CVE-2026-25679
+
+# Go stdlib os: FileInfo can escape from a Root in ReadDir.
+# Same rationale as CVE-2026-32282/CVE-2026-39822 above: no component in
+# this product uses the os.Root sandboxed filesystem API.
+CVE-2026-27139
+
+# containerd CRI ExecSync goroutine leak leading to node-level DoS. buildkitd
+# embeds containerd only as a client/worker library for its own build execution
+# and never runs the CRI plugin, so the ExecSync path is unreachable (same
+# rationale as the other containerd CRI entries).
+CVE-2026-53495
+
+# util-linux (libblkid): local privilege-escalation and sandbox-bypass bugs in
+# the SUID mount(8) helper and nsenter(1) -- TOCTOU on post-mount ownership,
+# nosuid/noexec bypass via LIBMOUNT_FORCE_MOUNT2, privileged X-mount post-hooks,
+# and cgroup/bind-mount source redirection. All require an unprivileged local
+# user able to invoke these binaries. buildcage runs no untrusted code in the
+# proxy image itself: a RUN step executes in buildkit's own OCI worker with its
+# own rootfs, not these binaries, which are driven only by the trusted buildkitd
+# control plane. Fixed in util-linux 2.41.6; the image is already on the latest
+# moby/buildkit (v0.33.0), so no base bump is available yet.
+CVE-2026-53612
+CVE-2026-53613
+CVE-2026-53614
+CVE-2026-76642
+CVE-2026-78408
+CVE-2026-78410

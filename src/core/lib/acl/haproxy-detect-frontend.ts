@@ -10,6 +10,11 @@ export interface DetectFrontendSpec extends InternalDstOptions {
   ipRules: CompiledIpRule[];
   tlsHosts: CompiledTlsRule[];
   hasResolver: boolean;
+  /**
+   * The address CoreDNS answers every name with. A connection to it came
+   * through a name, so no IP rule may pass it through; see detectFrontend.
+   */
+  proxyAddress?: string;
 }
 
 /**
@@ -18,7 +23,13 @@ export interface DetectFrontendSpec extends InternalDstOptions {
  * frontends according to what the first bytes say it is.
  */
 export function detectFrontend(spec: DetectFrontendSpec): string[] {
-  const { listenPort, tlsStagePort, plainStagePort, ipRules, tlsHosts, hasResolver } = spec;
+  const { listenPort, tlsStagePort, plainStagePort, ipRules, tlsHosts, hasResolver, proxyAddress } =
+    spec;
+  // Every name resolves to the proxy's own address, so an IP rule covering it
+  // (`198.18.0.0/15:443`) would pass every named connection through
+  // uninspected, to an origin that is the proxy itself.
+  const excludeDnsRouted = ipRules.length > 0 && proxyAddress !== undefined;
+  const notDnsRouted = excludeDnsRouted ? " !dns_routed" : "";
   const hasPassthrough = ipRules.length > 0 || tlsHosts.length > 0;
   const l: string[] = [];
   l.push(
@@ -32,11 +43,7 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
     "",
   );
   if (hasPassthrough) {
-    l.push(
-      // req.ssl_sni is attacker-controlled; reduced to a safe charset for logging.
-      "    # Captured now, since the request buffer is gone by log time.",
-      "    tcp-request content set-var(txn.sni) req.ssl_sni,regsub([^A-Za-z0-9._-],_,g)",
-    );
+    l.push("    # Passed through untouched: judged before anything is decrypted.");
     if (ipRules.some((rule) => rule.hostMatch === "hostPort")) {
       // dst is IP-typed; a ~ rule's own regex covers address and port
       // together, so dst is stringified with the real port to match it.
@@ -45,7 +52,12 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
     if (tlsHosts.some((host) => host.hostMatch === "hostPort")) {
       l.push("    tcp-request content set-var-fmt(txn.sni_port) %[req.ssl_sni]:%[dst_port]");
     }
-    l.push("", "    # Passed through untouched: judged before anything is decrypted.");
+    if (excludeDnsRouted) {
+      l.push(
+        "    # dst is the proxy only when the name went through this container's DNS.",
+        `    acl dns_routed dst ${proxyAddress}`,
+      );
+    }
     for (const rule of ipRules) {
       l.push(`    # ${rule.raw}`);
       l.push(
@@ -64,9 +76,10 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
       );
       if (host.port) l.push(`    acl ${host.id}_port dst_port ${host.port}`);
     }
+    const tlsConds = tlsHosts.map((h) => `${h.id}_sni${h.port ? ` ${h.id}_port` : ""}`);
     const conds = [
-      ...ipRules.map((r) => `${r.id}_dst${r.port ? ` ${r.id}_port` : ""}`),
-      ...tlsHosts.map((h) => `${h.id}_sni${h.port ? ` ${h.id}_port` : ""}`),
+      ...ipRules.map((r) => `${r.id}_dst${r.port ? ` ${r.id}_port` : ""}${notDnsRouted}`),
+      ...tlsConds,
     ];
 
     // A passthrough is never decrypted and so has no request line; this line
@@ -77,6 +90,12 @@ export function detectFrontend(spec: DetectFrontendSpec): string[] {
       "",
       // One line per rule, for the same word-limit reason as ruleBlock's deny.
       ...conds.map((cond) => `    tcp-request content set-var(txn.pass) int(1) if ${cond}`),
+      // Only a tls rule judges the name; under an ip rule the SNI is just the
+      // client's claim. Reduced to a safe charset, being attacker-controlled.
+      ...tlsConds.map(
+        (cond) =>
+          `    tcp-request content set-var(txn.sni) req.ssl_sni,regsub([^A-Za-z0-9._-],_,g) if ${cond}`,
+      ),
       "    tcp-request content set-var(txn.proto) str(tls) if { req.ssl_hello_type 1 }",
       "    tcp-request content set-var(txn.proto) str(tcp) unless { req.ssl_hello_type 1 }",
     );

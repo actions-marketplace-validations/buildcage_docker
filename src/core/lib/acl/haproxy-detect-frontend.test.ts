@@ -35,6 +35,13 @@ describe("passthrough", () => {
     expect(config.includes("set-var(txn.sni) req.ssl_sni,regsub([^A-Za-z0-9._-],_,g)")).toBe(true);
   });
 
+  it("logs the SNI only for a connection a tls rule passed", () => {
+    const capture = "set-var(txn.sni) req.ssl_sni,regsub([^A-Za-z0-9._-],_,g)";
+    expect(config.includes(`${capture} if tls0_sni tls0_port`)).toBe(true);
+    expect(config.split(capture).length).toBe(2);
+    expect(detect({ ipRules: ["10.0.0.5:5432"] }).includes("set-var(txn.sni)")).toBe(false);
+  });
+
   it("routes tls rules by SNI, and by the port the rule names", () => {
     expect(config.includes("acl tls0_sni req.ssl_sni -m reg -i ^db\\\\.example\\\\.com$")).toBe(
       true,
@@ -140,6 +147,30 @@ describe("passthrough", () => {
   it("gates the tlsrule flag on the SNI alone", () => {
     const anyPort = detect({ tlsRules: ["db.example.com:*"] });
     expect(anyPort).toMatch(/set-var\(txn\.tlsrule\) int\(1\) if tls0_sni\n/);
+  });
+});
+
+describe("ip rules and the proxy's own address", () => {
+  const PROXY = { proxyAddress: "198.19.255.1" };
+
+  it("never passes through a connection that reached the proxy through a name", () => {
+    // 198.18.0.0/15 covers the proxy, which every name resolves to.
+    const result = detect({ ipRules: ["198.18.0.0/15:443", "~^198\\.19\\.255\\.1:443$"] }, PROXY);
+    expect(result.includes("acl dns_routed dst 198.19.255.1")).toBe(true);
+    expect(result.includes("set-var(txn.pass) int(1) if ip0_dst ip0_port !dns_routed\n")).toBe(
+      true,
+    );
+    expect(result.includes("set-var(txn.pass) int(1) if ip1_dst !dns_routed\n")).toBe(true);
+  });
+
+  it("leaves a tls rule's passthrough alone, which is judged on the SNI", () => {
+    const result = detect({ ...FULL }, PROXY);
+    expect(result).toMatch(/set-var\(txn\.pass\) int\(1\) if tls0_sni tls0_port\n/);
+  });
+
+  it("declares nothing without an ip rule or a proxy address", () => {
+    expect(detect({ tlsRules: ["db.example.com:443"] }, PROXY).includes("dns_routed")).toBe(false);
+    expect(detect({ ipRules: ["10.0.0.5:5432"] }).includes("dns_routed")).toBe(false);
   });
 });
 

@@ -11,7 +11,7 @@ const OPTIONS = {
   ipRules: ["10.0.0.5:5432"],
   tlsRules: ["db.example.com:443"],
   resolverAddress: ["1.1.1.1"],
-  proxyAddress: "172.20.0.1",
+  proxyAddress: "198.19.255.1",
 };
 
 /** Long enough that the rendered line runs past haproxy's own 1024-byte default. */
@@ -29,7 +29,7 @@ const SAMPLES: Record<string, string> = {
   "%[ssl_bc_err]": "-",
   "%[dst]": "10.200.0.100",
   "%[dst_port]": "9443",
-  "%[capture.req.hdr(0)]": "registry.npmjs.org",
+  "%[var(txn.host_log)]": "registry.npmjs.org",
   "%[var(txn.pathq)]": PATH,
   "%[var(txn.proto)]": "tls",
   "%[var(txn.sni)]": "db.example.com",
@@ -103,6 +103,19 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.protocol).toBe("http");
     expect(e.url).toBe(`http://registry.npmjs.org${PATH}`);
     expect(e.status).toBe(200);
+  });
+
+  it("keeps a Host padded past any real name whole, down to its registered domain", async () => {
+    const host = `registry.npmjs.org.${"a".repeat(300)}.attacker.example`;
+    const line = render(HTTPS, {
+      "%ST": "403",
+      "%B": "0",
+      "%ts": "PR--",
+      "%[var(txn.host_log)]": host,
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.host).toBe(host);
+    expect(e.url).toBe(`https://${host}${PATH}`);
   });
 
   it("reads a refusal the config named out of the reason field", async () => {
@@ -194,7 +207,7 @@ describe("the generated log-format and this parser describe the same line", () =
     "%HM": "<BADREQ>",
     "%ST": "400",
     "%B": "0",
-    "%[capture.req.hdr(0)]": "-",
+    "%[var(txn.host_log)]": "-",
     "%[var(txn.pathq)]": "-",
   };
 
@@ -232,7 +245,7 @@ describe("the generated log-format and this parser describe the same line", () =
     // rules to run; see haproxy-inspect-stage.ts.
     const line = render(
       HTTPS,
-      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[var(txn.host_log)]": "-" },
       { reason: "missing-host-header" },
     );
     const [e] = (await scanInspectLog([line])).events;
@@ -240,9 +253,9 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.host).toBe("registry.npmjs.org");
     expect(e.reason).toBe("missing-host-header");
     // The request line did parse, and the path is the whole record of what was
-    // asked for. Only the authority is the log's `-` for a Host never sent.
+    // asked for. Its URL names the same host the row does.
     expect(e.method).toBe("GET");
-    expect(e.url).toBe(`https://-${PATH}`);
+    expect(e.url).toBe(`https://registry.npmjs.org:9443${PATH}`);
   });
 
   it("refuses a request that named no host in audit too, where no rule would have", async () => {
@@ -250,7 +263,7 @@ describe("the generated log-format and this parser describe the same line", () =
     // denies it in either mode, as the universal engine does.
     const line = render(
       HTTPS,
-      { "%ST": "400", "%B": "0", "%ts": "PR", "%[capture.req.hdr(0)]": "-" },
+      { "%ST": "400", "%B": "0", "%ts": "PR", "%[var(txn.host_log)]": "-" },
       { reason: "missing-host-header" },
     );
     const [e] = (await scanInspectLog([line], true)).events;
@@ -258,7 +271,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("missing-host-header");
   });
 
-  // The capture rewrites only whitespace, quotes and control characters, so a
+  // The log rewrites only whitespace, quotes and control characters, so a
   // Host of the build's own choosing reaches the log as sent. Reading the
   // authority to decide whether one arrived would let a sender move its own
   // refusals out of both tables and out of fail_on_blocked, by writing the very
@@ -270,7 +283,7 @@ describe("the generated log-format and this parser describe the same line", () =
         "%ST": "403",
         "%B": "0",
         "%ts": "PR",
-        "%[capture.req.hdr(0)]": host,
+        "%[var(txn.host_log)]": host,
       });
       const [e] = (await scanInspectLog([line])).events;
       expect(e.action).toBe("block");
@@ -311,7 +324,8 @@ describe("the generated log-format and this parser describe the same line", () =
 
   it("falls back to the address when the handshake carried no SNI", async () => {
     // A name-based client always sends one, so a handshake without it was
-    // aimed at an address the build wrote out itself.
+    // aimed at an address the build wrote out itself, which only an ip rule
+    // could have passed.
     const line = render(HTTPS, {
       ...NO_REQUEST,
       "%ts": "CR",
@@ -319,18 +333,35 @@ describe("the generated log-format and this parser describe the same line", () =
     });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.host).toBe("10.200.0.100");
+    expect(e.protocol).toBe("tcp");
   });
 
-  it("names no host at all on the plain stage, which logs no SNI to fall back on", async () => {
-    const line = render(HTTP, { ...NO_REQUEST, "%ts": "CR" });
-    const { events, unparsed } = await scanInspectLog([line]);
-    expect(unparsed).toBe(0);
-    const [e] = events;
-    expect(e.action).toBe("incomplete");
-    expect(e.protocol).toBe("http");
-    expect(e.host).toBe("(unknown)");
-    // The address is still recorded; it is just not a host the build asked for.
-    expect(e.destination).toBe("10.200.0.100:9443");
+  it("names a plain-stage connection by the address the build wrote out", async () => {
+    const line = render(HTTP, { ...NO_REQUEST, "%ts": "PR" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("bad-request");
+    expect(e.protocol).toBe("tcp");
+    expect(e.host).toBe("10.200.0.100");
+  });
+
+  it("names no host where the address is the proxy's own, which every name resolves to", async () => {
+    for (const stage of [HTTP, HTTPS]) {
+      const line = render(stage, {
+        ...NO_REQUEST,
+        "%ts": "CR",
+        "%[dst]": "198.19.255.1",
+        "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "-",
+      });
+      const { events, unparsed } = await scanInspectLog([line]);
+      expect(unparsed).toBe(0);
+      const [e] = events;
+      expect(e.action).toBe("incomplete");
+      expect(e.protocol).toBe(stage === HTTP ? "http" : "https");
+      expect(e.host).toBe("(unknown)");
+      // Still recorded; it is just not a host the build asked for.
+      expect(e.destination).toBe("198.19.255.1:9443");
+    }
   });
 
   it("leaves a client that abandoned an allowed request an ordinary exchange", async () => {

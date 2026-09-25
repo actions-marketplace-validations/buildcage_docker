@@ -6,7 +6,7 @@ function gen(options: Parameters<typeof generateHaproxyConfig>[0] = {}): string 
   return generateHaproxyConfig(options).config;
 }
 
-/** HAProxy's own per-line word cap (MAX_LINE_ARGS); it truncates past this. */
+/** HAProxy's own per-line word cap (MAX_LINE_ARGS); it refuses to start past this. */
 const MAX_LINE_WORDS = 64;
 
 function longestLineWords(config: string): number {
@@ -28,7 +28,7 @@ const FULL = {
   ipRules: ["10.0.0.5:5432"],
   tlsRules: ["db.example.com:443"],
   resolverAddress: ["1.1.1.1", "8.8.8.8"],
-  proxyAddress: "172.20.0.1",
+  proxyAddress: "198.19.255.1",
 };
 
 // Each of the directives these cases name still lets ordinary traffic through
@@ -69,9 +69,7 @@ describe("where a request is sent", () => {
   it("connects where it resolved the name, not where the client aimed", () => {
     // Removes the forged-Host class of attack rather than detecting it.
     expect(
-      FULL_CONFIG.includes(
-        "http-request do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,host_only",
-      ),
+      FULL_CONFIG.includes("http-request do-resolve(txn.dst,buildcage,ipv4) var(txn.host)"),
     ).toBe(true);
     expect(FULL_CONFIG.includes("http-request set-dst var(txn.dst)")).toBe(true);
   });
@@ -81,29 +79,39 @@ describe("where a request is sent", () => {
     // whole "name:port" string matches no allowlist entry, so the request is
     // answered with the proxy's own address and reaches nothing.
     expect(
-      FULL_CONFIG.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host),lower,host_only"),
+      FULL_CONFIG.includes("http-request set-var(txn.host) req.hdr(host),lower,host_only"),
     ).toBe(true);
+    expect(FULL_CONFIG.includes("do-resolve(txn.dst,buildcage,ipv4) var(txn.host)")).toBe(true);
     // An SNI is a name, never a name and a port, and the origin certificate is
     // verified against it.
-    expect(FULL_CONFIG.includes("sni req.hdr(host),lower,host_only")).toBe(true);
+    expect(FULL_CONFIG.includes("sni var(txn.host)")).toBe(true);
   });
 
   it("takes an address in the Host header as it stands, asking no resolver", () => {
     // No resolver can answer an address, so asking would fail and refuse the
     // request, leaving a rule that names an address impossible to satisfy.
+    expect(FULL_CONFIG.includes("acl host_is_address var(txn.host) -m reg ^(25[0-5]")).toBe(true);
     expect(
-      FULL_CONFIG.includes(
-        "acl host_is_address req.hdr(host),host_only,regsub(\\.$,) -m reg ^(25[0-5]",
-      ),
+      FULL_CONFIG.includes("http-request set-var(txn.dst) var(txn.host) if host_is_address"),
     ).toBe(true);
-    expect(
-      FULL_CONFIG.includes(
-        "http-request set-var(txn.dst) req.hdr(host),host_only,regsub(\\.$,) if host_is_address",
-      ),
-    ).toBe(true);
-    expect(
-      FULL_CONFIG.includes("req.hdr(host),lower,host_only,regsub(\\.$,) unless host_is_address"),
-    ).toBe(true);
+    expect(FULL_CONFIG.includes("var(txn.host) unless host_is_address")).toBe(true);
+  });
+
+  it("reads the Host header once, so every step sees the same value", () => {
+    // An acl on req.hdr(host) scans every value a header carries while a fetch
+    // takes the last, so an acl reading the header could pass a value other
+    // than the one resolved and connected to. Besides txn.host, only the
+    // logged copy reads a value, and has_host only asks whether one exists.
+    for (const frontend of ["https_in", "http_in"]) {
+      const reads = frontendSegment(FULL_CONFIG, frontend)
+        .split("\n")
+        .filter((l) => !l.trimStart().startsWith("#") && /\bhdr\(host\)/.test(l));
+      expect(reads.map((l) => l.trim().split(" ")[1])).toStrictEqual([
+        "set-var(txn.host_log)",
+        "has_host",
+        "set-var(txn.host)",
+      ]);
+    }
   });
 
   it("is strict about the octets, since what matches is never checked again", () => {
@@ -133,7 +141,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
       const segment = frontendSegment(FULL_CONFIG, frontend);
       const firstRule = segment.indexOf("set-var(txn.allowed) bool(true)");
       const deny = segment.indexOf("http-request deny unless");
-      const resolve = segment.indexOf("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)");
+      const resolve = segment.indexOf("do-resolve(txn.dst,buildcage,ipv4) var(txn.host)");
       expect(firstRule).not.toBe(-1);
       expect(resolve).not.toBe(-1);
       expect(firstRule < deny && deny < resolve).toBe(true);
@@ -189,7 +197,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
     const resolvConf = gen({ ...FULL, resolverAddress: [], useResolvConf: true });
     for (const frontend of ["https_in", "http_in"]) {
       const segment = frontendSegment(resolvConf, frontend);
-      expect(segment.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)")).toBe(true);
+      expect(segment.includes("do-resolve(txn.dst,buildcage,ipv4) var(txn.host)")).toBe(true);
     }
     expect(resolvConf.includes("tcp-request content do-resolve(txn.dst,buildcage,ipv4)")).toBe(
       true,
@@ -203,7 +211,7 @@ describe("resolving, which only a request the rules already admitted reaches", (
     for (const frontend of ["https_in", "http_in"]) {
       const resolves = frontendSegment(FULL_CONFIG, frontend)
         .split("\n")
-        .filter((l) => l.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)"));
+        .filter((l) => l.includes("do-resolve(txn.dst,buildcage,ipv4) var(txn.host)"));
       expect(resolves.length).toBe(2);
       expect(resolves[1].endsWith("unless host_is_address or { var(txn.dst) -m found }")).toBe(
         true,
@@ -259,15 +267,19 @@ describe("the internal-address guard", () => {
         "acl dst_internal var(txn.dst) -m ip 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16",
       ),
     ).toBe(true);
-    expect(
-      FULL_CONFIG.includes("http-request deny deny_status 403 if dst_internal !host_is_address"),
-    ).toBe(true);
+    expect(FULL_CONFIG.includes("http-request deny deny_status 403 if dst_internal\n")).toBe(true);
+  });
+
+  it("includes Azure's WireServer, which sits outside every never-public range", () => {
+    // GitHub-hosted runners are Azure VMs, where 168.63.129.16 serves the guest agent.
+    const acl = FULL_CONFIG.split("\n").find((l) => l.includes("acl dst_internal"))!;
+    expect(acl.split(" ").includes("168.63.129.16/32")).toBe(true);
   });
 
   it("includes the proxy's own address in the internal set, against a loop", () => {
-    // gateway.example.com -> 172.20.0.1 (the proxy) made it connect to itself.
+    // gateway.example.com -> 198.19.255.1 (the proxy) made it connect to itself.
     const acl = FULL_CONFIG.split("\n").find((l) => l.includes("acl dst_internal"))!;
-    expect(acl.trim().endsWith("172.20.0.1")).toBe(true);
+    expect(acl.trim().endsWith("198.19.255.1")).toBe(true);
   });
 
   it("extends the internal set with the runner's own addresses, as a second acl of the same name", () => {
@@ -296,9 +308,23 @@ describe("the internal-address guard", () => {
     expect(FULL_CONFIG.includes("-m ip -f")).toBe(false);
   });
 
-  it("exempts an explicitly-named address, which was asked for, not arrived at", () => {
-    // allowed_ip_rules and an address in allowed_url_rules stay reachable.
-    expect(FULL_CONFIG.includes("if dst_internal !host_is_address")).toBe(true);
+  it("exempts an address a rule names as its host, which was asked for, not arrived at", () => {
+    const named = gen({ ...FULL, httpRules: ["169.254.169.254:80"] });
+    const plain = frontendSegment(named, "http_in");
+    expect(
+      plain.includes(
+        "set-var(txn.named_address) bool(true) if " +
+          "{ var(txn.host) -m str 169.254.169.254 } { dst_port 80 }",
+      ),
+    ).toBe(true);
+    expect(plain.includes("deny deny_status 403 if dst_internal !named_address")).toBe(true);
+  });
+
+  it("does not exempt an address that a wildcard merely admits", () => {
+    const wide = gen({ ...FULL, httpRules: ["**:80", "*.*.*.*:80"] });
+    const plain = frontendSegment(wide, "http_in");
+    expect(plain.includes("named_address")).toBe(false);
+    expect(plain.includes("deny deny_status 403 if dst_internal\n")).toBe(true);
   });
 
   it("guards the passthrough path too, where the rules cannot run", () => {
@@ -319,7 +345,7 @@ describe("the internal-address guard", () => {
     const acl = FULL_CONFIG.split("\n").find((l) => l.includes("acl dst_internal"))!;
     expect(acl.includes("1.1.1.1")).toBe(false);
     expect(acl.includes("8.8.8.8")).toBe(false);
-    expect(acl.trim().endsWith("172.20.0.1")).toBe(true);
+    expect(acl.trim().endsWith("198.19.255.1")).toBe(true);
   });
 });
 
@@ -327,8 +353,8 @@ describe("what a log line records", () => {
   it("records the path in a form that does not depend on the HTTP version", () => {
     // %HU is the request target as sent: a path over HTTP/1.1, an absolute URI
     // over HTTP/2, which every TLS client negotiates by default.
-    expect(FULL_CONFIG.includes("host=%[capture.req.hdr(0)] %HU")).toBe(false);
-    expect(FULL_CONFIG.includes("host=%[capture.req.hdr(0)] %[var(txn.pathq)]")).toBe(true);
+    expect(FULL_CONFIG.includes("host=%[var(txn.host_log)] %HU")).toBe(false);
+    expect(FULL_CONFIG.includes("host=%[var(txn.host_log)] %[var(txn.pathq)]")).toBe(true);
     expect(FULL_CONFIG.includes("http-request set-var(txn.pathq) 'pathq,regsub(")).toBe(true);
   });
 
@@ -336,6 +362,14 @@ describe("what a log line records", () => {
     // A cut line matches nothing, so the event it carried leaves no trace. The
     // token order is load-bearing: the other one is rejected outright.
     expect(FULL_CONFIG.includes("log stdout len 16384 format raw local0")).toBe(true);
+  });
+
+  it("writes every line from one thread", () => {
+    // Threads sharing the stdout fd drop lines, and one dropped line marks the
+    // report incomplete.
+    expect(FULL_CONFIG.split("\n").filter((l) => l.trim().startsWith("nbthread"))).toStrictEqual([
+      "    nbthread 1",
+    ]);
   });
 
   it("puts the one field the build sizes at the end of every line it logs", () => {
@@ -369,7 +403,7 @@ describe("what a log line records", () => {
     // characters are stripped.
     expect(
       FULL_CONFIG.includes(
-        `http-request capture 'req.hdr(host),regsub("[\\s\\"[:cntrl:]]",_,g)' len 100`,
+        `http-request set-var(txn.host_log) 'req.hdr(host),regsub("[\\s\\"[:cntrl:]]",_,g)'`,
       ),
     ).toBe(true);
     expect(
@@ -400,10 +434,16 @@ describe("what a log line records", () => {
     );
     const target = https?.indexOf("%[var(txn.pathq)]") ?? -1;
     expect((https?.indexOf("sni=") ?? -1) < target).toBe(true);
-    expect((https?.indexOf("host=%[capture") ?? -1) < target).toBe(true);
+    expect((https?.indexOf("host=%[var(txn.host_log)") ?? -1) < target).toBe(true);
   });
 
-  it("leaves a non-default port's ':' untouched in the Host capture", () => {
+  it("logs the Host in full rather than through a fixed-length capture", () => {
+    // A capture cuts at its length, so a name padded past it would reach the
+    // report without the domain that registered it.
+    expect(FULL_CONFIG.includes("http-request capture")).toBe(false);
+  });
+
+  it("leaves a non-default port's ':' untouched in the logged Host", () => {
     // Mirrors HAProxy's own regsub("[\s\"[:cntrl:]]",_,g) with a
     // POSIX/PCRE2-equivalent pattern: the ':' of a non-default port has to
     // survive, or "allowed.example.com:9443" reaches the report as
@@ -446,9 +486,24 @@ describe("the path the rules see", () => {
     // refused. An encoded separator on its own stays legitimate.
     expect(
       FULL_CONFIG.includes(
-        "http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|%2f|%5c) }",
+        "http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|;|%2f|%5c|%3b) }",
       ),
     ).toBe(true);
+  });
+
+  it("refuses a dot-dot ended by a path parameter", () => {
+    // Tomcat and Jetty drop `;...` from a segment, so `/public/..;/secret` is
+    // `/secret` to them. HAProxy strips only a bare `..`, and the rules would
+    // match `/public/`.
+    const re = /(^|\/|%2f|%5c)\.\.($|\/|;|%2f|%5c|%3b)/i;
+    for (const p of [
+      "/public/..;/secret",
+      "/public/..%3B/secret",
+      "/public/..;jsessionid=x/secret",
+    ])
+      expect(re.test(p)).toBe(true);
+    for (const p of ["/public/pkg;v=1", "/public/my..;x", "/public/@scope%2fpkg"])
+      expect(re.test(p)).toBe(false);
   });
 
   it("refuses a raw backslash outright, it being no valid path character", () => {
@@ -484,8 +539,8 @@ describe("TLS to the origin", () => {
 });
 
 // ---------------------------------------------------------------------------
-// HAProxy truncates a line past MAX_LINE_ARGS words without saying so, so no
-// rule count may push one over.
+// HAProxy refuses to start on a line past MAX_LINE_ARGS words, so no rule
+// count may push one over.
 // ---------------------------------------------------------------------------
 describe("line length", () => {
   it("decides with one line per rule, which no rule count can outgrow", () => {
@@ -535,7 +590,7 @@ describe("audit mode", () => {
       true,
     );
     expect(audit.includes('log-format "buildcage %[date(0,ms)] http %HM %ST %B ts=%ts')).toBe(true);
-    expect(audit.includes("host=%[capture.req.hdr(0)] %[var(txn.pathq)]")).toBe(true);
+    expect(audit.includes("host=%[var(txn.host_log)] %[var(txn.pathq)]")).toBe(true);
   });
 
   it("still connects only where it resolved the name", () => {
@@ -546,7 +601,7 @@ describe("audit mode", () => {
     // Only restrict's unconditional deny makes the rest of a stage dead; audit
     // refuses nothing, so a scheme with no rules still needs the resolver.
     const plain = frontendSegment(gen({ ...FULL, mode: "audit", httpRules: [] }), "http_in");
-    expect(plain.includes("do-resolve(txn.dst,buildcage,ipv4) req.hdr(host)")).toBe(true);
+    expect(plain.includes("do-resolve(txn.dst,buildcage,ipv4) var(txn.host)")).toBe(true);
   });
 
   it("still checks the origin certificate", () => {

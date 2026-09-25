@@ -27,13 +27,25 @@ const (
 	// something like an application directory wholesale.
 	maxCustomDirBytes = 20 << 20
 	maxCustomDirFiles = 512
+
+	// Looser, since a distribution's store runs to a few hundred hash links.
+	// Bounded at all because the image decides where it is: a store symlinked
+	// to /usr/ca.crt makes it /usr.
+	maxStoreDirBytes = 64 << 20
+	maxStoreDirFiles = 4096
 )
+
+var errTooLargeToMirror = errors.New("too large to mirror")
 
 // runRsync is the only place this file spawns a process, so tests can
 // replace it to exercise the decision logic without rsync installed.
 var runRsync = func(args []string) ([]byte, error) {
 	return exec.Command("rsync", args...).CombinedOutput()
 }
+
+// writeMirrorFile is a var so a test can fail the pristine-keystore restore,
+// which a real filesystem only does part-way through on an I/O error.
+var writeMirrorFile = os.WriteFile
 
 // dirBind mounts a scratch mirror of one directory over the step's view of
 // it, so the CA can be added without ever opening the real rootfs file for
@@ -48,19 +60,59 @@ type dirBind struct {
 	scratchDir   string
 	bundleFiles  []string
 	custom       bool
+	keystore     bool   // bundleFiles are JVM keystores, not PEM bundles
 	ca           []byte // kept so finish can find it again by content
 
 	original []fileEntry // hostDir's state before mirroring
 	baseline []fileEntry // scratchDir's state right after the CA was appended
+
+	// keystoreOriginals holds each injected keystore's pre-injection bytes, keyed
+	// by its path relative to scratchDir. The inject/strip round trip re-encodes
+	// a keystore, so one the step never changed is restored from these instead.
+	keystoreOriginals map[string][]byte
 }
 
-func groupTargetsByDir(targets map[string]bool) map[string][]string {
+// groupTargetsByBind groups the CA targets by the directory whose mirror carries
+// them, as names relative to that directory. A target under the store directory
+// is folded into the store's group: the store bind already mirrors that whole
+// directory, and a separate bind nested under the store mount would be shadowed
+// by it, leaving the target without the CA.
+func groupTargetsByBind(targets map[string]bool, store systemStore) map[string][]string {
 	groups := make(map[string][]string)
 	for target := range targets {
+		if store.found && withinDir(target, store.dir()) {
+			groups[store.dir()] = append(groups[store.dir()], strings.TrimPrefix(target, store.dir()+"/"))
+			continue
+		}
 		dir := filepath.Dir(target)
-		groups[dir] = append(groups[dir], target)
+		groups[dir] = append(groups[dir], filepath.Base(target))
 	}
 	return groups
+}
+
+// bindDirsInOrder prepares the store first, then the rest sorted, so which of
+// two nesting directories wins the bind is fixed rather than left to map order.
+// The store goes first so a nesting target never displaces it.
+func bindDirsInOrder(groups map[string][]string, store systemStore) []string {
+	dirs := make([]string, 0, len(groups))
+	for dir := range groups {
+		if store.found && dir == store.dir() {
+			continue
+		}
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+	if store.found {
+		if _, ok := groups[store.dir()]; ok {
+			dirs = append([]string{store.dir()}, dirs...)
+		}
+	}
+	return dirs
+}
+
+// withinDir reports whether path is dir or something under it.
+func withinDir(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
 }
 
 func newScratchDir(bundle string) (string, error) {
@@ -184,8 +236,13 @@ func manifestsEqual(a, b []fileEntry) bool {
 	return slices.EqualFunc(a, b, fileEntry.sameExceptMtime)
 }
 
-func sizeAndCount(root string) (bytes int64, files int, err error) {
-	err = walkDir(root, func(path string, d fs.DirEntry, err error) error {
+// checkMirrorable fails when root holds more than maxFiles files or maxBytes
+// bytes. It stops counting there, since root can be as large as the image
+// makes it.
+func checkMirrorable(root string, maxBytes int64, maxFiles int) error {
+	var bytes int64
+	files := 0
+	err := walkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -198,9 +255,12 @@ func sizeAndCount(root string) (bytes int64, files int, err error) {
 		}
 		files++
 		bytes += info.Size()
+		if bytes > maxBytes || files > maxFiles {
+			return fmt.Errorf("%s is %w (more than %d bytes or %d files)", root, errTooLargeToMirror, maxBytes, maxFiles)
+		}
 		return nil
 	})
-	return bytes, files, err
+	return err
 }
 
 // restoreUnchangedMtimes resets an untouched entry's mtime to what it was
@@ -229,13 +289,10 @@ func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) er
 
 func (b *dirBind) prepare(ca []byte) error {
 	b.ca = ca
+	// The store directory was checked against its own limits when it was found.
 	if b.custom {
-		size, count, err := sizeAndCount(b.hostDir)
-		if err != nil {
+		if err := checkMirrorable(b.hostDir, maxCustomDirBytes, maxCustomDirFiles); err != nil {
 			return err
-		}
-		if size > maxCustomDirBytes || count > maxCustomDirFiles {
-			return fmt.Errorf("%s is too large to mirror (%d bytes, %d files)", b.hostDir, size, count)
 		}
 	}
 
@@ -250,7 +307,20 @@ func (b *dirBind) prepare(ca []byte) error {
 	b.original = original
 
 	for _, name := range b.bundleFiles {
-		if err := appendCA(filepath.Join(b.scratchDir, name), ca); err != nil {
+		target := filepath.Join(b.scratchDir, name)
+		if b.keystore {
+			// A keystore that cannot be injected into (an unusual format, or a
+			// PKCS#12 under a password of its own) leaves the step's JVM not
+			// trusting the CA rather than failing the build.
+			original, err := insertIntoKeystore(target, ca)
+			if err != nil {
+				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
+				continue
+			}
+			b.rememberKeystore(target, original)
+			continue
+		}
+		if err := appendCA(target, ca); err != nil {
 			if errors.Is(err, errNotRegular) {
 				logf("cannot inject the CA into %s: %v; leaving it untouched", name, err)
 				continue
@@ -282,15 +352,19 @@ func (b *dirBind) finish() error {
 		return nil
 	}
 
-	for _, name := range b.bundleFiles {
-		if err := removeCA(filepath.Join(b.scratchDir, name), b.ca); err != nil {
-			if errors.Is(err, errNotRegular) {
-				// Not the wrapper's to open; write-back below mirrors it as-is.
-				logf("cannot restore %s: %v; leaving it as the step left it", name, err)
-				continue
-			}
-			return err
-		}
+	// Before the sweep, so an untouched keystore restored to its pristine bytes
+	// carries no CA for the sweep to strip and re-encode (or fail on).
+	if err := b.restoreUntouchedKeystores(current); err != nil {
+		return err
+	}
+
+	// The whole mirror, not only the files the CA was added to. With a store,
+	// the step's writes land here rather than in the overlay's upper
+	// directory, so a copy the step left beside the bundle is not in the layer
+	// for stripLayer to find: it only gets there when the write-back below
+	// copies it up.
+	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, caMarksOf(b.ca)); err != nil {
+		return err
 	}
 
 	stripped, err := captureManifest(b.scratchDir)
@@ -301,10 +375,9 @@ func (b *dirBind) finish() error {
 		return err
 	}
 
-	// Nothing in the step can move a mounted directory or its ancestors, so
-	// this cannot legitimately differ. Checking anyway keeps the write-back's
-	// confinement to the rootfs a property of this code rather than of how
-	// runc applied the mounts.
+	// The step cannot remove the mounted directory, but it can rename an
+	// ancestor and leave a symlink in its place, which must not redirect the
+	// write-back.
 	resolved, err := resolveInRoot(b.rootfs, b.containerDir)
 	if err != nil {
 		return fmt.Errorf("re-resolving the write-back target %s: %w", b.containerDir, err)
@@ -312,8 +385,71 @@ func (b *dirBind) finish() error {
 	if resolved != b.hostDir {
 		return fmt.Errorf("write-back target %s now resolves to %s, not %s", b.containerDir, resolved, b.hostDir)
 	}
+	if _, err := os.Stat(b.hostDir); err != nil {
+		return fmt.Errorf("the step changed the CA store in %s and moved that directory away, leaving nowhere to write it back: %w", b.containerDir, err)
+	}
 
 	return writeBack(b.scratchDir, b.hostDir)
+}
+
+// coverKeystore adds the CA to a keystore at rel inside this bind's already-
+// mirrored directory (a Debian JDK's cacerts symlinked into the CA store),
+// rather than binding it separately, which the store mount would shadow. The
+// baseline is re-captured so the gatekeeper counts the injection as part of the
+// mirror's post-injection state; the sweep at finish takes the CA back out of
+// this keystore the same as any other file the mirror carries.
+func (b *dirBind) coverKeystore(rel string, ca []byte) {
+	target := filepath.Join(b.scratchDir, rel)
+	original, err := insertIntoKeystore(target, ca)
+	if err != nil {
+		logf("cannot inject the CA into keystore %s: %v; leaving it untouched", rel, err)
+		return
+	}
+	b.rememberKeystore(target, original)
+	baseline, err := captureManifest(b.scratchDir)
+	if err != nil {
+		logf("cannot re-capture the baseline after keystore injection in %s: %v", b.containerDir, err)
+		return
+	}
+	b.baseline = baseline
+}
+
+// rememberKeystore records a keystore's pre-injection bytes, keyed the way the
+// manifest names it, so restoreUntouchedKeystores can put them back.
+func (b *dirBind) rememberKeystore(target string, original []byte) {
+	rel, _ := filepath.Rel(b.scratchDir, target)
+	if b.keystoreOriginals == nil {
+		b.keystoreOriginals = map[string][]byte{}
+	}
+	b.keystoreOriginals[rel] = original
+}
+
+// restoreUntouchedKeystores restores the pristine bytes of every injected
+// keystore the step left matching the post-injection baseline, so an unchanged
+// keystore is committed as an unproxied build would have it rather than in the
+// churned form the round trip produces. current is the mirror before the sweep;
+// a keystore the step did change is left for the sweep to take the CA out of.
+func (b *dirBind) restoreUntouchedKeystores(current []fileEntry) error {
+	for rel, original := range b.keystoreOriginals {
+		cur, ok := entryFor(current, rel)
+		base, okBase := entryFor(b.baseline, rel)
+		if !ok || !okBase || !cur.sameExceptMtime(base) {
+			continue
+		}
+		if err := writeMirrorFile(filepath.Join(b.scratchDir, rel), original, base.mode.Perm()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func entryFor(entries []fileEntry, rel string) (fileEntry, bool) {
+	for _, e := range entries {
+		if e.path == rel {
+			return e, true
+		}
+	}
+	return fileEntry{}, false
 }
 
 func (b *dirBind) cleanup() {

@@ -6,8 +6,8 @@ import { generateHaproxyConfig } from "./haproxy-config.ts";
 
 const isNode = typeof (globalThis as { process?: unknown }).process !== "undefined";
 
-/** The proxy's own address in the universal engine's CNI network (172.20.0.0/24). */
-const PROXY_GATEWAY = "172.20.0.1";
+/** The proxy's own address in the universal engine's CNI network (198.19.255.0/24). */
+const PROXY_GATEWAY = "198.19.255.1";
 
 async function readUniversalTemplate(): Promise<string> {
   if (isNode) {
@@ -121,11 +121,55 @@ describe("universal engine's resolver is tuned like the inspect engine's", () =>
   });
 });
 
+describe("universal engine's IP allowlist judges the real destination", () => {
+  it("matches a variable set once, from dst", () => {
+    // An acl is evaluated where it is used, so a variable a later line
+    // overwrites with the SNI would let the client pick what is matched.
+    const acl = aclLines(TEMPLATE, "is_ip_match");
+    expect(acl.length).toBe(1);
+    const variable = /var\((txn\.[a-z_]+)\)/.exec(acl[0])?.[1];
+    const setters = TEMPLATE.split("\n")
+      .map((l) => l.trim())
+      .filter((l) => new RegExp(`set-var(-fmt)?\\(${variable}\\)`).test(l));
+    expect(setters).toStrictEqual([
+      `tcp-request content set-var-fmt(${variable}) %[dst]:%[dst_port]`,
+    ]);
+  });
+});
+
 describe("universal engine's log line is sized like the inspect engine's", () => {
   it("raises the line length haproxy would otherwise cut at 1024", () => {
     // The template is not generated, so haproxy-config.ts's own `len` says
     // nothing about this file. A cut line matches nothing the report knows.
     expect(TEMPLATE.includes("log stdout len 16384 format raw local0")).toBe(true);
+  });
+
+  it("writes every line from one thread", () => {
+    // Threads sharing the stdout fd drop lines, and one dropped line marks the
+    // report incomplete.
+    expect(TEMPLATE.split("\n").filter((l) => l.trim().startsWith("nbthread"))).toStrictEqual([
+      "    nbthread 1",
+    ]);
+  });
+});
+
+describe("universal engine counts the log lines it drops like the inspect engine", () => {
+  it("serves the same counter on the same socket as the generated config", () => {
+    // The report reads the count from one place whichever engine ran, and a
+    // count it cannot read marks the log incomplete.
+    const health = (config: string) => {
+      const lines = config.split("\n").map((l) => l.trim());
+      const start = lines.indexOf("frontend health");
+      const end = lines.indexOf("", start);
+      return lines.slice(start, end).filter((l) => !l.startsWith("#"));
+    };
+    const generated = generateHaproxyConfig({ proxyAddress: PROXY_GATEWAY }).config;
+    expect(health(TEMPLATE)).toStrictEqual(health(generated));
+    expect(
+      health(TEMPLATE).includes(
+        "http-request use-service prometheus-exporter if { path /metrics }",
+      ),
+    ).toBe(true);
   });
 });
 

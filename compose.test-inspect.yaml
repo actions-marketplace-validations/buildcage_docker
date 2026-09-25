@@ -26,8 +26,9 @@ services:
       # :443 rule too, not just fail to add the new port.
       ALLOWED_TLS_RULES: "tlspass.example.com:443 ~^tlspass\\.example\\.com:8443$"
       # 9080 is distinct from the :80 the URL rule below already allows, so
-      # reaching it proves this rule's own doing.
-      ALLOWED_IP_RULES: "~^10\\.200\\.0\\.\\d+:9080$"
+      # reaching it proves this rule's own doing. 10.200.0.53:53 is the fixture
+      # resolver, for DNS over TCP to a resolver other than the gateway.
+      ALLOWED_IP_RULES: "~^10\\.200\\.0\\.\\d+:9080$ 10.200.0.53:53"
       ALLOWED_URL_RULES: |
         GET https://allowed.example.com/public/**
         GET https://allowed.example.com:9443/public/**
@@ -63,12 +64,12 @@ services:
         GET ~^https://ok\.wildcard\.example\.com/regexexact$
 
         # Never requested: this is here so real HAProxy sees a path pattern
-        # carrying the characters its own config parser folds. Unescaped, the
-        # `#` would comment the line short and leave the regex as `^/frag(x`,
-        # and the `'` would open a quoted string, so either way haproxy refuses
-        # the config and this job fails, which is the point. A pattern that
-        # stayed valid when cut short would regress in silence.
-        GET ~^https://blocked\.example\.com/frag(x#y|'z)$
+        # carrying a character its own config parser folds. Unescaped, the `'`
+        # would open a quoted string, so haproxy refuses the config and this
+        # job fails, which is the point. A pattern that stayed valid when cut
+        # short would regress in silence. (A `#` is rejected at input as a
+        # comment written without its space, so it never reaches the config.)
+        GET ~^https://blocked\.example\.com/frag(x|'z)$
     volumes:
       - ./test/test-server-inspect/cert.pem:/test-fixtures/test-server-cert.pem:ro
       - ./test/test-net-addr/attach.sh:/test-hooks/attach-test-net-addr.sh:ro
@@ -126,8 +127,7 @@ services:
       test-net:
 
 networks:
-  # Pinned rather than auto-assigned: Docker's pool includes 172.20.0.0/16,
-  # which collides with the builder's CNI bridge inside its netns.
+  # Pinned rather than auto-assigned: test-net-addr finds the interface by it.
   test-net:
     ipam:
       config:

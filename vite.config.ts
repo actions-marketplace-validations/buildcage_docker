@@ -11,9 +11,11 @@ const generatedOutputs = ["dist/**", "report/dist/**"];
 // any of them, even ones that happen to be safe today.
 const fixtures = ["**/__fixtures__/**"];
 
-// Vendored from moby/profiles by `make seccomp_profile`. Reformatting it would
-// destroy the diff against upstream, which is how this file gets reviewed.
-const vendored = ["docker/seccomp/builder.json"];
+// Vendored third-party code, reviewed as a diff against upstream: the seccomp
+// profile pulled from moby/profiles by `make seccomp_profile`, and
+// buildcage-runc's Go module vendor tree (`go mod vendor`). Reformatting either
+// would destroy that diff.
+const vendored = ["docker/seccomp/builder.json", "docker/inspect/buildcage-runc/vendor/**"];
 
 // Allowed to name the always-on `annotate`; everything else takes the sink as an argument
 // (see src/core/lib/actions/annotation.ts).
@@ -56,7 +58,6 @@ export default defineConfig({
   },
   staged: {
     "*.{ts,tsx,js,jsx,json,jsonc,yaml,yml,md}": "vp check --fix",
-    "docker/explicit/buildkit-proxy/**/*.go": "gofmt -w",
     "docker/inspect/buildcage-runc/**/*.go": "gofmt -w",
     "test/covfilter/**/*.go": "gofmt -w",
   },

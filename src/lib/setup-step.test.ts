@@ -13,12 +13,13 @@ const mocks = {
   readLocalImageOverride: vi.fn(),
   verifyImageDigestOrThrow: vi.fn(),
   checkUrlAndTlsRuleSupport: vi.fn(),
+  checkKnownBlockedUrlRuleSupport: vi.fn(),
+  checkIpRuleSupport: vi.fn(),
   logRules: vi.fn(),
   withLogGroup: vi.fn(),
   builderStartError: vi.fn(),
   runDocker: vi.fn(),
   log: vi.fn(),
-  notice: vi.fn(),
   warn: vi.fn(),
 };
 
@@ -127,6 +128,50 @@ describe("runSetupStep", () => {
     expect(orderOf(mocks.checkUrlAndTlsRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
   });
 
+  it("checks known_blocked_rules URL lines against the engine, host lines excluded", async () => {
+    mocks.readRuleInputs.mockReturnValue({
+      proxyMode: "restrict",
+      httpsRules: [],
+      httpRules: [],
+      ipRules: [],
+      urlRules: [],
+      tlsRules: [],
+      knownBlockedRules: ["telemetry.example.com:*", "POST https://api.example.com/telemetry"],
+    });
+
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.checkKnownBlockedUrlRuleSupport.mock.calls[0]![0]).toStrictEqual({
+      proxyEngine: "universal",
+      proxyMode: "restrict",
+      knownBlockedUrlRules: ["POST https://api.example.com/telemetry"],
+    });
+    expect(mocks.checkKnownBlockedUrlRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
+    expect(orderOf(mocks.checkKnownBlockedUrlRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
+  });
+
+  it("checks allowed_ip_rules against the engine before the builder starts", async () => {
+    mocks.readRuleInputs.mockReturnValue({
+      proxyMode: "restrict",
+      httpsRules: [],
+      httpRules: [],
+      ipRules: ["10.0.0.0/8:443"],
+      urlRules: [],
+      tlsRules: [],
+      knownBlockedRules: [],
+    });
+
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.checkIpRuleSupport.mock.calls[0]![0]).toStrictEqual({
+      proxyEngine: "universal",
+      proxyMode: "restrict",
+      ipRules: ["10.0.0.0/8:443"],
+    });
+    expect(mocks.checkIpRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
+    expect(orderOf(mocks.checkIpRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
+  });
+
   it("pulls the image by verified digest, under the action's own repository", async () => {
     await runSetupStep(ENV, deps);
 
@@ -148,12 +193,10 @@ describe("runSetupStep", () => {
     expect(mocks.runDocker.mock.calls[1]![1]).toMatchObject({ BUILDCAGE_IMAGE_REF: "local:dev" });
   });
 
-  // A renamed input still works, so its migration message is the only warning
-  // the run gets; it goes to the emitter nothing can suppress.
-  it("sends a renamed input's notice and the rule-support warning to the always-on emitter", async () => {
+  // The rule-support warning goes to the emitter nothing can suppress.
+  it("sends the rule-support warning to the always-on emitter", async () => {
     await runSetupStep(ENV, deps);
 
-    expect(mocks.readEngineInputs.mock.calls[0]![0]).toBe(mocks.notice);
     expect(mocks.checkUrlAndTlsRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
   });
 

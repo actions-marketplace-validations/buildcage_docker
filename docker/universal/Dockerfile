@@ -3,6 +3,11 @@ ARG CNI_VERSION=v1.9.1
 ARG CNI_SHA256_AMD64=b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
 ARG CNI_SHA256_ARM64=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec
 
+# renovate: datasource=github-releases depName=coredns/coredns
+ARG COREDNS_VERSION=1.14.7
+ARG COREDNS_SHA256_AMD64=9a09356438c6d9591cb80011a2a7a52f87fc3a113f6690e41f243f98b98faac9
+ARG COREDNS_SHA256_ARM64=bf26782d19b5340e3e6cb50f1ed6df72f58e4a30932c79d167f0f0a8b1e92e16
+
 # The BuildKit base is a release behind and carries HAProxy 3.2, whose resolver
 # defaults are not the ones the generated config is written against.
 # renovate: datasource=docker depName=alpine
@@ -13,14 +18,22 @@ FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6ee
 ARG CNI_VERSION
 ARG CNI_SHA256_AMD64
 ARG CNI_SHA256_ARM64
-RUN apk add --no-cache curl gettext && \
+ARG COREDNS_VERSION
+ARG COREDNS_SHA256_AMD64
+ARG COREDNS_SHA256_ARM64
+RUN apk add --no-cache curl gettext util-linux-misc && \
     mkdir -p /opt/cni/bin && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     EXPECTED_SHA256=$([ "$ARCH" = "amd64" ] && echo "$CNI_SHA256_AMD64" || echo "$CNI_SHA256_ARM64") && \
     curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" \
       -o /tmp/cni.tgz && \
     echo "${EXPECTED_SHA256}  /tmp/cni.tgz" | sha256sum -c && \
-    tar -C /opt/cni/bin -xz -f /tmp/cni.tgz ./bridge ./host-local ./loopback
+    tar -C /opt/cni/bin -xz -f /tmp/cni.tgz ./bridge ./host-local ./loopback && \
+    COREDNS_SHA=$([ "$ARCH" = "amd64" ] && echo "$COREDNS_SHA256_AMD64" || echo "$COREDNS_SHA256_ARM64") && \
+    curl -fsSL "https://github.com/coredns/coredns/releases/download/v${COREDNS_VERSION}/coredns_${COREDNS_VERSION}_linux_${ARCH}.tgz" \
+      -o /tmp/coredns.tgz && \
+    echo "${COREDNS_SHA}  /tmp/coredns.tgz" | sha256sum -c && \
+    tar -C /usr/local/bin -xz -f /tmp/coredns.tgz coredns
 
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
 # convert-rule.qjs.ts and report-action.node.ts. Architecture-independent
@@ -48,7 +61,6 @@ LABEL org.opencontainers.image.title="buildcage" \
 
 RUN apk add --no-cache \
       s6-overlay \
-      dnsmasq \
       iptables \
       curl \
       quickjs-ng
@@ -79,17 +91,29 @@ COPY --from=deps /usr/bin/envsubst /usr/bin/envsubst
 COPY --from=deps /usr/lib/libintl.so* /usr/lib/
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
+COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
+# For s6-rc.d/haproxy/run. The binary alone needs only musl; the package
+# would pull in ~6MB.
+COPY --from=deps /bin/pipesz /usr/bin/pipesz
 
-RUN mkdir -p /etc/buildkit
+# CoreDNS answers queries the build controls, so it must not run as root.
+# setcap keeps :53 bindable once it has dropped.
+RUN apk add --no-cache --virtual .setcap libcap-utils && \
+    addgroup -S coredns && adduser -S -D -H -G coredns coredns && \
+    setcap cap_net_bind_service=+ep /usr/local/bin/coredns && \
+    apk del .setcap
+
+RUN mkdir -p /etc/buildkit /etc/coredns /var/log/coredns
 COPY docker/universal/files/buildkitd.toml /etc/buildkit/buildkitd.toml
 COPY docker/universal/files/cni.conflist   /etc/buildkit/cni.conflist
-
-COPY docker/universal/files/dnsmasq.conf /etc/dnsmasq.conf
 
 RUN mkdir -p /etc/haproxy/rules /var/log/haproxy
 COPY docker/universal/files/haproxy.cfg.template /etc/haproxy/haproxy.cfg.template
 
 COPY --from=scripts-build /build/dist/qjs/src/core/scripts/convert-rule.js /opt/buildcage/scripts/convert-rule.js
+
+# Writes the Corefile at startup (see init-haproxy-cfg).
+COPY --from=scripts-build /build/dist/qjs/docker/universal/scripts/gen-coredns.js /opt/buildcage/scripts/gen-coredns.js
 
 # Never run inside the image: the report action `docker cp`s it out and runs
 # it on the runner (see report-action.node.ts).

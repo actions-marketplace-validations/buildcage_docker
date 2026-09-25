@@ -3,7 +3,7 @@ services:
     container_name: ${BUILDER_NAME:-buildcage}
     build:
       context: .
-      dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile
+      dockerfile: docker/${PROXY_ENGINE:-inspect}/Dockerfile
     # Not privileged, unlike docker/setup-buildx-action's own builder: these
     # three are all BuildKit needs, and a writable host /proc and /sys stay out.
     # Devices are refused by the device cgroup, which only a step that has
@@ -11,8 +11,7 @@ services:
     #
     # BuildKit's OCI worker needs SYS_ADMIN for mounts, namespaces and cgroups.
     # NET_ADMIN is needed for network namespace setup: iptables and CNI
-    # networking in the universal and inspect engines; the proxy-network
-    # isolation veth/netns (unrelated to CNI) in the explicit engine.
+    # networking in the universal and inspect engines.
     # runc needs SYS_PTRACE to reach /proc/PID/ns/mnt when it sets up a step's
     # mount namespace.
     cap_add:
@@ -42,9 +41,9 @@ services:
       - EXTERNAL_RESOLVER=${EXTERNAL_RESOLVER:-}
       # Runner addresses the engine refuses as a resolved destination.
       - HOST_ADDRESSES=${HOST_ADDRESSES:-}
-      - PROXY_ENGINE=${PROXY_ENGINE:-universal}
+      - PROXY_ENGINE=${PROXY_ENGINE:-inspect}
     # `--wait` would otherwise return on "running" alone, which says nothing
-    # about buildkitd. buildctl works in all three engines. No restart policy
+    # about buildkitd. buildctl works in both engines. No restart policy
     # goes with it: a container that stopped itself has to stay stopped for the
     # wait to see it.
     healthcheck:

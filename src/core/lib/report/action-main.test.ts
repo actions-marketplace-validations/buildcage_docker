@@ -29,6 +29,8 @@ const universal: UniversalReportData = {
   failed: [],
   blockedCount: 0,
   logLooksPlausible: true,
+  timeline: [],
+  startedAt: undefined,
 };
 
 function spec(overrides: Partial<ReportActionSpec> = {}): ReportActionSpec {
@@ -153,8 +155,8 @@ describe("runReportAction and the traffic file", () => {
     });
   });
 
-  // universal and explicit have no per-request timeline, so the report action
-  // asking for one must not produce an empty file that then gets uploaded.
+  // universal has no per-request timeline, so the report action asking for one
+  // must not produce an empty file that then gets uploaded.
   it("writes nothing for an engine that produces no timeline", async () => {
     await withTempDir(async (dir) => {
       const file = join(dir, "traffic.json");

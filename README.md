@@ -9,8 +9,9 @@
 ![test](https://img.shields.io/github/actions/workflow/status/buildcage/docker/test-e2e.yml?label=test)
 ![license](https://img.shields.io/github/license/buildcage/docker)
 
-GitHub Action that restricts where `docker build` can connect. Every `RUN` step runs behind an
-allowlist you write, and a destination that isn't on it is refused and reported.
+A `docker build` runs your `RUN` steps, and every dependency they fetch, with unrestricted network
+access. Buildcage puts that behind an allowlist: each `RUN` step can reach only the destinations you
+name, and anything else is refused and reported.
 
 - Your Dockerfile doesn't change, BuildKit isn't patched, and nothing Buildcage does is left in the
   image layers.
@@ -58,17 +59,16 @@ A runner that falls short fails while the builder starts, before any `RUN` step 
 
 Buildcage starts a BuildKit builder in your job. Point Docker Buildx at it as a remote driver and
 build as usual. Run once in [`audit`](#operation-modes) mode to collect what the build reaches, then
-switch to `restrict`. The examples below use the `inspect` engine; [Engines](#engines) covers the
-choice between the two.
+switch to `restrict`. The examples below use the default `inspect` engine; [Engines](#engines)
+covers the choice between the two.
 
 ### 1. Find out what the build reaches
 
 ```yaml
 - name: Start Buildcage in audit mode
-  uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: audit # Log every destination, block nothing
-    proxy_engine: inspect # Record the method and URL of every request
 
 - name: Set up Docker Buildx
   uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -83,7 +83,7 @@ choice between the two.
 
 - name: Show Buildcage report
   if: always()
-  uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker/report@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
 ```
 
 The [report action](#report-action) writes every destination the build contacted to the Job Summary:
@@ -91,7 +91,8 @@ The [report action](#report-action) writes every destination the build contacted
 <img src="assets/report-inspect-audit-mode.png" alt="Outbound Traffic Report (audit mode)" width="568">
 
 Its **Switch to restrict mode** section holds the allowlist, already written out from what the build
-actually did.
+actually did. A request whose method, host or path a rule would read as a wildcard is listed under
+it rather than written in, since copying it would permit more than was sent.
 
 ### 2. Enforce the allowlist
 
@@ -99,10 +100,9 @@ Paste that allowlist into the setup step and switch the mode:
 
 ```yaml
 - name: Start Buildcage in restrict mode
-  uses: buildcage/docker@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
   with:
     proxy_mode: restrict
-    proxy_engine: inspect
     allowed_url_rules: |
       GET http://deb.debian.org/**
       GET https://registry.npmjs.org/**
@@ -127,28 +127,26 @@ Each pair builds the same Dockerfile with and without rules:
 
 ## Engines
 
-`proxy_engine` selects how closely the build's traffic is examined.
+`proxy_engine` sets how closely a build's traffic is read. `inspect` is the default; `universal` has
+to be set explicitly.
 
-|                                             | `inspect`<br>terminates TLS, checks method and URL          | `universal`<br>reads the SNI only, checks host and port |
-| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
-| A rule can say                              | `GET\|HEAD https://registry.npmjs.org/**`                   | `registry.npmjs.org:443`                                |
-| Allow a fetch, refuse a publish, same host  | ✅                                                          | -                                                       |
-| The report shows                            | Every request with its URL                                  | Host and port                                           |
-| The build's TLS                             | Terminated and re-signed with a CA generated for that build | Untouched                                               |
-| Certificate pinning, or the JVM's own store | -                                                           | ✅                                                      |
+`inspect` terminates TLS and re-signs it with a CA generated for that build. Rules match on method
+and URL, so `GET|HEAD https://registry.npmjs.org/**` allows a fetch while refusing a publish on the
+same host, and the report names every request with its URL. The build has to trust that CA:
+Buildcage adds it to the system store, to the CA-trust variables, and to a JVM already in the base
+image, so most toolchains need nothing extra (see
+[CA trust and compatibility](#ca-trust-and-compatibility)).
 
-Start with `inspect`, and fall back to `universal` when something in the build won't accept the
-injected CA. `universal` is the default value of `proxy_engine`, so `inspect` has to be set
-explicitly.
+`universal` reads only the SNI. Rules match on host and port, so `registry.npmjs.org:443` is the
+most one can say, the report shows host and port, and the build's own TLS is left untouched.
+
+Start with `inspect`. Reach for `universal` when a host's certificate cannot be re-signed, such as a
+tool that pins one or ships a trust store Buildcage cannot inject into: either for the whole build,
+or for that host alone with an `allowed_tls_rules` passthrough.
 
 Both intercept at the network level, so a tool that ignores `HTTP_PROXY` is covered either way, and
 both apply to `RUN` steps. What buildkitd fetches for itself stays outside: see
 [Limitations](#limitations).
-
-`proxy_engine: explicit` is BuildKit's own native `--proxy-network`. It still works but is
-deprecated and receives no further development; see
-[Explicit Proxy Engine](./docs/explicit-engine.md) if you already depend on it, most commonly for
-its BuildKit-native SLSA provenance integration.
 
 ## Inputs
 
@@ -169,6 +167,9 @@ builds.
 
 If you forget a domain the build needs, `restrict` blocks it and the report step fails with the
 destination named, which is why it is worth running `audit` first.
+
+`audit` also lets a connection made straight to an address through. Under `universal` that includes
+cloud metadata (`169.254.169.254`) and the runner's own addresses; `inspect` still refuses those.
 
 ### Rules for the `inspect` engine
 
@@ -218,9 +219,10 @@ allowed_ip_rules: |
 
 ```yaml
 allowed_https_rules: |
+  # npm and maven
   registry.npmjs.org:443
   repo.maven.apache.org:443
-  *.internal.example.com:443
+  *.internal.example.com:443  # everything on the internal network
 
 allowed_http_rules: |
   deb.debian.org:80
@@ -228,6 +230,9 @@ allowed_http_rules: |
 allowed_ip_rules: |
   192.168.1.10:443
 ```
+
+A `#` starts a comment at the start of a line or after whitespace, so a group of rules can carry a
+heading or a rule can carry its reason. It works the same in every rule input.
 
 ### Destinations you expect to stay blocked
 
@@ -240,6 +245,21 @@ known_blocked_rules: |
   telemetry.example.com
 ```
 
+A name refused at resolution, before any connection, has no port. A bare `telemetry.example.com` (or
+`telemetry.example.com:*`) covers it; `telemetry.example.com:443` does not, since no port was involved.
+
+One rule per line, and on `inspect` a line can also be a URL rule (a method and a URL, the
+`allowed_url_rules` syntax) to acknowledge a single endpoint on a host whose other traffic is
+allowed — a telemetry POST to an API you otherwise use, say:
+
+```yaml
+known_blocked_rules: |
+  POST https://api.example.com/telemetry
+```
+
+Any other blocked request to that host still fails the step. See
+[Blocked rules](./docs/reference.md#blocked-rules-known_blocked_rules) for the full syntax.
+
 ## Report action
 
 `buildcage/docker/report` reads the builder's communication log and writes the Job Summary. Add it
@@ -248,7 +268,7 @@ with `if: always()` so a failing build still reports:
 ```yaml
 - name: Show Buildcage report
   if: always()
-  uses: buildcage/docker/report@d6f130e3476121607affc037e1c56fafb48ea897 # v3.2.1
+  uses: buildcage/docker/report@045eb32e2d0f2d6aea9506d057dca252cc1b2ce5 # v3.2.2
 ```
 
 Whatever was refused is listed under **Blocked Hosts** with the reason, and, under `inspect`,
@@ -294,7 +314,13 @@ toolchains read at a store that holds it: `NODE_EXTRA_CA_CERTS`, `DENO_CERT`, `S
 `REQUESTS_CA_BUNDLE` and `PIP_CERT`. `CURL_CA_BUNDLE` is set only in a step with no system CA store
 of its own, since curl reads that store already. A variable the base image or the Dockerfile already
 set is appended to rather than redirected, and neither the CA nor the variables are left in the
-image layers.
+image layers, except a copy a step hides where it cannot be read (see
+[Limitations](#limitations)). The CA is also left in the distribution's own anchor directory, so a
+step that installs `ca-certificates` partway through keeps trusting it once `update-ca-certificates`
+has rebuilt the bundle from scratch. A JVM already in the base image reads none of those variables and
+only its own keystore, so the CA is added there too, to `$JAVA_HOME/lib/security/cacerts` in
+whichever shape it ships (JKS or PKCS#12), for the step and taken back out before the layer is
+committed, letting `mvn`, `gradle` and `java` reach the proxy without `proxy_engine: universal`.
 
 The full table, with what each variable points at when the step has a system CA store and when it
 has none, is in [Reference](./docs/reference.md#ca-trust-variables). What this cannot cover is in
@@ -364,10 +390,29 @@ reported as blocked; see
 
 ### Under the `inspect` engine
 
-- A tool that pins a certificate, or ships its own trust store instead of reading the CA-trust
-  variables, will not work. The JVM (Java, Kotlin, Scala) is the common case, since it only reads
-  its own `cacerts` file. Use `proxy_engine: universal` for those, or pass the host through
-  undecrypted with `allowed_tls_rules`.
+- A tool that pins a specific certificate, or ships a bundled trust store it never lets the system
+  update, still needs `proxy_engine: universal` or an `allowed_tls_rules` passthrough: `inspect`
+  re-signs the connection, and a pinned or bundled store will not accept the new certificate.
+- The JVM (Java, Kotlin, Scala) reads only its own keystore rather than the CA-trust variables, and
+  a JVM already in the base image is handled: the CA is added to its `$JAVA_HOME/lib/security/cacerts`
+  for the step and removed before the layer is committed. A keystore sealed with a password other
+  than the JDK default still falls back to `proxy_engine: universal`: Buildcage will not rewrite it.
+- A `RUN` step that copies the system CA bundle into a binary or an uncompressed archive
+  (`go:embed`, `include_str!`, `tar cf`) fails: the copy carries the build's CA, which cannot be cut
+  out of a binary without corrupting it. Copy the bundle in an earlier `RUN` step instead:
+
+  ```dockerfile
+  RUN cp /etc/ssl/certs/ca-certificates.crt ./certs/ && go build   # fails
+  RUN cp /etc/ssl/certs/ca-certificates.crt ./certs/
+  RUN go build                                                      # fine
+  ```
+
+- A copy of the CA left in a step's layer is removed, or fails the build if it cannot be. A copy
+  that cannot be read, in a compressed archive or a keystore encrypted under a password other than
+  none or `changeit` or naming more than a million key-derivation iterations, is not found and stays
+  in the image, as is one hex-dumped or re-encoded as base64 outside a PEM block in lines shorter
+  than 48 characters. See
+  [Security Details](./docs/security.md#inspect-proxy-engine).
 - `audit` terminates TLS as well. It drops the rules, not the interception, so a tool that cannot
   accept the CA fails in `audit` exactly as it would in `restrict`.
 - An image with no system CA store (`scratch`, distroless, or `debian:*-slim` before
@@ -396,10 +441,11 @@ reported as blocked; see
   ```
 
 - A custom CA path that is unexpectedly large (more than 20 MiB or 512 files) has injection skipped
-  for that variable only, the same degradation as when no CA bundle is found at all.
-- Neither engine produces SLSA provenance. The deprecated `explicit` engine records what it fetched
-  as a provenance material through BuildKit's own mechanism; the traffic artifact is an observation
-  record with no content digest.
+  for that variable only, the same degradation as when no CA bundle is found at all. A system CA
+  bundle whose directory holds more than 64 MiB or 4,096 files, or is the container root, is
+  treated as no bundle at all.
+- Neither engine produces SLSA provenance. The traffic artifact is an observation record with no
+  content digest.
 
 ### On the runner itself
 
@@ -441,6 +487,17 @@ generated allowlist already has them.
 `inspect`, unless something in the build carries its own trust store. It is the only engine that can
 tell a fetch from a publish on the same host. See [Engines](#engines).
 
+**Why not use BuildKit's built-in `--proxy-network`?**
+
+BuildKit's exec network proxy injects `HTTP_PROXY`/`HTTPS_PROXY` into each `RUN` step and can record
+what it fetched as SLSA provenance, which Buildcage does not do. Two limits kept it from being the
+enforcement mechanism. Its source policy matches a request's host, port and URL path but has no
+notion of an HTTP method, so it cannot allow a fetch from a registry while refusing a publish to the
+same host, which `inspect` does by terminating TLS. And because it is an explicit proxy, what it
+enforces and records reaches only tools that honor the proxy variables; a tool that ignores them is
+not covered. Buildcage enforces at the network level instead, so it also covers those tools and can
+act on the method and URL.
+
 ## GitHub's native egress firewall
 
 GitHub is building an egress firewall directly into Actions runners
@@ -461,12 +518,11 @@ firewall-enabled runner image.
 
 ## Documentation
 
-| Doc                                                | What's in it                                                      |
-| -------------------------------------------------- | ----------------------------------------------------------------- |
-| [Reference](./docs/reference.md)                   | Every input, the rule syntax in full, and the report's own output |
-| [Security Details](./docs/security.md)             | Architecture and threat model for every engine, attack resistance |
-| [Development Guide](./docs/development.md)         | Local usage, testing, logs, and the repository layout             |
-| [Explicit Proxy Engine](./docs/explicit-engine.md) | The deprecated `proxy_engine: explicit` in full                   |
+| Doc                                        | What's in it                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------- |
+| [Reference](./docs/reference.md)           | Every input, the rule syntax in full, and the report's own output |
+| [Security Details](./docs/security.md)     | Architecture and threat model for every engine, attack resistance |
+| [Development Guide](./docs/development.md) | Local usage, testing, logs, and the repository layout             |
 
 ## Contributing
 

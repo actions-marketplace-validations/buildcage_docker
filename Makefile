@@ -12,8 +12,8 @@ WORKTREE_NAME := $(if $(findstring /worktrees/,$(GIT_DIR)),$(notdir $(GIT_DIR)))
 # no image tag, container name or Compose project name accepts it.
 WORKTREE_SLUG := $(if $(WORKTREE_NAME),$(shell printf '%s' '$(WORKTREE_NAME)' | tr 'A-Z' 'a-z' | tr -Cs 'a-z0-9_-' '-' | sed -e 's/^-//' -e 's/-$$//'))
 BUILDCAGE_WORKTREE_SUFFIX ?= $(if $(WORKTREE_SLUG),-$(WORKTREE_SLUG))
-# test-net cannot be left to Docker's pool, which includes 172.20.0.0/16 and so
-# overlaps the builder's CNI bridge, so pick a subnet from the worktree name.
+# test-net-addr finds test-net by its subnet, so pin one, derived from the
+# worktree name so linked worktrees don't collide.
 TEST_NET_SUBNET ?= $(if $(WORKTREE_NAME),$(shell printf '%s' '$(WORKTREE_NAME)' | cksum | awk '{printf "10.%d.%d.0/24", $$1 % 40 + 210, int($$1 / 40) % 254 + 1}'),10.210.0.0/24)
 BUILDER_NAME ?= buildcage$(BUILDCAGE_WORKTREE_SUFFIX)
 TEST_IMAGE ?= buildcage-test$(BUILDCAGE_WORKTREE_SUFFIX)
@@ -139,6 +139,7 @@ test_unit_qjs: ## Run unit tests in Docker
 setup_buildkit_universal_audit: ## Start universal engine in audit mode
 	@echo "Starting buildcage (universal engine) in AUDIT mode..."
 	@COMPOSE_FILE=$(COMPOSE_FILE) \
+	  PROXY_ENGINE=universal \
 	  PROXY_MODE=audit \
 	  docker compose -p $(COMPOSE_PROJECT_NAME) up -d --wait --build
 	@docker buildx rm $(BUILDER_NAME) 2>/dev/null || true
@@ -151,34 +152,7 @@ setup_buildkit_universal_audit: ## Start universal engine in audit mode
 setup_buildkit_universal_restrict: ## Start universal engine in restrict mode
 	@echo "Starting buildcage (universal engine) in RESTRICT mode..."
 	@COMPOSE_FILE=$(COMPOSE_FILE) \
-	  PROXY_MODE=restrict \
-	  ALLOWED_HTTP_RULES="$${ALLOWED_HTTP_RULES:-}" \
-	  ALLOWED_HTTPS_RULES="$${ALLOWED_HTTPS_RULES:-github.com:443 registry.npmjs.org:443 api.github.com:443 objects.githubusercontent.com:443 httpbin.org:443 deb.debian.org:80 *.githubusercontent.com:443}" \
-	  docker compose -p $(COMPOSE_PROJECT_NAME) up -d --wait --build
-	@docker buildx rm $(BUILDER_NAME) 2>/dev/null || true
-	@echo "Creating buildx builder..."
-	@docker buildx create --bootstrap \
-		--name $(BUILDER_NAME) \
-		--driver remote docker-container://$(BUILDER_NAME)
-
-.PHONY: setup_buildkit_explicit_audit
-setup_buildkit_explicit_audit: ## Start explicit proxy engine in audit mode
-	@echo "Starting buildcage (explicit proxy engine) in AUDIT mode..."
-	@COMPOSE_FILE=$(COMPOSE_FILE) \
-	  PROXY_ENGINE=explicit \
-	  PROXY_MODE=audit \
-	  docker compose -p $(COMPOSE_PROJECT_NAME) up -d --wait --build
-	@docker buildx rm $(BUILDER_NAME) 2>/dev/null || true
-	@echo "Creating buildx builder..."
-	@docker buildx create --bootstrap \
-		--name $(BUILDER_NAME) \
-		--driver remote docker-container://$(BUILDER_NAME)
-
-.PHONY: setup_buildkit_explicit_restrict
-setup_buildkit_explicit_restrict: ## Start explicit proxy engine in restrict mode
-	@echo "Starting buildcage (explicit proxy engine) in RESTRICT mode..."
-	@COMPOSE_FILE=$(COMPOSE_FILE) \
-	  PROXY_ENGINE=explicit \
+	  PROXY_ENGINE=universal \
 	  PROXY_MODE=restrict \
 	  ALLOWED_HTTP_RULES="$${ALLOWED_HTTP_RULES:-}" \
 	  ALLOWED_HTTPS_RULES="$${ALLOWED_HTTPS_RULES:-github.com:443 registry.npmjs.org:443 api.github.com:443 objects.githubusercontent.com:443 httpbin.org:443 deb.debian.org:80 *.githubusercontent.com:443}" \
@@ -231,7 +205,7 @@ report_buildkit: ## Show the buildcage report for the currently running builder
 # ---------------------------------------------------------------------------
 
 .PHONY: test_integration_buildkit
-test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_explicit_audit test_integration_buildkit_explicit_restrict test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
+test_integration_buildkit: test_integration_buildkit_universal_audit test_integration_buildkit_universal_restrict test_integration_buildkit_universal_restrict_no_traffic test_integration_buildkit_inspect_restrict test_integration_buildkit_inspect_debian_audit test_integration_buildkit_inspect_debian_restrict test_integration_buildkit_inspect_java_audit test_integration_buildkit_inspect_byte_exact test_integration_buildkit_inspect_roundtrip test_integration_buildkit_universal_known_blocked test_integration_buildkit_multiarch test_integration_buildkit_listener_scope ## Run all buildkit integration tests
 
 # The target that verifies post.ts removed the builder. The targets below run
 # post.ts as part of their own teardown where they have one, but the removal
@@ -282,37 +256,6 @@ test_integration_buildkit_universal_restrict_no_traffic: ## Run universal-engine
 	@node src/post.ts
 	@$(MAKE) clean_buildkit
 
-.PHONY: test_integration_buildkit_explicit_audit
-test_integration_buildkit_explicit_audit: ## Run explicit-engine audit mode tests
-	@echo "Running explicit-engine audit mode tests..."
-	@COMPOSE_FILE=compose.yaml:compose.test-explicit.yaml \
-	  $(MAKE) setup_buildkit_explicit_audit
-	@docker buildx build --no-cache \
-	  --builder $(BUILDER_NAME) \
-	  --platform $(TEST_PLATFORM) \
-	  --progress=plain -f test/Dockerfile.explicit-audit test/ \
-	  --load -t $(TEST_IMAGE)
-	@node report/src/main.ts || true
-	@./test/assert-explicit-audit.sh
-	@node src/post.ts
-	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
-
-.PHONY: test_integration_buildkit_explicit_restrict
-test_integration_buildkit_explicit_restrict: ## Run explicit-engine restrict mode tests
-	@echo "Running explicit-engine restrict mode tests..."
-	@COMPOSE_FILE=compose.yaml:compose.test-explicit.yaml \
-	  $(MAKE) setup_buildkit_explicit_restrict
-	@docker buildx build --no-cache \
-	  --builder $(BUILDER_NAME) \
-	  --platform $(TEST_PLATFORM) \
-	  --progress=plain -f test/Dockerfile.explicit-restrict test/ \
-	  --load -t $(TEST_IMAGE)
-	@node report/src/main.ts || true
-	@./test/assert-explicit-restrict.sh
-	@./test/assert-explicit-source-policy-conflict.sh
-	@node src/post.ts
-	@TEST_COMPOSE_FILE=compose.test-explicit.yaml $(MAKE) clean_buildkit
-
 # The Alpine build the CA-residue and layer-bloat guards run against. Every
 # inspect build injects the same CA the same way, so the other Alpine image
 # (Dockerfile.inspect-audit, built by the round trip) would prove nothing more.
@@ -330,6 +273,8 @@ test_integration_buildkit_inspect_restrict: ## Run inspect-engine restrict mode 
 	@./test/assert-inspect-no-layer-bloat.sh $(TEST_IMAGE)
 	@node report/src/main.ts || true
 	@./test/assert-inspect-restrict.sh
+	@BUILDER_NAME=$(BUILDER_NAME) TEST_PLATFORM=$(TEST_PLATFORM) \
+	  ./test/assert-inspect-refuses-embedded-bundle.sh
 	@node src/post.ts
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
@@ -364,6 +309,93 @@ test_integration_buildkit_inspect_debian_restrict: ## Run inspect-engine restric
 	  --load -t $(TEST_IMAGE)
 	@node report/src/main.ts || true
 	@./test/assert-inspect-debian.sh restrict
+	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
+
+# The base-image JVM case: a JDK already present reads only its own keystore,
+# so the wrapper injects the proxy CA there for the step. Built over both shapes
+# a JDK ships cacerts in, PKCS#12 (temurin:21) and JKS (temurin:17); the build's
+# own in-step `java` step fails the build unless the JVM trusts the CA, and
+# assert-inspect-no-ca-residue.sh proves the committed keystore does not keep it.
+.PHONY: test_integration_buildkit_inspect_java_audit
+test_integration_buildkit_inspect_java_audit: ## Run inspect-engine tests against Java base images (JVM keystore injection)
+	@echo "Running inspect-engine audit mode tests (Java base images)..."
+	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
+	  $(MAKE) setup_buildkit_inspect_audit
+	@for base in eclipse-temurin:21 eclipse-temurin:17; do \
+	  echo "=== Java base image: $$base ==="; \
+	  docker buildx build --no-cache \
+	    --builder $(BUILDER_NAME) \
+	    --platform $(TEST_PLATFORM) \
+	    --build-arg BASE=$$base \
+	    --progress=plain -f test/Dockerfile.inspect-java test/ \
+	    --load -t $(TEST_IMAGE) || exit 1; \
+	  NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE) || exit 1; \
+	done
+	@echo "=== Java real-tool case: Maven resolving a dependency ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --progress=plain -f test/Dockerfile.inspect-java-maven test/ \
+	  --load -t $(TEST_IMAGE)
+	@NO_APP_STORE_COPIES=1 ./test/assert-inspect-no-ca-residue.sh $(TEST_IMAGE)
+	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
+
+# Each case hides a copy of the CA the sweep finds but cannot remove, and must
+# fail the build naming the file. The control writes an unrelated encrypted
+# keystore and must build. The resealed case must build with the CA taken out
+# and the keystore still sealed under changeit.
+.PHONY: test_integration_buildkit_inspect_hidden_ca
+test_integration_buildkit_inspect_hidden_ca: ## Check inspect fails a build that hides a copy of the CA the sweep cannot remove
+	@echo "Running inspect-engine hidden CA copy tests..."
+	@COMPOSE_FILE=compose.yaml:compose.test-inspect.yaml \
+	  $(MAKE) setup_buildkit_inspect_audit
+	@for case in leaf json; do \
+	  echo "=== A copy of the CA the sweep cannot take out: $$case ==="; \
+	  if docker buildx build --no-cache \
+	      --builder $(BUILDER_NAME) \
+	      --platform $(TEST_PLATFORM) \
+	      --build-arg CASE=$$case \
+	      --progress=plain -f test/Dockerfile.inspect-hidden-ca test/ \
+	      > $(SCRATCH_PREFIX)-hidden-ca.log 2>&1; then \
+	    echo "FAIL: the build committed a copy of the CA ($$case)"; exit 1; \
+	  fi; \
+	  if ! grep -q "cannot strip: /app/" $(SCRATCH_PREFIX)-hidden-ca.log; then \
+	    tail -40 $(SCRATCH_PREFIX)-hidden-ca.log; \
+	    echo "FAIL: the build failed, but not on the copy of the CA ($$case)"; exit 1; \
+	  fi; \
+	  echo "PASS: the build failed on the copy of the CA ($$case)"; \
+	done
+	@echo "=== An encrypted keystore that is not the CA's ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --build-arg CASE=control \
+	  --progress=plain -f test/Dockerfile.inspect-hidden-ca test/
+	@echo "PASS: the build kept a keystore that is not the CA's"
+	@echo "=== A keystore under changeit the sweep takes the CA out of ==="
+	@docker buildx build --no-cache \
+	  --builder $(BUILDER_NAME) \
+	  --platform $(TEST_PLATFORM) \
+	  --build-arg CASE=resealed \
+	  --progress=plain -f test/Dockerfile.inspect-hidden-ca test/ \
+	  --load -t $(TEST_IMAGE)
+	@listing=$$(docker run --rm $(TEST_IMAGE) keytool -list -keystore /app/trust.p12 -storepass changeit) \
+	  || { echo "FAIL: the resealed keystore does not open under changeit"; exit 1; }; \
+	if echo "$$listing" | grep -qi buildcage; then \
+	  echo "FAIL: the resealed keystore still trusts the CA"; exit 1; \
+	fi; \
+	roots=$$(echo "$$listing" | grep -c trustedCertEntry || true); \
+	if [ "$${roots:-0}" -lt 100 ]; then \
+	  echo "FAIL: the resealed keystore kept only $$roots roots"; exit 1; \
+	fi; \
+	named=$$(echo "$$listing" | grep trustedCertEntry | grep -c ' \[jdk\],' || true); \
+	if [ "$$named" != "$$roots" ]; then \
+	  echo "FAIL: only $$named of $$roots roots kept their [jdk] alias"; exit 1; \
+	fi; \
+	if docker run --rm $(TEST_IMAGE) keytool -list -keystore /app/trust.p12 -storepass not-the-password >/dev/null 2>&1; then \
+	  echo "FAIL: the resealed keystore opens without changeit"; exit 1; \
+	fi; \
+	echo "PASS: the sweep took the CA out, kept $$roots roots under their aliases, and resealed under changeit"
 	@TEST_COMPOSE_FILE=compose.test-inspect.yaml $(MAKE) clean_buildkit
 
 .PHONY: test_integration_buildkit_inspect_byte_exact

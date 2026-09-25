@@ -19,16 +19,26 @@ jobs:
     permissions:
       contents: write
       packages: write
+    # A manual run can move the tags too, so it gets the same approval gate as
+    # release.yml; a published release has already been approved by hand.
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'release' || '' }}
     env:
       TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
+      - name: Validate tag format
+        run: |
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'; then
+            echo "::error::Invalid semver format: $TAG (expected vX.Y.Z or vX.Y.Z-prerelease)"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
           persist-credentials: false
 
-      - name: Guard against prerelease tags
+      - name: Guard against draft and prerelease tags
         id: guard
         env:
           IS_RELEASE_EVENT: ${{ github.event_name == 'release' }}
@@ -38,7 +48,13 @@ jobs:
           if [ "$IS_RELEASE_EVENT" = "true" ]; then
             IS_PRERELEASE="$EVENT_PRERELEASE"
           else
-            IS_PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')
+            # gh release view succeeds for a draft too, so check it explicitly.
+            RELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease)
+            if [ "$(echo "$RELEASE" | jq -r '.isDraft')" != "false" ]; then
+              echo "::error::$TAG is still a draft release; publish it before moving major/minor/latest tags"
+              exit 1
+            fi
+            IS_PRERELEASE=$(echo "$RELEASE" | jq -r '.isPrerelease')
           fi
           if [ "$IS_PRERELEASE" = "true" ]; then
             echo "::notice::$TAG is a prerelease — skipping major/minor/latest tag updates"
@@ -79,26 +95,24 @@ jobs:
           LATEST_IN_MINOR=$(echo "$TAGS" | grep -E "^v${MINOR}\.[0-9]+$" | sort -V | tail -1)
           LATEST_OVERALL=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
 
-          if [ "$TAG" = "$LATEST_IN_MAJOR" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}"
-            git tag -fa "$MAJOR" -m "Update $MAJOR to $TAG"
-            git push origin "$MAJOR" --force
-          fi
-
-          for ENGINE in universal explicit inspect; do
-            SUFFIX=""
-            if [ "$ENGINE" != "universal" ]; then
-              SUFFIX="-${ENGINE}"
-            fi
+          for ENGINE in universal inspect; do
+            SUFFIX="-${ENGINE}"
             if [ "$TAG" = "$LATEST_IN_MINOR" ]; then
               docker buildx imagetools create --tag "${REPO}:${MINOR}${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
             if [ "$TAG" = "$LATEST_IN_MAJOR" ]; then
               docker buildx imagetools create --tag "${REPO}:${MAJOR#v}${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
-            if [ "$ENGINE" = "universal" ] && [ "$TAG" = "$LATEST_OVERALL" ]; then
-              docker buildx imagetools create --tag "${REPO}:latest" "${REPO}:${VERSION}"
+            if [ "$TAG" = "$LATEST_OVERALL" ]; then
+              docker buildx imagetools create --tag "${REPO}:latest${SUFFIX}" "${REPO}:${VERSION}${SUFFIX}"
             fi
           done
+
+          # Last, so @$MAJOR only moves once every image tag above has.
+          if [ "$TAG" = "$LATEST_IN_MAJOR" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}"
+            git tag -fa "$MAJOR" -m "Update $MAJOR to $TAG"
+            git push origin "$MAJOR" --force
+          fi

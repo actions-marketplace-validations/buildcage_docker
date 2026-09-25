@@ -2,19 +2,17 @@
 
 ## Scope
 
-I welcome reports about all three proxy engines (`universal`, `inspect`, and the deprecated
-`explicit`):
+I welcome reports about both proxy engines (`universal` and `inspect`):
 
 - **Proxy bypass (`universal`)**: ways to make network connections from `RUN` steps that evade the Buildcage proxy (other than the [known domain fronting limitation](./docs/security.md#domain-fronting))
 - **Network isolation escape (`universal`)**: bypassing CNI isolation or iptables rules to reach the internet directly
 - **DNS filtering bypass (`universal`)**: bypassing the DNS redirect mechanism
 - **Rule bypass (`inspect`)**: ways to reach a destination, method or path that the rules do not permit: a request that escapes its path rule, a forged `Host` or SNI that changes where the proxy connects, or a name resolved to somewhere the rules never named
-- **Source policy bypass (`explicit`, deprecated)**: ways to make network connections from `RUN` steps that evade the BuildKit source policy _compiled by buildcage_ from your allowlist (e.g., a flaw in how buildcage translates rules into policy, or in how it injects/merges that policy via the gRPC `Solve` intercept)
 - **GitHub Actions setup**: vulnerabilities in the `setup` or `report` actions (e.g., injection, credential leak)
 
 The following are **out of scope** (please report to the respective projects instead):
 
-- Vulnerabilities in BuildKit, Docker, or other upstream dependencies, including BuildKit's own `--proxy-network` isolation, its MITM/TLS handling, or its source-policy evaluation engine itself. Buildcage's `explicit`-engine scope is limited to the policy it compiles and injects, not BuildKit's enforcement of that policy.
+- Vulnerabilities in BuildKit, Docker, or other upstream dependencies
 - Issues that require the attacker to already have privileged access to the host
 - Domain fronting via shared CDN infrastructure (documented in [Security Details](./docs/security.md#domain-fronting))
 
@@ -28,8 +26,9 @@ The following are **out of scope** (please report to the respective projects ins
 
 ## Verifying Releases
 
-Buildcage ships one artifact: a Docker image at `ghcr.io/buildcage/docker`, tagged `vX.Y.Z` for the
-default `universal` engine, and `vX.Y.Z-inspect` / `vX.Y.Z-explicit` for the other two engines.
+Buildcage ships one Docker image at `ghcr.io/buildcage/docker`, published per engine: release
+`vX.Y.Z` is tagged `X.Y.Z-inspect` for the default `inspect` engine and `X.Y.Z-universal` for the
+universal engine (the image tag drops the release tag's leading `v` and carries the engine suffix).
 Each release is signed
 keylessly with [cosign](https://github.com/sigstore/cosign) and carries a GitHub build-provenance
 attestation, both issued via GitHub Actions OIDC at release time. There is no long-lived signing key
@@ -38,16 +37,18 @@ to leak or rotate. The `setup` action verifies this automatically, in-process, o
 to verify a release manually instead:
 
 ```sh
-cosign verify ghcr.io/buildcage/docker:<tag> \
-  --certificate-identity-regexp '^https://github.com/buildcage/docker/' \
+cosign verify ghcr.io/buildcage/docker:X.Y.Z-<engine> \
+  --certificate-identity 'https://github.com/buildcage/docker/.github/workflows/docker-publish.yml@refs/tags/vX.Y.Z' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-gh attestation verify oci://ghcr.io/buildcage/docker:<tag> --owner buildcage
+gh attestation verify oci://ghcr.io/buildcage/docker:X.Y.Z-<engine> --repo buildcage/docker
 ```
 
+The image tag is `X.Y.Z-<engine>`, but the identity names the release tag `vX.Y.Z`. Pinning the
+exact workflow rejects a signature from any other workflow, ref or repository.
+
 The Sigstore bundle for each release is also attached as a downloadable asset
-(`buildcage-container.sigstore.json`, `buildcage-container-inspect.sigstore.json` and
-`buildcage-container-explicit.sigstore.json`) on the corresponding
-[GitHub Release](https://github.com/buildcage/docker/releases).
+(`buildcage-container-universal.sigstore.json` and `buildcage-container-inspect.sigstore.json`) on the
+corresponding [GitHub Release](https://github.com/buildcage/docker/releases).
 
 ## Dependency Management
 
@@ -57,9 +58,9 @@ The Sigstore bundle for each release is also attached as a downloadable asset
   PRs automatically; each still goes through CI and manual review before merging.
 - New dependencies are chosen for necessity, an OSI-approved license, and active maintenance; the
   standard library is preferred where practical.
-- [Trivy](https://github.com/aquasecurity/trivy) scans every built image for known vulnerabilities
-  (on each push to `main` and monthly on schedule), and Dependabot alerts are enabled on the
-  repository; both report into this repository's Security tab.
+- [Trivy](https://github.com/aquasecurity/trivy) rebuilds each engine's image from source and scans
+  it for known vulnerabilities on a monthly schedule (and on manual dispatch), and Dependabot alerts
+  are enabled on the repository; both report into this repository's Security tab.
 
 ## Reporting a Vulnerability
 

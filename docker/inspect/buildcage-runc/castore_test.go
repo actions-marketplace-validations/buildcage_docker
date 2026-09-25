@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -71,23 +74,58 @@ func TestResolveInRootAllowsAMissingFinalComponent(t *testing.T) {
 	}
 }
 
-// testCA is PEM-shaped rather than a real certificate: removal matches on the
-// base64 between the two lines and never decodes it.
-var testCA = []byte("-----BEGIN CERTIFICATE-----\nQlVJTERDQUdFLUNB\n-----END CERTIFICATE-----\n")
+// A whole run of missing directories resolves to itself, which is what an
+// anchor path needs in an image that ships no CA store.
+func TestResolveInRootAllowsMissingIntermediateDirectories(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc"))
+	resolved, err := resolveInRoot(root, "/etc/pki/ca-trust/source/anchors/buildcage.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(root, "etc", "pki", "ca-trust", "source", "anchors", "buildcage.crt") {
+		t.Fatalf("unexpected path %s", resolved)
+	}
+}
+
+// An error that is not "not there" is the wrapper's to report: a component the
+// image left as a file, so the path cannot continue through it.
+func TestResolveInRootReportsANonMissingError(t *testing.T) {
+	root := t.TempDir()
+	mustMkdirAll(t, filepath.Join(root, "etc"))
+	mustWriteFile(t, filepath.Join(root, "etc", "notdir"), "x")
+	if _, err := resolveInRoot(root, "/etc/notdir/child"); err == nil {
+		t.Fatal("expected a component that is a file to be reported")
+	}
+}
+
+// The lines a certificate is armoured between, spelled out here because the
+// code itself only knows the shape of them and not the label.
+const (
+	beginTestBlock = "-----BEGIN CERTIFICATE-----"
+	endTestBlock   = "-----END CERTIFICATE-----"
+)
+
+// testCA is PEM-shaped rather than a real certificate: removal matches on what
+// the base64 between the two lines decodes to, not on its meaning.
+var testCA = []byte(beginTestBlock + "\nQlVJTERDQUdFLUNB\n" + endTestBlock + "\n")
 
 // otherCA stands for a certificate the bundle already carried, which removal
 // has to walk past.
-var otherCA = []byte("-----BEGIN CERTIFICATE-----\nU09NRU9ORS1FTFNF\n-----END CERTIFICATE-----\n")
+var otherCA = []byte(beginTestBlock + "\nU09NRU9ORS1FTFNF\n" + endTestBlock + "\n")
 
 // caOfSize is a PEM block of exactly n bytes, so a test can place a
-// certificate at a chosen offset relative to a read window.
+// certificate at a chosen offset relative to a read window. The body has to
+// decode, so the bytes that do not make up a whole base64 quantum are line
+// breaks, which a decoder skips.
 func caOfSize(t *testing.T, n int) []byte {
 	t.Helper()
-	body := n - len(beginCertificate) - len(endCertificate) - 3
-	if body < 1 {
+	body := n - len(beginTestBlock) - len(endTestBlock) - 3
+	if body < 4 {
 		t.Fatalf("%d bytes is too small for a PEM block", n)
 	}
-	return fmt.Appendf(nil, "%s\n%s\n%s\n", beginCertificate, strings.Repeat("Q", body), endCertificate)
+	blob := strings.Repeat("\n", body%4) + strings.Repeat("Q", body-body%4)
+	return fmt.Appendf(nil, "%s\n%s\n%s\n", beginTestBlock, blob, endTestBlock)
 }
 
 // Removal has to be exact rather than length-based: a step may append its own
@@ -177,7 +215,7 @@ func TestRemoveCAMatchesAReEncodedCertificate(t *testing.T) {
 // leave that certificate in the image.
 func TestRemoveCAStripsACertificateBehindAnUnterminatedBlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.pem")
-	truncated := string(beginCertificate) + "\nVFJVTkNBVEVE\n"
+	truncated := beginTestBlock + "\nVFJVTkNBVEVE\n"
 	mustWriteFile(t, path, truncated+string(testCA))
 
 	if err := removeCA(path, testCA); err != nil {
@@ -215,7 +253,7 @@ func TestRemoveCALeavesAnOversizedBlockAlone(t *testing.T) {
 func TestRemoveCAIsANoOpWithoutACertificateToMatch(t *testing.T) {
 	cases := map[string]string{
 		"no certificate at all": "not a certificate",
-		"an unterminated one":   string(beginCertificate) + "\nQlVJTERDQUdFLUNB\n",
+		"an unterminated one":   beginTestBlock + "\nQlVJTERDQUdFLUNB\n",
 	}
 	for name, ca := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -277,9 +315,9 @@ func filler(n int) string {
 func TestRemoveCAStripsACertificateAcrossWindowBoundaries(t *testing.T) {
 	cases := map[string]struct{ beginAt, caSize, after int }{
 		"well inside one window":            {17, 64, 0},
-		"opening line ending a window":      {scanChunk - len(beginCertificate), 64, scanChunk},
+		"opening line ending a window":      {scanChunk - len(beginTestBlock), 64, scanChunk},
 		"opening line starting a window":    {scanChunk, 64, scanChunk},
-		"opening line over a read boundary": {scanChunk + len(beginCertificate)/2, 64, 2 * scanChunk},
+		"opening line over a read boundary": {scanChunk + len(beginTestBlock)/2, 64, 2 * scanChunk},
 		"straddling a window boundary":      {scanChunk - 100, 4096, scanChunk},
 		"spanning several windows":          {3 * scanChunk, 64, 3 * scanChunk},
 	}
@@ -496,6 +534,24 @@ func TestRemoveCAIsANoOpWhenTheFileIsGone(t *testing.T) {
 	}
 }
 
+// Cutting a PEM block out of a binary would shift everything after it.
+func TestRemoveCALeavesABinaryUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server")
+	content := "\x7fELF\x02\x01\x01\x00" + string(testCA) + "\x00TRAILER"
+	mustWriteFile(t, path, content)
+
+	if err := removeCA(path, testCA); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("got %q, want it unchanged", got)
+	}
+}
+
 // An empty bundle has no bytes to scan. The scan has to end on its own rather
 // than read past the end of the file.
 func TestRemoveCAIsANoOpOnAnEmptyFile(t *testing.T) {
@@ -519,7 +575,7 @@ func TestRemoveCAIsANoOpOnAnEmptyFile(t *testing.T) {
 // step wrote with it, so nothing is removed.
 func TestRemoveCALeavesAnUnterminatedBlockAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.pem")
-	content := "ORIGINAL\n" + string(beginCertificate) + "\nQlVJTERDQUdFLUNB\n"
+	content := "ORIGINAL\n" + beginTestBlock + "\nQlVJTERDQUdFLUNB\n"
 	mustWriteFile(t, path, content)
 
 	if err := removeCA(path, testCA); err != nil {
@@ -552,12 +608,11 @@ func withCA(t *testing.T) string {
 // the strip rather than leave the file half-shifted and call it done.
 func TestRemoveCAReportsAFailurePartwayThrough(t *testing.T) {
 	cases := map[string]*brokenFile{
-		"stat":                                    {failStat: true},
-		"the scan for the opening line":           {failReadAt: 1},
-		"the scan for the closing line":           {failReadAt: 2},
-		"the read of the certificate itself":      {failReadAt: 3},
-		"the newline check after the certificate": {failReadAt: 4},
-		"the shift that closes the gap":           {failWriteAt: 1},
+		"stat": {failStat: true},
+		// A bundle this small is read once, and every search is served from that.
+		"the read the searches go through": {failReadAt: 1},
+		"the read that closes the gap":     {failReadAt: 2},
+		"the write that closes the gap":    {failWriteAt: 1},
 	}
 	for name, broken := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -633,7 +688,7 @@ func TestFindInFileIsANoOpOnAnEmptyRange(t *testing.T) {
 	}
 	defer f.Close()
 
-	at, err := findInFile(f, beginCertificate, 0, 0)
+	at, err := findInFile(newFileWindow(f, 0), beginPEM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +712,7 @@ func TestFindInFileReportsAFailedRead(t *testing.T) {
 	}
 
 	broken := &brokenFile{bundleFile: f, failReadAt: 1}
-	if _, err := findInFile(broken, beginCertificate, 0, info.Size()); !errors.Is(err, errBrokenFile) {
+	if _, err := findInFile(newFileWindow(broken, info.Size()), beginPEM, 0); !errors.Is(err, errBrokenFile) {
 		t.Fatalf("got %v, want it to name the I/O failure", err)
 	}
 	broken = &brokenFile{bundleFile: f, failReadAt: 1}
@@ -689,5 +744,208 @@ func TestCloseGapsReportsAFailedReadOrWrite(t *testing.T) {
 				t.Fatalf("got %v, want it to name the I/O failure", err)
 			}
 		})
+	}
+}
+
+// An opening line the step cut short is not a block: the closing line the scan
+// would otherwise pair it with belongs to whatever came after it.
+func TestRemoveCALeavesAnUnfinishedOpeningLineAlone(t *testing.T) {
+	cases := map[string]struct{ content, want string }{
+		"nothing after it": {string(beginPEM), string(beginPEM)},
+		"no label to close it": {
+			"-----BEGIN CERTIFICATE\n" + string(testCA),
+			"-----BEGIN CERTIFICATE\n",
+		},
+		"a label of no length": {
+			"-----BEGIN -----\nQlVJTERDQUdFLUNB\n-----END -----\n",
+			"-----BEGIN -----\nQlVJTERDQUdFLUNB\n-----END -----\n",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bundle.pem")
+			mustWriteFile(t, path, c.content)
+
+			if err := removeCA(path, testCA); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func wrapped(s string, width int) string {
+	var out strings.Builder
+	for len(s) > width {
+		out.WriteString(s[:width] + "\n")
+		s = s[width:]
+	}
+	out.WriteString(s + "\n")
+	return out.String()
+}
+
+func TestFileHoldsCAFindsTracesRemovalLeaves(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	leaf, _ := testLeaf(t, ca, caKey, "allowed.example")
+	caPEM := string(certPEM(ca))
+	marks := caMarksOf([]byte(caPEM))
+
+	indented := ""
+	for _, line := range strings.SplitAfter(caPEM, "\n") {
+		indented += "    " + line
+	}
+	body := base64.StdEncoding.EncodeToString(ca.Raw)
+	pemAt60 := "-----BEGIN CERTIFICATE-----\n" + wrapped(body, 60) + "-----END CERTIFICATE-----\n"
+	for name, content := range map[string]string{
+		"PEM escaped into JSON":        `{"ca":"` + strings.ReplaceAll(caPEM, "\n", `\n`) + `"}`,
+		"PEM indented into YAML":       "tls:\n  ca: |\n" + indented,
+		"PEM at 60 escaped into JSON":  `{"ca":"` + strings.ReplaceAll(pemAt60, "\n", `\n`) + `"}`,
+		"PEM at 60 indented into YAML": "ca: |\n  " + strings.ReplaceAll(pemAt60, "\n", "\n  "),
+		"base64 with no breaks":        body,
+		"base64 at 48 with no armour":  wrapped(body, 48),
+		"base64 at 76 with no armour":  wrapped(body, 76),
+		"a forged leaf as PEM":         string(certPEM(leaf)),
+		"a forged leaf as DER":         string(leaf.Raw),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "copy")
+			mustWriteFile(t, path, content)
+			found, err := fileHoldsCA(path, marks.needles)
+			if err != nil {
+				t.Fatalf("fileHoldsCA: %v", err)
+			}
+			if !found {
+				t.Error("the copy was not found")
+			}
+		})
+	}
+}
+
+func TestFileHoldsCALeavesAnotherCAAlone(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	other, otherKey := testIssuer(t, "another run")
+	leaf, _ := testLeaf(t, other, otherKey, "allowed.example")
+	marks := caMarksOf(certPEM(ca))
+	path := filepath.Join(t.TempDir(), "bundle")
+	mustWriteFile(t, path, string(certPEM(other))+string(certPEM(leaf))+
+		base64.StdEncoding.EncodeToString(other.Raw)+string(leaf.Raw))
+	found, err := fileHoldsCA(path, marks.needles)
+	if err != nil {
+		t.Fatalf("fileHoldsCA: %v", err)
+	}
+	if found {
+		t.Error("another CA's certificates were taken for this one's")
+	}
+}
+
+// testCA's DER is a placeholder that does not parse, so it has no subject.
+func TestCAMarksOfACertificateThatDoesNotParse(t *testing.T) {
+	marks := caMarksOf(testCA)
+	if len(marks.ders) != 1 || len(marks.needles) != 2 {
+		t.Fatalf("got %d ders and %d needles, want 1 and 2", len(marks.ders), len(marks.needles))
+	}
+	if string(marks.needles[1]) != "QlVJTERDQUdFLUNB" {
+		t.Errorf("the base64 needle is %q", marks.needles[1])
+	}
+}
+
+func TestCAMarksOfTakesABase64Prefix(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	marks := caMarksOf(certPEM(ca))
+	if len(marks.needles) != 3 {
+		t.Fatalf("got %d needles, want the DER, the subject and a base64 line", len(marks.needles))
+	}
+	if !bytes.Equal(marks.needles[1], ca.RawSubject) {
+		t.Error("the second needle is not the CA's subject")
+	}
+	if got := string(marks.needles[2]); got != base64.StdEncoding.EncodeToString(ca.Raw)[:base64PrefixLength] {
+		t.Errorf("the base64 needle is %q", got)
+	}
+}
+
+// lateOpeningLines is a file whose second opening line sits where the search
+// that finds it is still served from the window, but the block read after it
+// runs past the window's end, so that read is the file's second.
+func lateOpeningLines(t *testing.T, needles [][]byte) (string, int64) {
+	t.Helper()
+	longest := len(beginPEM)
+	for _, needle := range needles {
+		longest = max(longest, len(needle))
+	}
+	n := scanChunk + longest - 1
+	first, second := n-200, 2*n-200
+	content := strings.Repeat("a", first) + string(beginPEM) +
+		strings.Repeat("a", second-first-len(beginPEM)) + string(beginPEM) +
+		strings.Repeat("a", n)
+	path := filepath.Join(t.TempDir(), "late.pem")
+	mustWriteFile(t, path, content)
+	return path, int64(len(content))
+}
+
+func TestBlockReadPastTheWindowReportsAFailedRead(t *testing.T) {
+	marks := caMarksOf(testCA)
+	open := func(t *testing.T, path string) *brokenFile {
+		t.Helper()
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { f.Close() })
+		return &brokenFile{bundleFile: f, failReadAt: 2}
+	}
+
+	t.Run("scanForCA", func(t *testing.T) {
+		path, size := lateOpeningLines(t, append([][]byte{beginPEM}, marks.needles...))
+		if _, err := scanForCA(open(t, path), size, marks.needles); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+	t.Run("findCertificates", func(t *testing.T) {
+		path, size := lateOpeningLines(t, [][]byte{beginPEM})
+		if _, err := findCertificates(newFileWindow(open(t, path), size), marks.ders); !errors.Is(err, errBrokenFile) {
+			t.Fatalf("got %v, want it to name the I/O failure", err)
+		}
+	})
+}
+
+// Each opening line without a block restarts the search just past it.
+func TestUnterminatedOpeningLinesAreReadOnce(t *testing.T) {
+	flood := strings.Repeat("-----BEGIN X-----\n", (1<<20)/18)
+	content := flood + string(testCA)
+	path := filepath.Join(t.TempDir(), "flood.pem")
+	mustWriteFile(t, path, content)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	size := int64(len(content))
+	maxReads := int(size/scanChunk) + 1
+
+	counted := &brokenFile{bundleFile: f}
+	found, err := scanForCA(counted, size, caMarksOf(testCA).needles)
+	if err != nil || !found {
+		t.Fatalf("scanForCA: found=%v err=%v, want the certificate found", found, err)
+	}
+	if counted.reads > maxReads {
+		t.Errorf("scanForCA read %d times, want at most %d", counted.reads, maxReads)
+	}
+
+	counted = &brokenFile{bundleFile: f}
+	cuts, err := findCertificates(newFileWindow(counted, size), caMarksOf(testCA).ders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []span{{int64(len(flood)), size}}; !slices.Equal(cuts, want) {
+		t.Errorf("cuts = %v, want %v", cuts, want)
+	}
+	if counted.reads > maxReads {
+		t.Errorf("findCertificates read %d times, want at most %d", counted.reads, maxReads)
 	}
 }

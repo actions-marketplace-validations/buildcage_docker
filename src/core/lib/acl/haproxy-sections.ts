@@ -1,5 +1,3 @@
-import { HOST_ONLY } from "./haproxy-matchers.ts";
-
 /**
  * Everything ahead of the first frontend that carries traffic. No rule and no
  * option reaches it, so it is the same text in every generated config.
@@ -13,6 +11,9 @@ export const PREAMBLE: readonly string[] = [
   // cut line matches nothing at all, taking its event out of the report.
   // `len` must precede `format`, or the config is rejected.
   "    log stdout len 16384 format raw local0",
+  // Threads sharing the stdout fd contend for its lock, and the loser drops
+  // its line (fd_write_frag_line).
+  "    nbthread 1",
   // This process parses traffic the workload controls, so it must not be root.
   "    user haproxy",
   "    group haproxy",
@@ -32,12 +33,16 @@ export const PREAMBLE: readonly string[] = [
   "",
   // A unix socket rather than a port, so the readiness check reaching it
   // never depends on what init-iptables allows.
-  "# Readiness only, for s6-notifyoncheck. Not reachable from the network.",
+  "# Readiness for s6-notifyoncheck, and the dropped-log count for the report.",
+  "# Not reachable from the network.",
   "frontend health",
   "    bind /var/run/haproxy-health.sock mode 666",
   "    mode http",
   "    no log",
   "    monitor-uri /health",
+  // A line HAProxy cannot write at once is dropped without a trace in the log
+  // itself; only this counter says one went missing.
+  "    http-request use-service prometheus-exporter if { path /metrics }",
   "",
 ];
 
@@ -71,11 +76,12 @@ export function resolversSection(resolvers: string[], useResolvConf: boolean): s
 export function originBackends(systemCaFile: string): string[] {
   return [
     "# The only place a request reaches the origin, so where its certificate is",
-    "# checked; a refused request never gets here. host_only on the SNI, since a",
-    "# certificate is verified against a name, not a name and port.",
+    "# checked; a refused request never gets here. The SNI is the port-free",
+    "# txn.host the rules judged, since a certificate is verified against a name,",
+    "# not a name and port.",
     "backend origin_tls",
     "    mode http",
-    `    server origin 0.0.0.0 ssl verify required ca-file ${systemCaFile} sni req.hdr(host),lower,${HOST_ONLY}`,
+    `    server origin 0.0.0.0 ssl verify required ca-file ${systemCaFile} sni var(txn.host)`,
     "",
     "backend origin_plain",
     "    mode http",

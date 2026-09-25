@@ -9,7 +9,16 @@ export interface AggregatedEntry extends LogEntry {
   count: number;
 }
 
-function compareAggregated(a: AggregatedEntry, b: AggregatedEntry): number {
+/** The identity a row is aggregated by: (host, port, ruleType, reason).
+ *  Shared so the blocked-hosts rows (annotateKnownBlocked) key the same way as
+ *  the passed/failed rows, and none can drift from the others. */
+export function entryKey(e: LogEntry): string {
+  return `${e.host}\t${e.port}\t${e.ruleType}\t${e.reason}`;
+}
+
+/** The host-table order: count descending, then host and port ascending. Used
+ *  by aggregate() below, and to re-sort when two aggregated lists are merged. */
+export function compareAggregated(a: AggregatedEntry, b: AggregatedEntry): number {
   return (
     b.count - a.count ||
     (a.host < b.host ? -1 : a.host > b.host ? 1 : 0) ||
@@ -24,7 +33,7 @@ function compareAggregated(a: AggregatedEntry, b: AggregatedEntry): number {
 export function aggregate(filtered: LogEntry[]): AggregatedEntry[] {
   const map: Record<string, number> = {};
   for (const e of filtered) {
-    const key = `${e.host}\t${e.port}\t${e.ruleType}\t${e.reason}`;
+    const key = entryKey(e);
     map[key] = (map[key] || 0) + 1;
   }
   return Object.keys(map)
@@ -47,7 +56,7 @@ export function createIncrementalAggregator(): IncrementalAggregator {
   const map = new Map<string, AggregatedEntry>();
   return {
     add(entry) {
-      const key = `${entry.host}\t${entry.port}\t${entry.ruleType}\t${entry.reason}`;
+      const key = entryKey(entry);
       const existing = map.get(key);
       if (existing) {
         existing.count++;

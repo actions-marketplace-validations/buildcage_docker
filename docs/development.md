@@ -22,7 +22,7 @@ the uppercase form of the same names (`PROXY_MODE`).
 
 ### Starting the Builder
 
-There's one `setup_buildkit_{engine}_{mode}` target per (`universal`, `inspect`, `explicit`) x
+There's one `setup_buildkit_{engine}_{mode}` target per (`universal`, `inspect`) x
 (`audit`, `restrict`) combination:
 
 ```bash
@@ -30,8 +30,6 @@ make setup_buildkit_universal_audit
 make setup_buildkit_universal_restrict
 make setup_buildkit_inspect_audit
 make setup_buildkit_inspect_restrict
-make setup_buildkit_explicit_audit
-make setup_buildkit_explicit_restrict
 ```
 
 **Start with custom domains** (restrict mode only):
@@ -41,13 +39,8 @@ ALLOWED_HTTPS_RULES="github.com:443 npmjs.org:443 example.com:443" make setup_bu
 ```
 
 Each target sets `PROXY_ENGINE`, which picks the build context at image build time through
-`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-universal}/Dockerfile`. The `explicit_*`
-targets therefore get BuildKit's native `--proxy-network` instead of the CNI/DNS-redirect/HAProxy
-stack (see [Engines](../README.md#engines)).
-
-`transparent` is an alias for `universal` in the action's own `proxy_engine` **input** only, resolved
-in TypeScript. `PROXY_ENGINE` here is a raw Compose build-context selector with no alias layer, so
-it does not understand that name.
+`compose.yaml`'s `build.dockerfile: docker/${PROXY_ENGINE:-inspect}/Dockerfile` (see
+[Engines](../README.md#engines)).
 
 `EXTERNAL_RESOLVER` is the one variable here with no action input behind it: the action pins it empty
 (`src/lib/compose-env.ts`), and locally it takes a comma-separated list of IPv4 addresses for HAProxy
@@ -84,8 +77,6 @@ Most `setup_buildkit_{engine}_{mode}` targets have a matching
 ```bash
 make test_integration_buildkit_universal_audit
 make test_integration_buildkit_universal_restrict
-make test_integration_buildkit_explicit_audit
-make test_integration_buildkit_explicit_restrict
 make test_integration_buildkit_inspect_restrict
 # Debian/apt build, which starts with no CA store at all
 make test_integration_buildkit_inspect_debian_audit
@@ -155,18 +146,18 @@ worktree name and keeps the unsuffixed names used everywhere else in this
 document. `BUILDCAGE_WORKTREE_SUFFIX` and `TEST_NET_SUBNET` override the derived values.
 
 `test-net`'s subnet comes from the same name, and appears in no assertion. It is
-pinned rather than left to Docker because Docker's own pool includes
-`172.20.0.0/16`, which overlaps the builder's CNI bridge: a daemon-side network
-in that range is shadowed by the longer prefix and becomes unreachable from
-inside the builder. Two worktrees whose names happen to pick the same subnet
-fail with `Pool overlaps with other one on this address space`; rename one, or
-set `TEST_NET_SUBNET`.
+pinned rather than left to Docker because `test/test-net-addr` finds the
+builder's interface on it by that subnet. Two worktrees whose names happen to
+pick the same subnet fail with `Pool overlaps with other one on this address
+space`; rename one, or set `TEST_NET_SUBNET`.
 
-Docker picks the Compose `default` network's subnet from its own pool, which
-includes `172.20.0.0/16` and can collide the same way. If the builder starts
-failing to reach the fixtures or the network for no apparent reason, check that
-subnet with `docker network inspect` and consider narrowing
-`default-address-pools` in the daemon configuration.
+The builder's CNI bridge is `198.19.255.0/24`, from the `198.18.0.0/15` block
+RFC 2544 reserves for benchmarking: outside Docker's default address pools, so
+no network Docker allocates on its own overlaps it. A daemon whose
+`default-address-pools` covers that range can still hand it to the Compose
+`default` network, and a network shadowed that way is unreachable from inside
+the builder. If the builder starts failing to reach the network for no apparent
+reason, check that subnet with `docker network inspect`.
 
 ## Local Development
 
@@ -236,17 +227,23 @@ docker compose logs builder
 docker compose logs -f builder
 ```
 
-**Log format (`universal` and `explicit`):**
+**Log format (`universal`):**
 
 ```
-[28/Feb/2026:10:15:30 +0000] buildcage [ALLOWED] "github.com:443" -
-[28/Feb/2026:10:15:31 +0000] buildcage [BLOCKED] "malicious.com:443" not-allowed
-[28/Feb/2026:10:15:32 +0000] buildcage [AUDIT] "npmjs.org:80" -
+buildcage 1787471970500 [ALLOWED] (HTTPS) "github.com:443" - 1024
+buildcage 1787471971200 [BLOCKED] (HTTPS) "malicious.com:443" not-allowed 0
+buildcage 1787471972000 [AUDIT] (HTTP) "npmjs.org:80" - 812
 ```
 
-Fields: `[timestamp] buildcage [status] "domain:port" reason`
+Fields: `buildcage <epoch-ms> [status] (rule) "domain:port" reason bytes`. The
+millisecond epoch orders the timeline and times each line against the startup
+marker; `bytes` is `%B`, the only per-connection detail a passthrough sees.
 
-**`inspect` reads two logs instead**, since a name CoreDNS refused never reaches HAProxy at all:
+`universal` also reads the resolver's log (`/var/log/coredns`), since a name CoreDNS refused never
+reaches HAProxy at all: it is the only trace of a name looked up but never connected to.
+
+**`inspect`'s proxy log is richer**, since it terminates TLS and sees each request whole; it reads the
+same resolver log alongside it:
 
 ```bash
 docker compose exec builder cat /var/log/haproxy/current
@@ -282,6 +279,19 @@ archive once it crosses 1MB, up to 100 archives kept, and a line is only ever sp
 report reads every archive, oldest first, then `current`, so early traffic is never dropped just
 because a later part of the same run pushed the log past a rotation. Reading `current` by hand, as
 above, only shows what has accumulated since the most recent one.
+
+HAProxy writes to s6-log through a pipe without blocking, so a line it cannot write at once is
+dropped rather than delayed, and nothing in the log marks where. A thread that keeps finding another
+mid-write on the pipe drops its line, so HAProxy runs one thread (`nbthread 1`). A stalled s6-log
+can still fill the pipe, so `pipesz` widens it from 64KB to 1MB before HAProxy starts. HAProxy
+counts the lines it drops itself: its `health` socket serves the Prometheus exporter, and the report
+reads `haproxy_process_dropped_logs_total` from it. A nonzero count, or one the report cannot read,
+marks the report incomplete. To read it by hand:
+
+```bash
+docker compose exec builder curl -s --unix-socket /var/run/haproxy-health.sock \
+  'http://localhost/metrics?scope=global' | grep dropped_logs
+```
 
 ## Makefile Commands
 
@@ -326,16 +336,14 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 │   │                         # image ref), distinct from the top-level compose.yaml below
 │   ├── seccomp/              # The builder container's seccomp profile and gen-profile.mjs,
 │   │                         # read by the Docker client on the runner, not copied into an image
-│   ├── universal/            # proxy_engine: universal — BuildKit, HAProxy, dnsmasq, s6-overlay
-│   ├── inspect/              # proxy_engine: inspect — HAProxy, CoreDNS, s6-overlay, and
-│   │                         # buildcage-runc/ (Go module: CA trust at exec time)
-│   └── explicit/             # proxy_engine: explicit (deprecated) — buildkit-proxy/ (Go module:
-│                             # PID 1, supervises buildkitd, injects the source policy)
+│   ├── universal/            # proxy_engine: universal — BuildKit, HAProxy, CoreDNS, s6-overlay
+│   └── inspect/              # proxy_engine: inspect — HAProxy, CoreDNS, s6-overlay, and
+│                             # buildcage-runc/ (Go module: CA trust at exec time)
 ├── test/                     # Dockerfile.*/assert-*.sh per {engine}-{mode}, plus the fixture
 │                             # containers. helpers.sh carries what every assert script shares
 ├── compose.test-*.yaml       # Test override config, one per engine
 ├── report/                   # Report action: action.yml, src/ (ESM), dist/ (rolldown → CommonJS)
-├── docs/                     # development.md, security.md, explicit-engine.md, plus the
+├── docs/                     # development.md, security.md, plus the
 │                             # reference.md/rules.md/inspect-engine.md link stubs
 ├── licenses/                 # gen-license-file.mjs, which regenerates THIRD_PARTY_LICENSES_NPM
 │                             # during `vp run build`, and what .glf.jsonc substitutes in
@@ -343,11 +351,17 @@ CA store), `inspect_roundtrip` (learn rules from an audit run, then enforce them
 └── Makefile                  # Operational commands
 ```
 
-Every engine directory carries a `scripts/` of its own. `report-action.node.ts` is in all three, and
-runs under Node on the runner after the report action copies it out of the image. `inspect` and
-`explicit` each have a QuickJS entry point beside it (`gen-configs.qjs.ts`,
-`gen-source-policy.qjs.ts`), so those two directories are a second QuickJS build target alongside
-`src/core/scripts/`; `tsconfig.qjs.json` names all of them.
+Every engine directory carries a `scripts/` of its own. `report-action.node.ts` is in both, and
+runs under Node on the runner after the report action copies it out of the image. `inspect` also has
+a QuickJS entry point beside it (`gen-configs.qjs.ts`), so that directory is a second QuickJS build
+target alongside `src/core/scripts/`; `tsconfig.qjs.json` names both.
+
+`buildcage-runc` takes `go-pkcs12` from the
+[buildcage/go-pkcs12](https://github.com/buildcage/go-pkcs12) fork through a `replace` in its
+`go.mod`. The fork adds `DecodeTrustStoreEntries`, since a keystore rewrite must keep the aliases,
+and `MaxIterations`, which the sweep sets to a million so a keystore naming more key-derivation
+iterations is left unread instead of stalling the build. Its `vX.Y.Z-buildcage.N` tags are upstream
+`vX.Y.Z` plus those additions.
 
 ## Troubleshooting
 
@@ -371,23 +385,19 @@ If you encounter issues, try reproducing the problem locally to get detailed log
 3. **TLS/certificate errors under `proxy_engine: inspect`**: if a `RUN` step fails with a
    certificate error there but works fine under `universal`, the tool likely pins a certificate or
    ships its own trust store rather than reading the CA-trust environment variables Buildcage sets.
-   See [Limitations](../README.md#limitations). The JVM is the common case; fall back to
-   `universal` for it.
+   A JVM already in the base image is handled (`buildcage-runc` injects into its
+   `$JAVA_HOME/lib/security/cacerts`, JKS or PKCS#12); a keystore sealed with a password other than
+   the JDK default still needs `universal`. See
+   [Limitations](../README.md#limitations).
 
-4. **TLS/certificate errors under `proxy_engine: explicit`**: if a `RUN` step fails with a
-   certificate error there but works fine under `universal` (or without Buildcage at all), the tool
-   likely bundles its own CA store instead of consulting the system one BuildKit already trusts. See
-   [CA trust for tools with their own CA store](./explicit-engine.md#ca-trust-for-tools-with-their-own-ca-store)
-   in the Explicit Proxy Engine doc.
-
-5. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
+4. **The setup step fails with "never became ready"**: the builder came up but `buildctl debug
 workers` never succeeded inside it. The step prints the container log; locally:
 
    ```bash
    docker inspect --format '{{json .State.Health}}' buildcage
    ```
 
-6. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
+5. **Open an issue** at [github.com/buildcage/docker/issues](https://github.com/buildcage/docker/issues) with:
    - Your Dockerfile
    - The audit mode report output
    - Full error messages from `docker compose logs builder`

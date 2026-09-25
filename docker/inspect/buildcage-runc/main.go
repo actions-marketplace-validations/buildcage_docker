@@ -122,7 +122,7 @@ func run(args []string) int {
 	if err := cmd.Start(); err != nil {
 		logf("cannot run %s: %v", realRunc, err)
 		if injected != nil {
-			_ = injected.finish()
+			_ = injected.finish(false)
 		}
 		return 1
 	}
@@ -145,8 +145,10 @@ func run(args []string) int {
 		//coverage:ignore stop
 	}
 	if injected != nil {
-		if err := injected.finish(); err != nil {
-			logf("CA write-back failed, failing the build: %v", err)
+		// Only a step that exited zero has a layer BuildKit will commit, and
+		// so a layer worth reading back.
+		if err := injected.finish(code == 0); err != nil {
+			logf("taking the CA back out failed, failing the build: %v", err)
 			dumpOwnLog(os.Stderr)
 			if code == 0 {
 				code = 1

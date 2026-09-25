@@ -19,8 +19,8 @@ echo ""
 echo "[BLOCKED] expected (protocol/infrastructure errors):"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:443" "dns-failed"
 assert_log_contains BLOCKED "nxdomain.wildcard.example.com:80" "dns-failed"
-assert_log_contains BLOCKED "172.20.0.1:443" "missing-sni"
-assert_log_contains BLOCKED "172.20.0.1:80" "missing-host-header"
+assert_log_contains BLOCKED "198.19.255.1:443" "missing-sni"
+assert_log_contains BLOCKED "198.19.255.1:80" "missing-host-header"
 echo ""
 
 echo "[BLOCKED] expected (internal-address guard, unconditional even in audit):"
@@ -35,6 +35,10 @@ assert_log_not_contains ALLOWED
 echo ""
 
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
+
+echo "[report] the log reads as complete:"
+assert_report_complete "$REPORT_MARKDOWN"
+echo ""
 
 echo "[report] audit heading and the hosts that were reached:"
 if grep -qF "### 📋 Audited Hosts" <<< "$REPORT_MARKDOWN" \
@@ -103,8 +107,9 @@ assert_rules() {
 }
 
 if grep -qF "Switch to restrict mode" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "proxy_mode: restrict" <<< "$REPORT_MARKDOWN"; then
-  pass "a restrict-mode example was rendered"
+  && grep -qF "proxy_mode: restrict" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "proxy_engine: universal" <<< "$REPORT_MARKDOWN"; then
+  pass "a restrict-mode example was rendered, naming the non-default engine"
 else
   fail "no restrict-mode example was rendered"
 fi

@@ -55,7 +55,9 @@ jobs:
   # involved; see docs/development.md#local-development.
   test_action:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
+    # !cancelled() forces this to evaluate when `changes` is skipped (it runs
+    # only on pull_request); a skipped need otherwise skips the job unevaluated.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,18 +68,8 @@ jobs:
         include:
           - proxy_engine: universal
             build_engine: universal
-          - proxy_engine: explicit
-            build_engine: explicit
           - proxy_engine: inspect
             build_engine: inspect
-          # `transparent` is a permanently supported alias for `universal`
-          # (see resolveProxyEngine's ENGINE_ALIASES). No image is published
-          # under that name, so build_engine still resolves to the real
-          # universal Dockerfile: what this proves is that the action's own
-          # proxy_engine input accepts and normalizes the alias, not that
-          # compose.yaml does.
-          - proxy_engine: transparent
-            build_engine: universal
 
     name: "e2e: test (action, ${{ matrix.proxy_engine }})"
 
@@ -155,15 +147,14 @@ jobs:
           cat <<'EOF' > /tmp/build-context/Dockerfile
           FROM node:24-alpine
           WORKDIR /app
-          # NODE_USE_SYSTEM_CA=1: required for the explicit engine (always
-          # MITMs TLS); harmless for universal. inspect also terminates TLS
-          # but needs nothing here, because its runc wrapper points
-          # NODE_EXTRA_CA_CERTS at a store carrying the CA.
-          RUN npm init -y && NODE_USE_SYSTEM_CA=1 npm install --ignore-scripts --no-audit @hono/node-server@2.1.1
+          # universal does not MITM TLS; inspect terminates it but needs nothing
+          # here, because its runc wrapper points NODE_EXTRA_CA_CERTS at a store
+          # carrying the CA.
+          RUN npm init -y && npm install --ignore-scripts --no-audit @hono/node-server@2.1.1
           # Refused by the rules above, so the report shows the full URL, not
           # just the host. Engines differ in exactly how the refusal shows up
           # (a proxy-level HTTP error under inspect, a rejected connection
-          # under universal/explicit), so only success here is unexpected.
+          # under universal), so only success here is unexpected.
           RUN if wget -q -O /dev/null --timeout=5 https://example.com/some/path; then \
                 echo "FAILED: example.com should have been refused" && exit 1; \
               fi
@@ -257,7 +248,7 @@ jobs:
   # the step has to pass anyway, which is what the input is for.
   test_action_known_blocked:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_action == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

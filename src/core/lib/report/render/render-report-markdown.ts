@@ -1,9 +1,9 @@
 import { renderHostTable } from "./host-table.ts";
 import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import { buildRestrictExample } from "./build-example.ts";
-import { renderCommunicationDetails } from "./communication-details.ts";
 import { renderInspectDetails } from "./inspect-details.ts";
 import { buildInspectRestrictExample } from "./inspect-example.ts";
+import { escapeCell } from "./markdown-table.ts";
 import type { ReportData } from "../types.ts";
 
 export interface RenderReportMarkdownOptions {
@@ -31,15 +31,20 @@ export function renderReportMarkdown(
   // restrict is what a real run normally uses day to day, so its heading
   // stays bare; audit is the occasional, deliberately different mode and
   // says so, the same way the heading below calls out "Audited" vs "Allowed".
-  let markdown = `## ${title}${isAudit ? " (audit mode)" : ""}\n\n`;
+  // escapeCell as defense in depth: the report scripts only ever pass the
+  // bare default title, but the renderer must not depend on that to keep
+  // Markdown out of the heading.
+  let markdown = `## ${escapeCell(title)}${isAudit ? " (audit mode)" : ""}\n\n`;
 
   // The tables would otherwise read as the whole story.
   if (!report.logLooksPlausible) {
     markdown +=
       "> ⚠️ **This report is incomplete**, so the tables below are not a full record of this run.\n" +
-      "> Either the logs don't begin where a real run does, or one carries a line that cannot be\n" +
-      "> read. A missing beginning was either removed or rotated out by traffic heavy enough to\n" +
-      "> fill the 100 MB of log kept, which takes a few hundred thousand requests.\n\n";
+      "> Either the logs don't begin where a real run does, one carries a line that cannot be\n" +
+      "> read, or the proxy dropped lines it could not write (or could not say whether it had).\n" +
+      "> A missing beginning was either removed or rotated out by traffic heavy enough to fill the\n" +
+      "> 100 MB of log kept, which takes a few hundred thousand ordinary requests or a few thousand\n" +
+      "> made as long as a request can be.\n\n";
   }
 
   if (report.passed.length > 0) {
@@ -59,10 +64,9 @@ export function renderReportMarkdown(
   }
   if (report.blocked.length > 0) {
     if (report.passed.length > 0) markdown += "\n";
-    // universal has no Communication details section to name a folded row's
-    // hosts in.
-    const blocked =
-      report.engine === "universal" ? report.blocked : foldExpectedBlockedRows(report.blocked);
+    // A folded row names its rule; the hosts it stands for are in the
+    // Communication details section, which both engines now emit.
+    const blocked = foldExpectedBlockedRows(report.blocked);
     markdown +=
       "### 🚫 Blocked Hosts\n\n" +
       renderHostTable(blocked, { showReason: true, showExpected }) +
@@ -76,19 +80,22 @@ export function renderReportMarkdown(
       "\n\n<sub>*Note: no rule refused these; the connection itself did not complete, so no rule " +
       "can change the outcome and none of them fails the step.*</sub>\n";
   }
-  if (report.passed.length === 0 && report.blocked.length === 0 && report.failed.length === 0) {
+  if (
+    report.passed.length === 0 &&
+    report.blocked.length === 0 &&
+    report.failed.length === 0 &&
+    report.timeline.length === 0
+  ) {
     // Otherwise a no-traffic build leaves nothing between the heading and the
-    // footer, indistinguishable from a report that failed to generate.
+    // footer, indistinguishable from a report that failed to generate. A build
+    // that only looked names up has empty tables but a non-empty timeline, so
+    // its discovery lookups still show in Communication details below.
     markdown += "_(no communication)_\n\n";
   }
 
-  if (report.engine === "explicit") {
-    markdown += renderCommunicationDetails(report.proxyLogs.builds, report.proxyLogs.denied);
-  } else if (report.engine === "inspect") {
-    markdown += renderInspectDetails(report.timeline, report.startedAt);
-  } else {
-    // Only the universal engine identifies a host this way; the explicit
-    // engine terminates TLS itself and gets renderCommunicationDetails above.
+  markdown += renderInspectDetails(report.timeline, report.startedAt);
+  if (report.engine === "universal") {
+    // Only the universal engine identifies a host this way.
     markdown +=
       "\n<sub>*Note: HTTP rules are based on the Host header, HTTPS rules on SNI, and IP rules on the destination IP address.*</sub>\n";
   }

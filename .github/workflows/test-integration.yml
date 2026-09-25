@@ -44,7 +44,6 @@ jobs:
               - *docker
               - *workflow
               - 'compose.test-universal.yaml'
-              - 'compose.test-explicit.yaml'
               - 'compose.test-inspect.yaml'
               - 'test/**'
               - 'report/src/**'
@@ -59,7 +58,9 @@ jobs:
   # kept in the Makefile.
   test:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    # !cancelled() forces this to evaluate when `changes` is skipped (it runs
+    # only on pull_request); a skipped need otherwise skips the job unevaluated.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -80,12 +81,6 @@ jobs:
           - mode: universal-known-blocked
             target: test_integration_buildkit_universal_known_blocked
             test_compose_file: compose.test-universal.yaml
-          - mode: explicit-audit
-            target: test_integration_buildkit_explicit_audit
-            test_compose_file: compose.test-explicit.yaml
-          - mode: explicit-restrict
-            target: test_integration_buildkit_explicit_restrict
-            test_compose_file: compose.test-explicit.yaml
           - mode: inspect-restrict
             target: test_integration_buildkit_inspect_restrict
             test_compose_file: compose.test-inspect.yaml
@@ -94,6 +89,12 @@ jobs:
             test_compose_file: compose.test-inspect.yaml
           - mode: inspect-debian-restrict
             target: test_integration_buildkit_inspect_debian_restrict
+            test_compose_file: compose.test-inspect.yaml
+          - mode: inspect-java-audit
+            target: test_integration_buildkit_inspect_java_audit
+            test_compose_file: compose.test-inspect.yaml
+          - mode: inspect-hidden-ca
+            target: test_integration_buildkit_inspect_hidden_ca
             test_compose_file: compose.test-inspect.yaml
 
     name: "integration: test (${{ matrix.mode }})"
@@ -133,7 +134,7 @@ jobs:
 
   test_inspect_roundtrip:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -170,7 +171,7 @@ jobs:
 
   test_inspect_byte_exact:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -203,7 +204,7 @@ jobs:
   # from the one interface the jobs above exercise.
   test_listener_scope:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -220,7 +221,7 @@ jobs:
 
   test_multiarch:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.test_multiarch == 'true'
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.test_multiarch == 'true') }}
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -246,7 +247,7 @@ jobs:
 
   # Single, stably-named required status check for branch protection: the
   # `test` job's own name varies per matrix entry (test (universal-audit),
-  # test (explicit-restrict), etc.), so branch protection can't target it
+  # test (inspect-restrict), etc.), so branch protection can't target it
   # directly without listing every combination and having to update that list
   # whenever the matrix changes.
   integration-tests-passed:

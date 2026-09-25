@@ -87,10 +87,21 @@ RUN echo "=== [Traversal, backslash] ===" && \
       [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
     done
 
-# An encoded slash on its own is how npm asks for a scoped package, and a name
-# may simply contain dots.
+# Tomcat and Jetty read `..;/` as `../`. This origin does not, so the 403 is
+# what is under test.
+RUN echo "=== [Traversal, path parameter] ===" && \
+    for P in "..;/private/secret" "..%3b/private/secret" "..%3B/private/secret" \
+             "..;jsessionid=x/private/secret" "%2e%2e;/private/secret"; do \
+      CODE=$(curl -sS -o /dev/null -w %{http_code} --path-as-is --max-time 10 \
+             "https://allowed.example.com/public/$P") && \
+      echo "  $P -> $CODE" && \
+      [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1); \
+    done
+
+# An encoded slash on its own is how npm asks for a scoped package, a name
+# may simply contain dots, and a segment may carry a parameter.
 RUN echo "=== [Not traversal] ===" && \
-    for P in "@scope%2fpkg" "my..pkg" "pkg.tgz" "a%5cb"; do \
+    for P in "@scope%2fpkg" "my..pkg" "pkg.tgz" "a%5cb" "pkg;v=1"; do \
       OUT=$(curl -sS --path-as-is --max-time 10 "https://allowed.example.com/public/$P") && \
       echo "  $P -> $OUT" && \
       case "$OUT" in PUBLIC*) : ;; *) echo "FAILED: refused a legitimate path" && exit 1 ;; esac; \
@@ -275,8 +286,11 @@ RUN echo "=== [Client leaves before sending a request] ===" && \
 # allowed_tls_rules entry covers: anything that is not a TLS handshake reaches
 # the plain stage, which reads it as a request and refuses it. nc rather than
 # curl, which can only speak protocols it knows.
+#
+# Keep the sleep: it holds stdin open so the FIN does not race the parse and
+# flip the logged ts=PR to ts=CR under load, breaking the report assertion.
 RUN echo "=== [Not an HTTP request at all] ===" && \
-    printf 'NOT-HTTP\r\n\r\n' | nc -w 5 10.200.0.100 5432; \
+    { printf 'NOT-HTTP\r\n\r\n'; sleep 1; } | nc -w 5 10.200.0.100 5432; \
     echo "nc exit=$?"
 
 # A request that parsed and named no host. `-H 'Host:'` drops the header, and
@@ -339,7 +353,7 @@ RUN echo "=== [Service discovery, host not allowed] ===" && \
 # five-second timeout, once for every tool that reverse-resolves its own
 # address or the gateway's. NXDOMAIN is final and costs nothing.
 RUN echo "=== [Reverse lookup] ===" && \
-    OUT=$(nslookup 172.20.0.1 2>&1 || true) && \
+    OUT=$(nslookup 198.19.255.1 2>&1 || true) && \
     echo "$OUT" && \
     case "$OUT" in *NXDOMAIN*) echo "OK" ;; *) echo "FAILED: expected NXDOMAIN" && exit 1 ;; esac
 
@@ -408,6 +422,21 @@ RUN echo "=== [Regex IP rule - other port not covered] ===" && \
     echo "status=$CODE" && \
     [ "$CODE" = "403" ] || (echo "FAILED: expected 403" && exit 1)
 
+# What a resolver does when a UDP answer comes back truncated. The gateway's
+# :53 is CoreDNS; any other resolver's is judged by allowed_ip_rules like any
+# other address. The reply opens with its length, then the query's own id.
+RUN echo "=== [DNS over TCP - gateway] ===" && \
+    ID=$(printf '\000\035\253\315\001\000\000\001\000\000\000\000\000\000\007example\003com\000\000\001\000\001' \
+      | nc -w 5 198.19.255.1 53 | od -An -tx1 | tr -d ' \n' | cut -c5-8) && \
+    echo "id=$ID" && \
+    [ "$ID" = "abcd" ] || (echo "FAILED: expected an answer" && exit 1)
+
+RUN echo "=== [DNS over TCP - resolver an ip rule allows] ===" && \
+    ID=$(printf '\000\035\253\315\001\000\000\001\000\000\000\000\000\000\007example\003com\000\000\001\000\001' \
+      | nc -w 5 10.200.0.53 53 | od -An -tx1 | tr -d ' \n' | cut -c5-8) && \
+    echo "id=$ID" && \
+    [ "$ID" = "abcd" ] || (echo "FAILED: expected an answer" && exit 1)
+
 # The cage forwards nothing, so a build cannot leave over UDP: no QUIC, no
 # HTTP/3, no DNS to a resolver of its own choosing. assert-inspect-restrict.sh
 # runs the same probe from beside the echo server, where it must succeed, so a
@@ -436,5 +465,14 @@ RUN echo "=== [Package manager - apk over the injected CA] ===" && \
       *"not trusted"*) echo "FAILED: TLS was not trusted" && exit 1 ;; \
       *) echo "OK: reached the origin over TLS" ;; \
     esac
+
+# The CA reaches the layer without the wrapper writing it there: a step that
+# copies the store carries it out of the one directory the undo knows about.
+# Only reading the step's own layer back finds this.
+# assert-inspect-no-ca-residue.sh checks the copy in the built image.
+RUN echo "=== [A copy of the store outside it] ===" && \
+    mkdir -p /app && \
+    cp /etc/ssl/certs/ca-certificates.crt /app/bundle.pem && \
+    echo "OK: copied"
 
 RUN echo "=== End of test ==="

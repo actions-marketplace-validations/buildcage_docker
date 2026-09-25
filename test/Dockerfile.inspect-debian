@@ -25,6 +25,26 @@ RUN echo "=== [apt bootstrap: ca-certificates over plain HTTP] ===" && \
     apt-get install -y --no-install-recommends ca-certificates && \
     echo "OK"
 
+# The JVM keeps its trusted roots in a keystore of its own, a JKS at a path that
+# holds the JDK's vendor and version, so no list of paths would name it and no
+# PEM removal reaches it: this is the case the layer sweep's keystore rewrite
+# exists for. A JRE brings keytool, and the anchor the wrapper placed this step
+# is imported into that keystore the way ca-certificates-java would, so the
+# keystore ends the step trusting the CA. The in-step grep proves it does,
+# before the sweep runs; assert-inspect-no-ca-residue.sh proves the committed
+# image's keystore no longer does. A build that could not take it out would have
+# failed rather than reached here.
+#
+# Installed here, while the apt sources are still only the plain-HTTP archive,
+# before the later steps add a blocked one.
+RUN echo "=== [JRE keystore over the injected CA] ===" && \
+    apt-get install -y --no-install-recommends default-jre-headless && \
+    keytool -importcert -noprompt -alias buildcage \
+      -file /usr/local/share/ca-certificates/buildcage.crt \
+      -keystore /etc/ssl/certs/java/cacerts -storepass changeit && \
+    keytool -list -keystore /etc/ssl/certs/java/cacerts -storepass changeit | grep -qi buildcage && \
+    echo "OK: the JVM keystore trusts the anchor in-step"
+
 # A new layer starts with the ca-certificates.crt the previous step just
 # created, so this step gets the wrapper's CA the normal way. Reusing
 # /public/** as a fake index only exercises the TLS leg: a signature error
@@ -52,5 +72,30 @@ RUN echo "=== [apt outside the rules] ===" && \
     rm -f /etc/apt/sources.list.d/inspect-test.list && \
     apt-get update 2>&1 | tail -5; \
     echo "OK: request sent"
+
+# A step that copies the store puts the CA somewhere no list of paths would
+# name, so the copy is only found by reading the step's own layer back. Both
+# shapes a trust store keeps a certificate in are made here: the plain PEM the
+# bundle is, and the re-armoured TRUSTED CERTIFICATE that a RHEL rebuild
+# writes, whose body is the certificate with trust settings appended and which
+# therefore matches neither the original block nor its base64. openssl is
+# already here, since ca-certificates depends on it.
+#
+# `-addtrust` is what makes the second one that shape. `-trustout` alone leaves
+# the auxiliary trust info empty, and the body is then byte-identical to the
+# plain block's, so the copy would be found by matching on equality and this
+# would prove nothing about containment.
+#
+# The injected CA is the last block in the bundle, which the subject check
+# confirms: without it a fixture that stopped copying the right certificate
+# would still pass. assert-inspect-no-ca-residue.sh checks the built image.
+RUN echo "=== [A copy of the store outside it] ===" && \
+    mkdir -p /app && \
+    cp /etc/ssl/certs/ca-certificates.crt /app/bundle.pem && \
+    awk '/-----BEGIN CERTIFICATE-----/{c=""} {c=c $0 "\n"} /-----END CERTIFICATE-----/{last=c} \
+         END{printf "%s", last}' /app/bundle.pem > /tmp/last.pem && \
+    openssl x509 -in /tmp/last.pem -noout -subject | grep -q "buildcage proxy CA" && \
+    openssl x509 -in /tmp/last.pem -trustout -addtrust serverAuth -out /app/trusted.pem && \
+    echo "OK: copied"
 
 RUN echo "=== End of test ==="

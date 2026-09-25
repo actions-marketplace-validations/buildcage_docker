@@ -15,7 +15,6 @@
         uses: buildcage/docker@v2 # 2.1.0
         with:
           proxy_mode: restrict
-          proxy_engine: inspect
           allowed_url_rules: |
             GET https://a.example.com/pkg.json
 ```

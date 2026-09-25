@@ -98,7 +98,7 @@ func TestInjectSetsEachUnsetVariableAccordingToItsKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	env := loadEnv(t, bundle)
 
@@ -160,7 +160,7 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	env := loadEnv(t, bundle)
 	if env["DENO_CERT"] != "/custom/roots.pem" {
@@ -186,6 +186,95 @@ func TestInjectAppendsToAnAlreadySetVariableInstead(t *testing.T) {
 	}
 }
 
+// A variable pointing at a file nested inside the system store directory is
+// injected in the store's own mirror, not bound on its own: a bind under the
+// store mount would be shadowed by it, so the nested file would otherwise never
+// get the CA (and, left to map order, the store itself could be the one skipped).
+func TestInjectFoldsATargetNestedUnderTheStore(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundle(t, []string{"DENO_CERT=/etc/ssl/certs/company/roots.pem"})
+	mustMkdirAll(t, filepath.Join(rootfs, "etc", "ssl", "certs", "company"))
+	mustWriteFile(t, filepath.Join(rootfs, "etc", "ssl", "certs", "company", "roots.pem"), "COMPANY\n")
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	mounts := loadMounts(t, bundle)
+	for _, m := range mounts {
+		if m["destination"] == "/etc/ssl/certs/company" {
+			t.Fatal("the nested target got its own bind, which the store mount shadows")
+		}
+	}
+
+	// Both the store bundle and the nested file are injected in the store's one
+	// mirror.
+	mount := findMount(t, mounts, "/etc/ssl/certs")
+	scratchDir, _ := mount["source"].(string)
+	for _, rel := range []string{"ca-certificates.crt", "company/roots.pem"} {
+		got, err := os.ReadFile(filepath.Join(scratchDir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), string(testCA)) {
+			t.Errorf("%s did not get the CA in the store mirror: %q", rel, got)
+		}
+	}
+}
+
+// A variable pointing at a bundle under a directory that is not there is the
+// step's own: nothing can be appended to a file whose directory does not
+// exist, so it is left alone rather than mirrored. (resolveInRoot resolves such
+// a path now, for the anchors' sake, so this is guarded separately.)
+func TestInjectLeavesAVariableUnderAMissingDirectoryAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"DENO_CERT=/not-there/roots.pem"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == "/not-there" {
+			t.Fatal("a bind was set up for a directory that is not there")
+		}
+	}
+	if env := loadEnv(t, bundle)["DENO_CERT"]; env != "/not-there/roots.pem" {
+		t.Fatalf("DENO_CERT was disturbed: %q", env)
+	}
+}
+
+// Treated as a bundle, a directory would nest the host path inside the store's mirror.
+func TestInjectLeavesAVariableNamingADirectoryAlone(t *testing.T) {
+	useFakeRsync(t)
+	bundle, _ := newBundle(t, []string{"SSL_CERT_FILE=/etc/ssl/certs"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	for _, m := range loadMounts(t, bundle) {
+		entries, err := os.ReadDir(m["source"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				t.Fatalf("the mirror of %v holds a directory %s", m["destination"], e.Name())
+			}
+		}
+	}
+	if env := loadEnv(t, bundle)["SSL_CERT_FILE"]; env != "/etc/ssl/certs" {
+		t.Fatalf("SSL_CERT_FILE was disturbed: %q", env)
+	}
+}
+
 // A step that never touches the store leaves the real rootfs file alone:
 // finish() finds the scratch mirror unchanged from its post-injection
 // baseline and never writes back.
@@ -197,7 +286,7 @@ func TestInjectFinishLeavesAnUntouchedStoreAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restore.finish(); err != nil {
+	if err := restore.finish(true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -230,7 +319,7 @@ func TestInjectWritesBackWhenTheStepChangesTheStore(t *testing.T) {
 
 	calls := countRsync(t)
 
-	if err := restore.finish(); err != nil {
+	if err := restore.finish(true); err != nil {
 		t.Fatal(err)
 	}
 	if *calls != 2 {
@@ -263,7 +352,7 @@ func TestInjectWriteBackFailurePropagates(t *testing.T) {
 
 	failRsyncOn(t, 2) // the apply, right after a successful dry run
 
-	if err := restore.finish(); err == nil {
+	if err := restore.finish(true); err == nil {
 		t.Fatal("expected the write-back failure to propagate")
 	}
 }
@@ -287,7 +376,7 @@ func TestInjectSkipsRestoreWhenStepSwapsBundleForASymlink(t *testing.T) {
 	}
 	mustSymlink(t, outside, target)
 
-	if err := restore.finish(); err != nil {
+	if err := restore.finish(true); err != nil {
 		t.Fatalf("restore should skip the unrestorable file, not fail the build: %v", err)
 	}
 
@@ -343,7 +432,7 @@ func TestInjectWithoutSystemStoreFallsBackToOwnCAForEveryVariable(t *testing.T) 
 		t.Fatalf("own CA file = %q", own)
 	}
 
-	restore.finish()
+	restore.finish(true)
 	if _, err := os.Stat(filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))); !os.IsNotExist(err) {
 		t.Fatalf("own CA file still present after restore: %v", err)
 	}
@@ -377,7 +466,7 @@ func TestInjectSkipsADirectoryAMountAlreadyCovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	for _, m := range loadMounts(t, bundle) {
 		if m["destination"] == "/etc/ssl/certs" {
@@ -404,7 +493,7 @@ func TestInjectRefusesToBindTheContainerRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
 		t.Fatalf("expected no mounts, got %v", mounts)
@@ -424,7 +513,7 @@ func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	for _, m := range loadMounts(t, bundle) {
 		if m["destination"] == "/big" {
@@ -433,6 +522,30 @@ func TestInjectSkipsADirectoryPrepareRefuses(t *testing.T) {
 	}
 	// The store the same build does have is still injected.
 	findMount(t, loadMounts(t, bundle), "/etc/ssl/certs")
+}
+
+// Not at a store the CA never went into.
+func TestInjectFallsBackWhenTheStoreCannotBeMirrored(t *testing.T) {
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	mustMkdirAll(t, filepath.Join(rootfs, "usr"))
+	mustWriteFile(t, filepath.Join(rootfs, "usr/ca.crt"), "ORIGINAL-ROOTS\n")
+	mustSparseFile(t, filepath.Join(rootfs, "usr/libhuge.so"), maxStoreDirBytes)
+	mustMkdirAll(t, filepath.Join(rootfs, "etc/ssl/certs"))
+	mustSymlink(t, "/usr/ca.crt", filepath.Join(rootfs, "etc/ssl/certs/ca-certificates.crt"))
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore.finish(true)
+
+	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
+		t.Errorf("mounted %v, want nothing mirrored", mounts)
+	}
+	if got := loadEnv(t, bundle)["SSL_CERT_FILE"]; got != ownCAPath {
+		t.Errorf("SSL_CERT_FILE = %q, want %q", got, ownCAPath)
+	}
 }
 
 // A file already at the wrapper's own path belongs to the image, not to this
@@ -456,7 +569,7 @@ func TestInjectLeavesAnExistingOwnCAPathAlone(t *testing.T) {
 		}
 	}
 
-	if err := restore.finish(); err != nil {
+	if err := restore.finish(true); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(existing)
@@ -479,7 +592,7 @@ func TestInjectLeavesAnUnresolvableVariableAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	if got := loadEnv(t, bundle)["DENO_CERT"]; got != "../../../../etc/passwd" {
 		t.Errorf("DENO_CERT = %q, want it left alone", got)
@@ -503,7 +616,7 @@ func TestInjectCarriesOnWhenItCannotPlaceItsOwnCAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	env := loadEnv(t, bundle)
 	for _, variable := range caVariables {
@@ -531,7 +644,7 @@ func TestInjectCarriesOnWhenItCannotWriteItsOwnCAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	if got := loadEnv(t, bundle)["NODE_EXTRA_CA_CERTS"]; got != "" {
 		t.Errorf("NODE_EXTRA_CA_CERTS = %q, want it left unset", got)
@@ -564,13 +677,51 @@ func TestInjectFinishReportsAnOwnCAFileItCannotRemove(t *testing.T) {
 	}
 	mustMkdirAll(t, filepath.Join(ownCA, "in-the-way"))
 
-	if err := restore.finish(); err != nil {
+	if err := restore.finish(true); err != nil {
 		t.Fatalf("a leftover own-CA file must not fail the step: %v", err)
 	}
 	var out strings.Builder
 	dumpOwnLog(&out)
 	if !strings.Contains(out.String(), "cannot remove") {
 		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// A step that swaps an ancestor of the own-CA file for an absolute symlink of
+// its own must not have the removal follow it out of the rootfs. Re-resolving
+// the path disagrees with where inject wrote it, so it is left rather than
+// unlinked.
+func TestInjectFinishRefusesAnOwnCAPathASymlinkNowLeadsOutOf(t *testing.T) {
+	useTempLog(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+
+	restore, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A file outside the rootfs the old removal would have unlinked by following
+	// an absolute symlink out of it.
+	outside := t.TempDir()
+	mustWriteFile(t, filepath.Join(outside, filepath.Base(ownCAPath)), "OUTSIDE\n")
+
+	// The step points /etc, the own-CA file's parent, at that outside path.
+	etc := filepath.Join(rootfs, "etc")
+	if err := os.RemoveAll(etc); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, outside, etc)
+
+	if err := restore.finish(true); err != nil {
+		t.Fatalf("the mismatch must not fail the step: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, filepath.Base(ownCAPath))); err != nil {
+		t.Fatalf("the removal followed a symlink out of the rootfs: %v", err)
+	}
+	var out strings.Builder
+	dumpOwnLog(&out)
+	if !strings.Contains(out.String(), "no longer resolves there") {
+		t.Errorf("the refusal is not in the log:\n%s", out.String())
 	}
 }
 
@@ -596,7 +747,7 @@ func TestInjectSkipsADirectoryItCannotGetAScratchDirFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	if mounts := loadMounts(t, bundle); len(mounts) != 0 {
 		t.Fatalf("expected no mounts, got %v", mounts)
@@ -624,11 +775,65 @@ func TestInjectReportsASpecItCannotSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restore.finish()
+	defer restore.finish(true)
 
 	var out strings.Builder
 	dumpOwnLog(&out)
 	if !strings.Contains(out.String(), "cannot update the process spec") {
 		t.Errorf("the failure is not in the log:\n%s", out.String())
+	}
+}
+
+// With the step's layer readable, inject places the anchors, and finish takes
+// them back out once the layer has been swept: an image with no store leaves
+// nothing of them behind, /etc/pki included.
+func TestInjectPlacesAnchorsAndFinishTakesThemBack(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	// The overlay's upper directory is the rootfs itself here, so a sweep of it
+	// reaches the anchors the same way it would reach a real layer.
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchorDirs {
+		if _, err := os.Stat(resolvedAnchor(rootfs, anchor.dir)); err != nil {
+			t.Fatalf("anchor %s was not placed: %v", anchor.dir, err)
+		}
+	}
+
+	if err := in.finish(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchorDirs {
+		if _, err := os.Lstat(filepath.Join(rootfs, anchor.dir)); !os.IsNotExist(err) {
+			t.Fatalf("anchor directory %s was left behind", anchor.dir)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "etc", "pki")); !os.IsNotExist(err) {
+		t.Fatal("/etc/pki was left behind")
+	}
+}
+
+// A sweep that fails stops finish before it takes the created directories back,
+// because the build is failing and the snapshot will be released anyway.
+func TestFinishReportsAFailedLayerSweep(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A container the sweep cannot rewrite, left in the layer by the step.
+	mustWriteFile(t, filepath.Join(rootfs, "cacerts.bin"), "EFI-VAR\x00"+string(testDER))
+
+	if err := in.finish(true); err == nil {
+		t.Fatal("expected the failed sweep to fail the step")
 	}
 }

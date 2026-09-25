@@ -2,6 +2,8 @@
  * The registry client itself has no test file: it is exercised through the
  * pull token, the manifest digest and the config-label reads that use it.
  */
+import { createHash } from "node:crypto";
+
 import { describe, it, expect } from "vitest";
 
 import {
@@ -15,11 +17,18 @@ import {
   expectVerifyError,
   failsWith,
   networkFailure,
+  okBytes,
   okJson,
   stubRegistry,
 } from "#core/lib/test/registry-stub.ts";
 
 const DIGEST = "sha256:" + "a".repeat(64);
+
+/** The `sha256:<hex>` a content-addressed read of `body` must match, over the
+ *  exact bytes okJson serves, so a test addresses each stub route by the same
+ *  digest the client verifies it against. */
+const digestOf = (body: unknown): string =>
+  "sha256:" + createHash("sha256").update(JSON.stringify(body)).digest("hex");
 
 /** The HEAD response fetchManifestDigest reads its digest out of. */
 function manifestHead(status: number, digestValue: string | null): FetchLikeResponse {
@@ -81,6 +90,27 @@ describe("fetchManifestDigest", () => {
     );
   });
 
+  it("refuses a digest header that is not a well-formed OCI digest", async () => {
+    for (const bad of [
+      "sha256:../../blobs/x",
+      "sha256:" + "a".repeat(63),
+      "sha256:" + "A".repeat(64),
+      "sha512:" + "a".repeat(64),
+      "md5:" + "a".repeat(32),
+    ]) {
+      await expectVerifyError(
+        call(async () => manifestHead(200, bad)),
+        "VERIFY_FAILED",
+        /Malformed digest/,
+      );
+    }
+  });
+
+  it("accepts a sha512 digest at its own length", async () => {
+    const sha512 = "sha512:" + "b".repeat(128);
+    expect(await call(async () => manifestHead(200, sha512))).toBe(sha512);
+  });
+
   it("throws TRANSIENT on network error", async () => {
     await expectVerifyError(call(networkFailure), "TRANSIENT");
   });
@@ -95,7 +125,7 @@ describe("fetchManifestDigest", () => {
 
 describe("fetchRegistryToken", () => {
   const call = (basicAuth: string | null, _fetch: FetchLike) =>
-    fetchRegistryToken("ghcr.io", "buildcage/docker", basicAuth, _fetch);
+    fetchRegistryToken("ghcr.io", "owner/repo", basicAuth, _fetch);
 
   // ── basicAuth=null (not logged in) ─────────────────────────────────────
 
@@ -175,59 +205,123 @@ describe("fetchRegistryToken", () => {
 });
 
 describe("fetchImageConfigLabels", () => {
-  const amd64Dig = "sha256:" + "b".repeat(64);
-  const configDig = "sha256:" + "c".repeat(64);
-  const labels = { "org.opencontainers.image.version": "3.1.0-inspect" };
+  const labels = { "org.opencontainers.image.version": "2.0.0-inspect" };
   const call = (_fetch: FetchLike) =>
-    fetchImageConfigLabels("ghcr.io", "buildcage/docker", DIGEST, "token", _fetch);
+    fetchImageConfigLabels("ghcr.io", "owner/repo", DIGEST, "token", _fetch);
+  // Each hop is verified against the digest that addressed it, so a test states
+  // the bodies and addresses each route by its own content digest.
+  const callWith = (digest: string, _fetch: FetchLike) =>
+    fetchImageConfigLabels("ghcr.io", "owner/repo", digest, "token", _fetch);
 
   it("follows index → platform manifest → config blob and returns the labels", async () => {
+    const configBody = { config: { Labels: labels } };
+    const configDig = digestOf(configBody);
+    const amd64Body = { config: { digest: configDig } };
+    const amd64Dig = digestOf(amd64Body);
+    const indexBody = {
+      manifests: [
+        { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+        { digest: "sha256:" + "e".repeat(64), platform: { architecture: "arm64", os: "linux" } },
+      ],
+    };
+    const indexDig = digestOf(indexBody);
     const registry = stubRegistry({
-      [`/manifests/${DIGEST}`]: okJson({
-        manifests: [
-          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
-          { digest: "sha256:" + "e".repeat(64), platform: { architecture: "arm64", os: "linux" } },
-        ],
-      }),
-      [`/manifests/${amd64Dig}`]: okJson({ config: { digest: configDig } }),
-      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+      [`/manifests/${indexDig}`]: okJson(indexBody),
+      [`/manifests/${amd64Dig}`]: okJson(amd64Body),
+      [`/blobs/${configDig}`]: okJson(configBody),
     });
-    expect(await call(registry)).toStrictEqual(labels);
+    expect(await callWith(indexDig, registry)).toStrictEqual(labels);
     expect(registry.urls[1], "the first real platform, not the index again").toContain(amd64Dig);
   });
 
   it("skips the unknown/unknown attestation manifests buildx attaches", async () => {
+    const configBody = { config: { Labels: labels } };
+    const configDig = digestOf(configBody);
+    const amd64Body = { config: { digest: configDig } };
+    const amd64Dig = digestOf(amd64Body);
+    const indexBody = {
+      manifests: [
+        {
+          digest: "sha256:" + "f".repeat(64),
+          platform: { architecture: "unknown", os: "unknown" },
+        },
+        { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
+      ],
+    };
+    const indexDig = digestOf(indexBody);
     const registry = stubRegistry({
-      [`/manifests/${DIGEST}`]: okJson({
-        manifests: [
-          {
-            digest: "sha256:" + "f".repeat(64),
-            platform: { architecture: "unknown", os: "unknown" },
-          },
-          { digest: amd64Dig, platform: { architecture: "amd64", os: "linux" } },
-        ],
-      }),
-      [`/manifests/${amd64Dig}`]: okJson({ config: { digest: configDig } }),
-      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+      [`/manifests/${indexDig}`]: okJson(indexBody),
+      [`/manifests/${amd64Dig}`]: okJson(amd64Body),
+      [`/blobs/${configDig}`]: okJson(configBody),
     });
-    await call(registry);
+    await callWith(indexDig, registry);
     expect(registry.urls[1]).toContain(amd64Dig);
   });
 
   it("reads a single-platform image whose digest is the manifest itself", async () => {
+    const configBody = { config: { Labels: labels } };
+    const configDig = digestOf(configBody);
+    const manifestBody = { config: { digest: configDig } };
+    const manifestDig = digestOf(manifestBody);
     const registry = stubRegistry({
-      [`/manifests/${DIGEST}`]: okJson({ config: { digest: configDig } }),
-      [`/blobs/${configDig}`]: okJson({ config: { Labels: labels } }),
+      [`/manifests/${manifestDig}`]: okJson(manifestBody),
+      [`/blobs/${configDig}`]: okJson(configBody),
     });
-    expect(await call(registry)).toStrictEqual(labels);
+    expect(await callWith(manifestDig, registry)).toStrictEqual(labels);
   });
 
   it("returns an empty object for an image with no labels", async () => {
+    const configBody = { config: {} };
+    const configDig = digestOf(configBody);
+    const manifestBody = { config: { digest: configDig } };
+    const manifestDig = digestOf(manifestBody);
     const registry = stubRegistry({
-      [`/manifests/${DIGEST}`]: okJson({ config: { digest: configDig } }),
-      [`/blobs/${configDig}`]: okJson({ config: {} }),
+      [`/manifests/${manifestDig}`]: okJson(manifestBody),
+      [`/blobs/${configDig}`]: okJson(configBody),
     });
-    expect(await call(registry)).toStrictEqual({});
+    expect(await callWith(manifestDig, registry)).toStrictEqual({});
+  });
+
+  it("hashes the bytes as served, so a leading BOM still matches its digest", async () => {
+    const configBody = { config: { Labels: labels } };
+    const bytes = new Uint8Array([
+      0xef,
+      0xbb,
+      0xbf,
+      ...new TextEncoder().encode(JSON.stringify(configBody)),
+    ]);
+    const configDig = "sha256:" + createHash("sha256").update(bytes).digest("hex");
+    const manifestBody = { config: { digest: configDig } };
+    const manifestDig = digestOf(manifestBody);
+    const registry = stubRegistry({
+      [`/manifests/${manifestDig}`]: okJson(manifestBody),
+      [`/blobs/${configDig}`]: okBytes(bytes, configBody),
+    });
+    expect(await callWith(manifestDig, registry)).toStrictEqual(labels);
+  });
+
+  it("refuses content whose bytes do not match the digest that addressed it", async () => {
+    const configDig = digestOf({ config: { Labels: labels } });
+    const manifestBody = { config: { digest: configDig } };
+    const manifestDig = digestOf(manifestBody);
+    const registry = stubRegistry({
+      [`/manifests/${manifestDig}`]: okJson(manifestBody),
+      // A config blob the registry substituted: right route, wrong bytes.
+      [`/blobs/${configDig}`]: okJson({
+        config: { Labels: { "org.opencontainers.image.version": "9.9.9-inspect" } },
+      }),
+    });
+    await expectVerifyError(callWith(manifestDig, registry), "VERIFY_FAILED", /digest mismatch/i);
+  });
+
+  it("refuses a hop addressed by a digest algorithm it cannot verify", async () => {
+    const badDigest = "sha1:" + "0".repeat(40);
+    const registry = stubRegistry({ [`/manifests/${badDigest}`]: okJson({ config: {} }) });
+    await expectVerifyError(
+      callWith(badDigest, registry),
+      "VERIFY_FAILED",
+      /unsupported digest algorithm/i,
+    );
   });
 
   it("throws TRANSIENT on 5xx", async () => {
@@ -241,7 +335,7 @@ describe("fetchImageConfigLabels", () => {
     await expectVerifyError(
       call(stubRegistry({ [`/manifests/${DIGEST}`]: failsWith(404) })),
       "NOT_FOUND",
-      `ghcr.io/buildcage/docker@${DIGEST}`,
+      `ghcr.io/owner/repo@${DIGEST}`,
     );
   });
 
@@ -254,23 +348,47 @@ describe("fetchImageConfigLabels", () => {
   });
 
   it("throws NOT_FOUND when an index carries no real platform", async () => {
+    const indexBody = {
+      manifests: [
+        {
+          digest: "sha256:" + "b".repeat(64),
+          platform: { architecture: "unknown", os: "unknown" },
+        },
+      ],
+    };
+    const indexDig = digestOf(indexBody);
     await expectVerifyError(
-      call(
-        stubRegistry({
-          [`/manifests/${DIGEST}`]: okJson({
-            manifests: [{ digest: amd64Dig, platform: { architecture: "unknown", os: "unknown" } }],
-          }),
-        }),
-      ),
+      callWith(indexDig, stubRegistry({ [`/manifests/${indexDig}`]: okJson(indexBody) })),
       "NOT_FOUND",
     );
   });
 
   it("throws NOT_FOUND when the manifest names no config blob", async () => {
+    const manifestDig = digestOf({});
     await expectVerifyError(
-      call(stubRegistry({ [`/manifests/${DIGEST}`]: okJson({}) })),
+      callWith(manifestDig, stubRegistry({ [`/manifests/${manifestDig}`]: okJson({}) })),
       "NOT_FOUND",
     );
+  });
+
+  it("refuses a malformed platform digest before requesting it", async () => {
+    const indexBody = {
+      manifests: [{ digest: "sha256:../../blobs/x", platform: { os: "linux" } }],
+    };
+    const indexDig = digestOf(indexBody);
+    const registry = stubRegistry({ [`/manifests/${indexDig}`]: okJson(indexBody) });
+    await expectVerifyError(callWith(indexDig, registry), "VERIFY_FAILED", /Malformed digest/);
+    expect(registry.urls).toHaveLength(1);
+  });
+
+  it("refuses a malformed config digest before requesting it", async () => {
+    for (const bad of ["sha256:../../manifests/x", 42]) {
+      const manifestBody = { config: { digest: bad } };
+      const manifestDig = digestOf(manifestBody);
+      const registry = stubRegistry({ [`/manifests/${manifestDig}`]: okJson(manifestBody) });
+      await expectVerifyError(callWith(manifestDig, registry), "VERIFY_FAILED", /Malformed digest/);
+      expect(registry.urls).toHaveLength(1);
+    }
   });
 
   it("throws TRANSIENT for a non-ok status the registry JSON reader does not name", async () => {

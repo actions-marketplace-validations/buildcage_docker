@@ -36,8 +36,18 @@ assert_results() {
   echo ""
 }
 
-# One of the builder's s6 service logs: haproxy (universal/inspect), buildkitd
-# (explicit) or coredns (inspect's resolver).
+# A test run neither drops nor rotates a line, so an incomplete report here
+# means the dropped-log count could not be read.
+assert_report_complete() {
+  if grep -qF "This report is incomplete" <<< "$1"; then
+    fail "Report marks the log incomplete"
+  else
+    pass "Report treats the log as complete"
+  fi
+}
+
+# One of the builder's s6 service logs: haproxy (universal/inspect) or coredns
+# (inspect's resolver).
 builder_log() {
   docker compose exec builder cat "/var/log/$1/current" 2>/dev/null
 }

@@ -62,19 +62,17 @@ into the Dockerfile, so they are reviewable source, and they are resolved before
 covers them is ordinary supply chain practice: reviewing the Dockerfile, and pinning base images and
 the `# syntax=` frontend by digest rather than by a floating tag.
 
-`explicit` is the one partial exception: its BuildKit source policy matches `http(s)://` sources, so
-`ADD <url>` is enforced there. Image and git sources stay unaffected on every engine.
+`ADD <url>`, image and git sources stay unaffected on every engine.
 
 ## How the cage works
 
 `universal` and `inspect` share the arrangement below, and differ only in how much of a connection
-they can read. The deprecated `explicit` engine replaces it with BuildKit's own mechanism, and is
-described under [Engines](#engines).
+they can read.
 
 ### Every RUN step runs on its own network
 
 Each container BuildKit spawns for a `RUN` step is placed on an isolated CNI network (the
-`buildcage0` bridge, 172.20.0.0/24). An iptables `PREROUTING REDIRECT` rule sends all TCP from that
+`buildcage0` bridge, 198.19.255.0/24). An iptables `PREROUTING REDIRECT` rule sends all TCP from that
 bridge to the proxy whatever its destination, so DNS-resolved and direct-IP connections both arrive
 there, and a `FORWARD` rule drops everything else, so no other protocol has a way out and
 buildkitd's own API is unreachable from a step. An `INPUT` rule likewise restricts the proxy's
@@ -119,15 +117,17 @@ fall back, such as a `mongodb+srv://` connection string, does not work inside th
 ### A name may not resolve inward
 
 An allowlisted name that resolves to loopback, link-local (AWS/GCP/Azure IMDS), CGNAT (Alibaba
-IMDS), the IETF protocol block (Oracle IMDS), the proxy's own address, or **an address the runner
-itself holds** is refused, reported as `internal-address`, in `audit` too. A name under an
+IMDS), the IETF protocol block (Oracle IMDS), Azure's WireServer (`168.63.129.16`), the proxy's own
+address, or **an address the runner itself holds** is refused, reported as `internal-address`, in `audit` too. A name under an
 attacker's control, or DNS for an allowlisted domain that has been compromised, therefore cannot
 turn the proxy into a route to cloud metadata or back into the runner. The rest of RFC1918 is
 deliberately exempt: a name pointing at an internal mirror is a real, intended setup.
 
 The runner's addresses come from two places, because neither sees all of them: the action reads the
 runner's interfaces before starting the builder, and the engine adds the gateway of the network
-Docker then put it on, which did not exist when the action looked. A published container port is
+Docker then put it on, which did not exist when the action looked. The engine also adds the
+builder's own address on that network, which Docker's DNS returns for the builder's service and
+container names, so a request naming them cannot loop the proxy into itself. A published container port is
 DNAT'd, so it answers on every one of them.
 
 Two consequences worth knowing:
@@ -138,17 +138,17 @@ Two consequences worth knowing:
 - The list is read once at startup, and on a containerised runner it holds that container's
   addresses rather than the real host's.
 
-This guard is about a _name_ landing somewhere it never should, and it never restricts a rule whose
-host is itself a literal address: reaching that connection already required a rule to match the
-address as sent, so nothing was arrived at that wasn't first asked for. Reaching a cloud metadata
-endpoint directly, the way any AWS or GCP SDK does, is not what this is meant to stop, and
+This guard is about a _name_ landing somewhere it never should. A rule whose host is a literal
+address, such as `169.254.169.254:80`, is exempt for the requests that rule itself allows. A
+wildcard or regex that merely admits the address, `**:80` or `~^.*:80$`, is not. Reaching a cloud
+metadata endpoint directly, the way any AWS or GCP SDK does, is not what this is meant to stop, and
 `allowed_ip_rules` is the intended path for it.
 
 ### Only TCP gets out
 
 Everything that is not TCP is dropped before it reaches the proxy, so ICMP, raw UDP and QUIC have no
 exit path at all; port 53 to the gateway, which is the resolver, is the one exception. IPv6 is
-dropped the same way, lookups are answered with the unspecified address (`::`), and the proxy
+dropped the same way, AAAA lookups are answered with no records, and the proxy
 reaches allowed names over IPv4 only. The cost of that last part is an allowed name with AAAA
 records and no A record: it never resolves here, is refused on every attempt, in `audit` too, and is
 reported as `dns-failed` with no rule able to clear it.
@@ -163,16 +163,17 @@ front of it; `inspect` terminates TLS and reads the request. For choosing betwee
 
 <img src="../assets/diagram-architecture-universal.png" alt="Universal proxy engine architecture" width="611" height="490">
 
-The default engine, and the one to fall back to when something in the build cannot accept the
-`inspect` engine's CA. It decrypts nothing: HAProxy classifies each connection by what it can read
-at the front of it, then checks that against the allowlist.
+The engine to fall back to when something in the build cannot accept the `inspect` engine's CA. It
+decrypts nothing: HAProxy classifies each connection by what it can read at the front of it, then
+checks that against the allowlist.
 
 - **HTTPS**: the SNI from the TLS ClientHello, read without terminating the connection, so the build
   validates the origin's own certificate itself. Checked against `allowed_https_rules`.
 - **HTTP**: the `Host` header, checked against `allowed_http_rules`. A request carrying none is
   refused with 400, since there is nothing to check it against.
 - **A connection to a bare address**: nothing at all. It skipped DNS, so there is no name to read.
-  It is matched against `allowed_ip_rules` as `ip:port` and, when nothing matches, refused.
+  It is matched against `allowed_ip_rules` as `ip:port` and, when nothing matches, refused. The
+  address is the one the connection goes to; an SNI it carries is ignored, since the client chose it.
 
 Because nothing in the build has to trust an injected CA or be told about a proxy, this engine
 covers any language or package manager, a pinned certificate included, with no Dockerfile change.
@@ -185,10 +186,10 @@ decides it.
 
 <img src="../assets/diagram-architecture-inspect.png" alt="Inspect proxy engine architecture" width="611" height="796">
 
-Same network layout, but the proxy terminates TLS instead of only reading the SNI, so a rule can
-check the method and the full URL rather than only the destination. One listener takes both TLS and
-plaintext, told apart by the first bytes of the connection, so an audit run records everything
-without being configured for it first.
+The default engine. Same network layout as `universal`, but the proxy terminates TLS instead of only
+reading the SNI, so a rule can check the method and the full URL rather than only the destination.
+One listener takes both TLS and plaintext, told apart by the first bytes of the connection, so an
+audit run records everything without being configured for it first.
 
 | Rule                  | What it permits                            | Decided by           | Decrypted |
 | --------------------- | ------------------------------------------ | -------------------- | --------- |
@@ -203,13 +204,35 @@ Three mechanisms make that enforceable:
 - **The certificate the build sees is generated from the SNI alone**, so a refused destination is
   never contacted. The only path that reaches an origin is the backend, after a request has already
   passed the rules, and the origin's own certificate is checked on that connection.
-- **The path is normalized before the rules see it**, and traversal encodings that no normaliser can
-  strip (`%2e%2e`, `..%2f`, a raw backslash, `..%5c`) are refused outright, so a rule cannot be
-  walked out of.
+- **The path is normalized before the rules see it**: `%2e` is decoded and `..` segments are
+  removed. A `..` joined to an encoded separator (`..%2f`, `..%5c`) or to `;`, and any backslash, is
+  refused. Encodings HAProxy does not decode, such as a double-encoded `%252e`, `%00` or an
+  overlong UTF-8 dot, reach the origin as written and matter only to an origin that decodes them
+  again.
 - **`buildcage-runc`**, a wrapper around BuildKit's own `buildkit-runc`, makes each step trust the
   proxy's CA by bind-mounting a scratch copy of the CA store over the step's own view of it, writing
-  back to the real one only if the step actually changed it. Injection happens at exec time, never
-  touches LLB, and so cannot affect a cache key or leave a trace in the image layers.
+  back to the real one only if the step actually changed it. It also leaves the certificate in the
+  distribution's anchor directory, so a step that installs `ca-certificates` part-way through keeps
+  trusting it once the bundle is rebuilt, and adds it, the same mirrored way, to the keystore a JVM
+  already in the base image reads (`$JAVA_HOME/lib/security/cacerts`, in either the JKS or PKCS#12
+  shape it ships), which no CA-trust variable would reach. Injection happens at exec time, never touches LLB, and so
+  cannot affect a cache key. Before the step's layer is committed, the wrapper reads that layer back
+  and takes the certificate, and the anchor, out of every text file carrying it as PEM, every JKS
+  or PKCS#12 trust store carrying it (a PKCS#12 one opened with no password or `changeit`), each
+  bare DER a trust store splits the bundle into (Mono's
+  `cert-sync` writes one per certificate), and the EFI signature database RHEL's `update-ca-trust`
+  writes. A copy it finds but cannot remove fails the build: one
+  inside any other binary, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line or
+  in lines of 48 characters or more), a certificate the proxy issued (saved from a server trust-on-first-use), or a PKCS#12 trust store
+  holding such a certificate that opens with no password or `changeit`. A copy it cannot read stays
+  in the image: one in a compressed archive, hex-dumped, re-wrapped outside a PEM block in shorter
+  lines, in a keystore encrypted under another password, or in a
+  PKCS#12 naming more than a million key-derivation iterations. Those are not failed on, since
+  dependencies ship encrypted test keystores and failing on them would break builds that never
+  touched the CA. Reading the layer back needs BuildKit's `overlayfs` snapshotter, which the builder
+  started by this action gets. On a builder whose data root cannot hold an overlay upper directory,
+  BuildKit falls back to another snapshotter, the wrapper warns in each step's output that it is
+  leaving the layer unread, and only the store directory's own undo applies.
 
 A wide host rule paired with a narrow path or method does not narrow the DNS side. DNS has no notion
 of a path, so a name under an allowed `*.example.com` is logged as allowed the moment it is looked
@@ -218,38 +241,6 @@ origin; only the log line reflects the host-only nature of that decision. See
 [Rule syntax](./reference.md#rule-syntax) for how to write a host pattern that doesn't widen this
 more than intended.
 
-### Explicit proxy engine
-
-> [!WARNING]
-> `explicit` is **deprecated**. It still works and existing workflows keep running, but it receives
-> no further development. For request-level enforcement, use [`inspect`](#inspect-proxy-engine)
-> instead.
-
-<img src="../assets/diagram-architecture-explicit.png" alt="Explicit proxy engine architecture" width="611" height="454">
-
-It uses BuildKit's native `--proxy-network` rather than the CNI and HAProxy stack above. Each `RUN`
-step is isolated into its own point-to-point network namespace whose only reachable peer is
-buildkitd's built-in MITM proxy, with `HTTP_PROXY`/`HTTPS_PROXY` and a generated CA injected
-automatically. The proxy decrypts the traffic and checks the host against a BuildKit
-[source policy](https://github.com/moby/buildkit/blob/master/docs/proxy.md) that buildcage compiles
-from your allowlist and attaches through a gRPC listener in front of buildkitd's control socket.
-Enforcement is at host and port granularity, as in `universal`, since the rule syntax it accepts has
-no path component. `allowed_ip_rules` compiles into the same kind of policy rule as a domain rule,
-so there is no raw passthrough here. buildcage merges its own rules in last, so a
-client-supplied static source policy can never widen access beyond your allowlist, and a policy
-naming another scheme applies unmodified.
-
-The structural difference is what happens to a tool that ignores the proxy variables. Under
-`universal` and `inspect` it still reaches the CNI bridge and is observed, blocked and logged. Under
-`explicit`,
-a `RUN` step's namespace has no broader network to route through, so such traffic gets an immediate
-"network unreachable" and leaves **no trace anywhere**, in the build log, the report or the
-provenance, whether or not a rule would have allowed it. A denied `ADD <url>` also aborts the whole
-build at LLB load time rather than failing one step.
-
-For how to enable it and how it compares in daily use, see
-[Explicit Proxy Engine](./explicit-engine.md).
-
 ## Attempts to get around it
 
 | What the build does                                                                                | What happens                                                                                                                                                 |
@@ -257,9 +248,9 @@ For how to enable it and how it compares in daily use, see
 | Asks for any name, on or off the allowlist                                                         | Answered locally with the proxy's own address; the query is never forwarded, allowed or not                                                                  |
 | Requests a host no rule covers                                                                     | Refused, origin never contacted; `inspect` records the URL it asked for                                                                                      |
 | Requests a path or method no rule covers                                                           | **403** under `inspect`, recorded with its URL; `universal` reads neither and enforces on the host                                                           |
-| Walks out of an allowed path with `..` or `%2e%2e`                                                 | **403**: the path is normalised before the rules see it, and an encoding no normaliser can strip is refused outright, a raw or escaped backslash included    |
+| Walks out of an allowed path with `..` or `%2e%2e`                                                 | **403**: the path is normalised before the rules see it, and a `..` joined to an encoded separator or `;` is refused, as is any backslash                    |
 | Sends an allowed name while aiming elsewhere, or points `/etc/hosts` at an address of its choosing | Reaches the address the proxy resolved; the build's own choice of address is discarded                                                                       |
-| Puts an address in the `Host` header                                                               | Taken as the destination only if a rule names it; the rules decide either way                                                                                |
+| Puts an address in the `Host` header                                                               | Taken as the destination once a rule allows it; an internal one only if a rule names it as its host                                                          |
 | Allowlists a name that resolves to an internal address                                             | Refused if it lands on loopback, link-local, the proxy itself, an address the runner holds, or another never-public range, in `audit` too                    |
 | Reaches an allowed host presenting a wrong certificate                                             | **503** under `inspect`, which checks the origin's certificate when it connects and fails the step; under `universal` the build validates it itself          |
 | Presents a wrong certificate and then stops answering, to look like an outage                      | Still fails the step: a connection `inspect` never completed is one whose origin it never authenticated, so it is refused whether or not the error survived  |
@@ -270,6 +261,7 @@ For how to enable it and how it compares in daily use, see
 | Connects to a raw address                                                                          | Checked against `allowed_ip_rules`, and refused when nothing matches                                                                                         |
 | Speaks something that is not HTTP to a port no rule covers                                         | Read as a request by the stage it is handed to and refused, on both engines, and the refusal is counted like any other                                       |
 | Ignores the proxy variables entirely                                                               | No effect: interception is at the network level, not opt-in                                                                                                  |
+| Sends `*` as its method, `Host` or path in audit, to plant a wildcard in the suggested rules       | Left out of the suggested `allowed_url_rules` and listed beside it, so pasting them never permits more than the build sent                                   |
 | Floods the proxy log until earlier entries rotate away                                             | A log that no longer starts where a real run does is not accepted as a complete record: the step fails under `restrict` with `fail_on_blocked` (the default) |
 
 ## What the engines cannot see
@@ -307,10 +299,12 @@ port, so the method and the path are neither enforced nor reported.
 
 ### `inspect` cannot work with everything, in either mode
 
-TLS is terminated, so a tool that pins a certificate, or ships its own trust store instead of
-reading the common CA-trust environment variables, will not work. The JVM (Java, Kotlin, Scala) is
-the common case. Use `universal` for those, and see [Limitations](../README.md#limitations) for the
-rest of the compatibility picture.
+TLS is terminated, so a tool that pins a certificate, or ships a bundled trust store it never lets
+the system update, will not work. The JVM (Java, Kotlin, Scala) reads only its own keystore rather
+than the CA-trust variables; a JVM already in the base image is handled by injecting into that
+keystore, but one sealed with a password other than the JDK default falls back to `universal`.
+See [Limitations](../README.md#limitations) for the rest of the
+compatibility picture.
 
 `audit` is not a passive observer here either. TLS is terminated in both modes, so a tool that
 cannot accept the CA fails under `audit` exactly as it would under `restrict`. What `audit` drops is
@@ -320,11 +314,9 @@ dropped honestly.
 
 ### No SLSA provenance
 
-BuildKit's own `--proxy-network` (used by `explicit`) records every URL it fetched, with a digest, as
-a SLSA provenance material. `universal` and `inspect` don't use that mechanism, so there is no way to
-attach one without modifying BuildKit itself. The traffic artifact (see
-[Report action](../README.md#report-action)) carries URL, method, status and size as an observation
-record, but no content digest.
+Neither `universal` nor `inspect` produces SLSA provenance: attaching one would mean modifying
+BuildKit itself. The traffic artifact (see [Report action](../README.md#report-action)) carries URL,
+method, status and size as an observation record, but no content digest.
 
 ## Credentials in a URL
 
@@ -344,10 +336,9 @@ replaced, whatever its case:
 ```
 
 Everything else is printed as it was sent, parameter names included, so most of what a refused
-request tried to send is still there. Three things this does not cover: a credential in the path,
-which `allowed_url_rules` is written against and so cannot be hidden; one in a parameter the list
-does not name; and the [`explicit` engine](./explicit-engine.md), which is deprecated and prints its
-own URLs unchanged. It also replaces an exfiltration payload the sender happened to name `code` or
+request tried to send is still there. Two things this does not cover: a credential in the path,
+which `allowed_url_rules` is written against and so cannot be hidden; and one in a parameter the list
+does not name. It also replaces an exfiltration payload the sender happened to name `code` or
 `key`, so **read a suspected attempt out of the
 [traffic artifact](./reference.md#traffic-artifact)**, which keeps every value verbatim, rather than
 out of the summary.
@@ -364,8 +355,8 @@ it widens two.
 
 - **`SYS_ADMIN`, `NET_ADMIN` and `SYS_PTRACE`, on top of Docker's default set.** The BuildKit OCI
   worker mounts, creates namespaces and manages a cgroup for each `RUN` step. `NET_ADMIN` covers
-  iptables and the CNI bridge under `universal` and `inspect`, and the proxy-network veth and netns
-  under `explicit`. runc reads `/proc/PID/ns/mnt` to set a step's mount namespace up.
+  iptables and the CNI bridge under `universal` and `inspect`. runc reads `/proc/PID/ns/mnt` to set a
+  step's mount namespace up.
 - **Seccomp is Docker's own default profile**, where `privileged` switches filtering off entirely.
   The only additions are the two things that profile refuses at every capability and runc still
   needs: `pivot_root`, and the three `keyctl` operations runc performs per step. Everything outside
@@ -400,6 +391,14 @@ broad rule exists, it is worth checking whether the build can be changed instead
 Pay particular attention to general-purpose destinations: a gist host, object storage, or an API
 that can create repositories. They accept uploads as readily as they serve downloads, which is what
 makes them useful for sending data out.
+
+A wildcard host widens the DNS side too. The resolver inside the cage answers locally and forwards
+nothing (see [DNS never leaves the job](#dns-never-leaves-the-job)), but a request the rules admit is
+resolved upstream by the proxy against the runner's own DNS before it connects. Under `*.example.com`
+a name like `<data>.example.com` is resolved the moment the request is allowed, so its labels reach
+that domain's authoritative nameserver even if the request is then refused on its path. In `audit`,
+where nothing is refused, every name the build asks for is resolved this way. A literal host, or a
+narrow wildcard, limits which names leave the job.
 
 ### Reduce what has to be reachable
 
@@ -457,8 +456,8 @@ Two assertions then run against the verified bundle, both fail-closed:
 | How the action is pinned       | Identity check                                              | Mechanism                                                              |
 | ------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `@<40-char SHA>`               | Source Repository Digest **strictly equals** the pinned SHA | `certificateOIDs`: Fulcio OID `1.3.6.1.4.1.57264.1.13`, raw byte match |
-| `@v2.2.0` (exact version)      | SAN matches `...@refs/tags/v2\.2\.0(\.\|$)`                 | `certificateIdentityURI` regexp                                        |
-| `@v2` (major-floating)         | SAN matches `...@refs/tags/v2(\.\|$)`                       | `certificateIdentityURI` regexp                                        |
+| `@v4.0.0` (exact version)      | SAN matches `...@refs/tags/v4\.0\.0(\.\|$)`                 | `certificateIdentityURI` regexp                                        |
+| `@v4` (major-floating)         | SAN matches `...@refs/tags/v4(\.\|$)`                       | `certificateIdentityURI` regexp                                        |
 | A branch name, or a local path | **Hard fail**: pin to a version tag or commit SHA           |                                                                        |
 
 For the strongest guarantee, pin to a **commit SHA**:
@@ -486,7 +485,7 @@ Verification establishes where the image came from. Here is what it leaves uncov
   the damage: with a commit-SHA pin, a new release cannot reach your workflow until you change the
   pin yourself, and every signature is recorded in the Rekor transparency log, so an unintended
   release is discoverable after the fact.
-- **A floating tag is a pointer someone else moves.** Under `@v3` or `@v3.2` the signing identity
+- **A floating tag is a pointer someone else moves.** Under `@v4` or `@v4.0` the signing identity
   accepts any release in that series, so the tag can also be moved back to an older one. Both the
   registry tag and the git tag are writable by whoever publishes releases, which is the reason to
   prefer a commit SHA: it puts you in charge of when you move.
@@ -497,7 +496,8 @@ Verification establishes where the image came from. Here is what it leaves uncov
   this repository's release workflow genuinely signed.
 - **Sigstore has to be reachable.** Verification depends on the Rekor transparency log and the
   Fulcio CA, and fetches the TUF trust root at verification time. An outage there fails the action
-  rather than skipping the check.
+  rather than skipping the check. Each fetch starts from the root embedded in the action, never
+  from one an earlier job left on a persistent runner.
 - **A build-time test hook exists, but not in what you run.**
   `BUILDCAGE_BUILD_TEST_HOOKS=1 vp run build` produces a `dist/` where a `BUILDCAGE_LOCAL_IMAGE_REF`
   override can point the action at an unpublished image, used only by this repo's own CI and local

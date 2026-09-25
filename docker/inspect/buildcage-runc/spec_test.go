@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +20,12 @@ func TestMountConflicts(t *testing.T) {
 		{"existing is an ancestor", []any{map[string]any{"destination": "/etc"}}, "/etc/ssl/certs", true},
 		{"existing is a descendant", []any{map[string]any{"destination": "/etc/ssl/certs/sub"}}, "/etc/ssl/certs", true},
 		{"unrelated sibling", []any{map[string]any{"destination": "/etc/ssl/other"}}, "/etc/ssl/certs", false},
+		{"a sibling sharing the prefix", []any{map[string]any{"destination": "/etc/ssl/certs2"}}, "/etc/ssl/certs", false},
+		{"existing has a doubled slash", []any{map[string]any{"destination": "/etc//ssl/certs"}}, "/etc/ssl/certs", true},
+		{"existing has a dot segment", []any{map[string]any{"destination": "/etc/./ssl/certs/"}}, "/etc/ssl/certs", true},
+		{"existing climbs back with dot-dot", []any{map[string]any{"destination": "/etc/pki/../ssl/certs/sub"}}, "/etc/ssl/certs", true},
+		{"dest is not clean", []any{map[string]any{"destination": "/etc/ssl"}}, "/etc//ssl/./certs", true},
+		{"existing is the root", []any{map[string]any{"destination": "/"}}, "/etc/ssl/certs", true},
 		{"an entry that is not a mount at all", []any{"/etc/ssl/certs"}, "/etc/ssl/certs", false},
 		{"a mount with no destination", []any{map[string]any{"source": "/somewhere"}}, "/etc/ssl/certs", false},
 	}
@@ -99,6 +107,38 @@ func TestLoadSpecSkipsEnvEntriesThatAreNotStrings(t *testing.T) {
 		if s.env[key] != value {
 			t.Errorf("env[%q] = %q, want %q", key, s.env[key], value)
 		}
+	}
+}
+
+// A number past 2^53 has to survive the load/save round trip as the text
+// BuildKit wrote. Decoded into a float64 it would round, and runc can reject or
+// misapply the rounded value; RLIM_INFINITY (2^64-1) is the one that bites.
+func TestLoadSpecPreservesLargeIntegers(t *testing.T) {
+	const big = "18446744073709551615" // RLIM_INFINITY, well past 2^53
+	bundle := newSpecBundle(t, `{
+		"root": {"path": "rootfs"},
+		"process": {
+			"env": ["PATH=/usr/bin"],
+			"rlimits": [{"type": "RLIMIT_NOFILE", "hard": `+big+`, "soft": `+big+`}]
+		}
+	}`)
+
+	s, err := loadSpec(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A change of our own, so save writes the spec back out as finish would.
+	s.setEnv(map[string]string{"SSL_CERT_FILE": "/x"})
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(bundle, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(got), big) != 2 {
+		t.Fatalf("the large limit was rounded on the round trip: %s", got)
 	}
 }
 

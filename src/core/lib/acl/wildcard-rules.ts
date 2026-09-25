@@ -3,15 +3,34 @@
  * Converts wildcard patterns to regex strings for HAProxy ACLs.
  */
 
+import { stripLineComment, rejectGluedHash } from "../line-comments.ts";
 import {
   anchorRawRegex,
+  checkHostLabel,
   endsAnchored,
   splitDomainFromPortPattern,
   splitRawRegexHost,
 } from "./partial-wildcard.ts";
+import { convertUrlRule } from "./url-rules.ts";
 
+/**
+ * Split a whitespace-separated rules input into tokens, first dropping each
+ * line's `#` comment. Newlines are only a kind of whitespace here, so the
+ * comment-stripped lines are rejoined and split as one. A `#` glued to a token
+ * is rejected per token (see rejectGluedHash), so the error names the token at
+ * fault rather than the whole line.
+ */
 export function splitRuleTokens(rulesInput: string | undefined): string[] {
-  return rulesInput?.trim().split(/\s+/).filter(Boolean) ?? [];
+  const tokens =
+    rulesInput
+      ?.split(/\r?\n/)
+      .map(stripLineComment)
+      .join(" ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean) ?? [];
+  tokens.forEach(rejectGluedHash);
+  return tokens;
 }
 
 export function buildRules(rulesInput: string): string[] {
@@ -51,15 +70,57 @@ export function completeRulePort(rule: string): string {
 }
 
 /**
- * Split+validate `known_blocked_rules`, completing a missing port first. The
- * completed text is what is returned, so everything downstream sees one shape.
+ * Split a `known_blocked_rules` input into one rule per line. Unlike the
+ * whitespace-separated host rule inputs, this one is newline-separated so a
+ * line can be a URL rule, which carries a space between its method and its
+ * URL (see isKnownBlockedUrlRule). Each line's `#` comment is dropped first, a
+ * blank line is ignored, and a `#` glued to a rule is rejected per line.
+ */
+export function splitKnownBlockedLines(rulesInput: string | undefined): string[] {
+  const lines =
+    rulesInput
+      ?.split(/\r?\n/)
+      .map((line) => stripLineComment(line).trim())
+      .filter((line) => line !== "") ?? [];
+  lines.forEach(rejectGluedHash);
+  return lines;
+}
+
+/**
+ * Whether a `known_blocked_rules` line is a URL rule rather than a host rule.
  *
- * @throws {Error} if any rule has invalid wildcard/regex syntax
+ * A URL rule carries a space between its method and its URL; a host rule is a
+ * bare `host:port`. So the space tells them apart, the same split convertUrlRule
+ * makes internally, and a line with stray whitespace is read as a malformed URL
+ * rule rather than a host rule.
+ */
+export function isKnownBlockedUrlRule(line: string): boolean {
+  return /\s/.test(line.trim());
+}
+
+/**
+ * Split+validate `known_blocked_rules`, one rule per line. A host line has its
+ * missing port completed (see completeRulePort) and is returned in completed
+ * form; a URL line is validated through the `inspect` engine's own compiler and
+ * returned as written. Everything downstream re-classifies a line the same way
+ * (see isKnownBlockedUrlRule), so the two forms round-trip through the
+ * container's env unchanged.
+ *
+ * Engine support is checked separately (see engine-rule-support.ts): a URL line
+ * matches nothing on an engine that never sees a method or a path.
+ *
+ * @throws {Error} if any rule has invalid wildcard/regex/URL syntax
  */
 export function parseAndValidateKnownBlockedRules(rulesInput: string | undefined): string[] {
-  const rules = splitRuleTokens(rulesInput).map(completeRulePort);
-  rules.forEach(convertRule);
-  return rules;
+  return splitKnownBlockedLines(rulesInput).map((line) => {
+    if (isKnownBlockedUrlRule(line)) {
+      convertUrlRule(line); // validate eagerly; throws on bad syntax
+      return line;
+    }
+    const completed = completeRulePort(line);
+    convertRule(completed); // validate eagerly; throws on bad syntax
+    return completed;
+  });
 }
 
 /**
@@ -80,12 +141,21 @@ export function convertRule(rule: string): string {
 }
 
 /**
+ * An IPv4 CIDR block. Only `allowed_ip_rules` gives one meaning, and only on
+ * `inspect` (see engine-rule-support.ts), but the label check below would
+ * refuse its `/` on every input.
+ */
+const IPV4_CIDR = /^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/;
+
+/**
  * Convert a domain wildcard to a regex string (without anchors or port).
  *
  * A dot-separated part containing `*` must be exactly `*` or `**`.
  */
 function domainToRegex(domain: string): string {
+  if (IPV4_CIDR.test(domain)) return domain.replace(/\./g, "\\.");
   const regexParts = domain.split(".").map((part) => {
+    checkHostLabel(part, domain);
     if (part === "**") return ".+";
     if (part === "*") return "[^.]+";
     if (part.includes("*")) {

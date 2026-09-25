@@ -10,13 +10,13 @@ inputs:
     required: false
     default: "buildcage"
   proxy_mode:
-    description: "audit or restrict"
+    description: "Traffic policy: audit records every destination the build reaches and blocks nothing (allowed_*_rules have no effect in this mode), or restrict (default) allows only what the rules match and blocks the rest. Run audit once, take the allowlist from its report, then switch to restrict."
     required: false
     default: "restrict"
   proxy_engine:
-    description: "Network enforcement engine: inspect (terminates TLS to enforce on method and URL), universal (network-level proxy, default, needs no CA trust; 'transparent' is accepted as an alias) or explicit (BuildKit's native --proxy-network; deprecated, see docs/explicit-engine.md)"
+    description: "Network enforcement engine: inspect (default, terminates TLS to enforce on method and URL) or universal (network-level proxy, needs no CA trust)"
     required: false
-    default: "universal"
+    default: "inspect"
   allowed_https_rules:
     description: "HTTPS allow rules (wildcard or ~regex), separated by whitespace. Port required. e.g., '*.example.com:443 ~^custom\\.pattern:443$'"
     required: false

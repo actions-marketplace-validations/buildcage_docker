@@ -15,7 +15,6 @@ import type {
   GenReportParameters,
   ReportData,
   UniversalReportData,
-  ExplicitReportData,
   InspectReportData,
 } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
@@ -47,6 +46,43 @@ const failed = [
   { host: "c.example.com", port: "443", ruleType: "HTTPS", reason: "dns-failed", count: 1 },
 ];
 
+/** universal's timeline is coarse: a passthrough proxy sees a connection's
+ *  host, port and bytes, never its method, URL or status. Its only richer
+ *  events come from the resolver: a discovery lookup and a refused name. */
+const universalTimeline: TrafficEvent[] = [
+  {
+    time: 1787471975,
+    action: "allow",
+    protocol: "https",
+    host: "a.example.com",
+    port: 443,
+    bytes: 1024,
+  },
+  {
+    time: 1787471977,
+    action: "block",
+    protocol: "https",
+    host: "bad.example.com",
+    port: 443,
+    reason: "https-not-allowed",
+  },
+  {
+    time: 1787471978,
+    action: "discovery",
+    protocol: "dns",
+    host: "_http._tcp.a.example.com",
+    queryType: "SRV",
+  },
+  {
+    time: 1787471981,
+    action: "failed",
+    protocol: "https",
+    host: "c.example.com",
+    port: 443,
+    reason: "dns-failed",
+  },
+];
+
 const universal: UniversalReportData = {
   engine: "universal",
   parameters: params(),
@@ -55,29 +91,8 @@ const universal: UniversalReportData = {
   failed,
   blockedCount: 2,
   logLooksPlausible: true,
-};
-
-const explicit: ExplicitReportData = {
-  engine: "explicit",
-  parameters: params(),
-  passed,
-  blocked,
-  failed: [],
-  blockedCount: 1,
-  logLooksPlausible: true,
-  proxyLogs: {
-    builds: [
-      [
-        {
-          command: "[2/3] RUN curl https://a.example.com/",
-          started: "2026-01-01T00:00:00Z",
-          completed: "2026-01-01T00:00:01Z",
-          entries: [{ method: "GET", url: "https://a.example.com/", status: 200 }],
-        },
-      ],
-    ],
-    denied: [{ url: "https://bad.example.com/", timestamp: "2026-01-01T00:00:02Z" }],
-  },
+  timeline: universalTimeline,
+  startedAt: 1787471970,
 };
 
 const timeline: TrafficEvent[] = [
@@ -111,7 +126,7 @@ const timeline: TrafficEvent[] = [
     queryType: "A",
     reason: "dns-not-allowed",
   },
-  // Neither table can hold this one, so the detail section is where it shows.
+  // Kept: nothing else reached this host, so its close shows (see clientEndedNoise).
   {
     time: 1787471979.123,
     action: "incomplete",
@@ -119,7 +134,7 @@ const timeline: TrafficEvent[] = [
     host: "untrusted-ca.example.com",
     port: 443,
     reason: "client-aborted",
-    destination: "172.20.0.1:443",
+    destination: "198.19.255.1:443",
   },
   // A host the rules allow, so its own table rather than the blocked one.
   {
@@ -158,17 +173,23 @@ const CASES: Record<string, ReportData> = {
   "universal-audit": audit(universal),
   // The incomplete-log banner sits above the tables and applies to every engine.
   "universal-incomplete": { ...universal, logLooksPlausible: false },
-  // Nothing happened at all: the "(no communication)" note, no tables.
-  "universal-empty": { ...universal, passed: [], blocked: [], failed: [], blockedCount: 0 },
-  // The Expected column, with the known_blocked_rules rows left unfolded.
+  // Nothing happened at all: the "(no communication)" note, no tables, no
+  // timeline (a discovery-only run keeps a timeline; see the unit tests).
+  "universal-empty": {
+    ...universal,
+    passed: [],
+    blocked: [],
+    failed: [],
+    blockedCount: 0,
+    timeline: [],
+  },
+  // The Expected column, with the known_blocked_rules rows folded into one.
   "universal-expected": {
     ...universal,
     parameters: params({ knownBlockedRules: ["*.sury.org:*"] }),
     blocked: [...blocked, ...expectedRows],
     blockedCount: 4,
   },
-  "explicit-restrict": explicit,
-  "explicit-audit": audit(explicit),
   "inspect-restrict": inspect,
   "inspect-audit": audit(inspect),
 };

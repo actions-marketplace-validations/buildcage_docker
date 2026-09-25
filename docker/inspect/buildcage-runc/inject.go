@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // File the container is pointed at when a variable was not already set and the
@@ -46,8 +47,9 @@ var caVariables = []struct {
 	{"REQUESTS_CA_BUNDLE", pointAtSystemStore},
 	{"PIP_CERT", pointAtSystemStore},
 	// OpenSSL's own override, replacing rather than adding to the default
-	// search path: also read by Go's crypto/x509 on Unix, Ruby, wget, and
-	// Rust's rustls-native-certs.
+	// search path: also read by Go's crypto/x509 on Unix, Ruby, and Rust's
+	// rustls-native-certs. Not by GnuTLS, so Debian's wget and git go by the
+	// store at their own compiled-in path instead.
 	{"SSL_CERT_FILE", pointAtSystemStore},
 }
 
@@ -107,6 +109,18 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 					variable.name, value, err)
 				continue
 			}
+			// resolveInRoot now resolves a path whose directories do not exist
+			// yet, which the anchors need but this does not: a bundle cannot be
+			// under a directory that is not there, so a variable pointing at one
+			// is the step's own and is left alone rather than mirrored.
+			if _, err := os.Stat(filepath.Dir(resolved)); err != nil {
+				logf("%s=%s names a directory that is not there; leaving it alone", variable.name, value)
+				continue
+			}
+			if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+				logf("%s=%s is a directory, not a bundle; leaving it alone", variable.name, value)
+				continue
+			}
 			plan.targets[resolved] = true
 			continue
 		}
@@ -129,17 +143,32 @@ func planCATrust(s *spec, ca []byte, store systemStore) caPlan {
 }
 
 // injection is what a completed inject leaves to be undone once the step has
-// exited: the mirrored directories to reconcile, and the proxy-CA-only file to
-// remove if one was written.
+// exited: the mirrored directories to reconcile, the proxy-CA-only file to
+// remove if one was written, the anchor directories the injection created, and
+// what the step's own layer is read back through.
 type injection struct {
+	rootfs       string
+	ca           []byte
 	binds        []*dirBind
 	createdOwnCA string
+	created      createdDirs
+	// The step's layer as found when the injection began, kept rather than
+	// recomputed at finish: a transient mount-table read failure there would
+	// otherwise report no layer and commit the anchors' scattered copies unswept.
+	// Empty when there was no overlay, in which case no anchors were placed.
+	upper string
 }
 
-// finish diffs each mirrored directory against its pre-step state and writes
-// back only what changed. A non-nil error means the write-back itself failed
-// and the build must not proceed with a possibly half-written layer.
-func (in *injection) finish() error {
+// finish diffs each mirrored directory against its pre-step state, writes back
+// only what changed, and then takes the certificate out of whatever else of
+// the step's layer holds a copy. A non-nil error means the layer may still
+// carry one, and the build must not proceed with it.
+//
+// committing says whether there is a layer to read back at all. A step that
+// exited non-zero has already failed the build, and BuildKit releases its
+// mutable snapshot rather than committing it, so sweeping that snapshot would
+// only slow a failed build down over a layer nothing will see.
+func (in *injection) finish(committing bool) error {
 	var firstErr error
 	for _, b := range in.binds {
 		if err := b.finish(); err != nil {
@@ -151,11 +180,30 @@ func (in *injection) finish() error {
 		b.cleanup()
 	}
 	if in.createdOwnCA != "" {
-		if err := os.Remove(in.createdOwnCA); err != nil && !os.IsNotExist(err) {
-			logf("cannot remove %s: %v", in.createdOwnCA, err)
+		// Re-resolve and remove only the path that still lands where inject
+		// wrote it, for the same reason removeCreatedDirs does: an ancestor the
+		// step turned into an absolute symlink would otherwise send os.Remove
+		// out of the rootfs.
+		resolved, err := resolveInRoot(in.rootfs, ownCAPath)
+		if err != nil || resolved != in.createdOwnCA {
+			logf("not removing %s: it no longer resolves there (%v)", ownCAPath, err)
+		} else if err := os.Remove(resolved); err != nil && !os.IsNotExist(err) {
+			logf("cannot remove %s: %v", ownCAPath, err)
 		}
 	}
-	return firstErr
+	if firstErr != nil || !committing {
+		// Either way the snapshot is about to be released rather than
+		// committed, so there is nothing for a sweep of it to establish.
+		return firstErr
+	}
+	// After the write-back, whose own result lands in the layer.
+	if err := stripLayer(in.rootfs, in.upper, in.ca); err != nil {
+		return err
+	}
+	// After the sweep, which has by now emptied and removed the anchor files,
+	// so a directory the injection created is empty and can go.
+	removeCreatedDirs(in.rootfs, in.created)
+	return nil
 }
 
 // inject makes the step trust the proxy's CA, returning what finishes the
@@ -174,44 +222,51 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("no system CA store in %s (%v); falling back to proxy-CA-only trust", s.rootfs, storeErr)
 	}
 
+	// Only when the step's layer can be read back afterwards: stripLayer is what
+	// takes the copies a rebuild scatters back out, and without it the anchor is
+	// not placed, leaving the engine the behaviour it had before (see
+	// README.md#limitations).
+	upper := upperDirOf(s.rootfs)
+	var created createdDirs
+	if upper != "" {
+		created = placeAnchors(s.rootfs, ca)
+	} else {
+		logf("the step's layer is not an overlay upper directory; not placing anchors")
+	}
+
 	plan := planCATrust(s, ca, store)
 
 	var binds []*dirBind
-	for hostDir, files := range groupTargetsByDir(plan.targets) {
-		containerDir := containerPathOf(s.rootfs, hostDir)
-		if containerDir == "/" {
-			logf("refusing to bind the container root; skipping CA injection for %v", files)
-			continue
+	groups := groupTargetsByBind(plan.targets, store)
+	for _, hostDir := range bindDirsInOrder(groups, store) {
+		names := groups[hostDir]
+		custom := !(store.found && hostDir == store.dir())
+		if b := prepareBind(s, bundle, hostDir, names, ca, custom, false); b != nil {
+			binds = append(binds, b)
 		}
-		if s.mountConflicts(containerDir) {
-			logf("a mount already covers %s; skipping CA injection there", containerDir)
-			continue
-		}
+	}
 
-		scratch, err := newScratchDir(bundle)
-		if err != nil {
-			logf("cannot create a scratch directory for %s: %v", containerDir, err)
-			continue
+	// A JVM already in the base image reads only its own keystores, neither the
+	// system store nor the CA-trust variables, so the CA goes into each too (see
+	// jvmstore.go), grouped by directory so the ones a JDK keeps together share a
+	// bind. A Debian JDK's cacerts is a symlink into the CA store directory, which
+	// the store's own bind already mirrors and would shadow a second bind under;
+	// there the CA goes into that mirror's copy of the keystore instead.
+	keystoresByDir := map[string][]string{}
+	for _, keystore := range findJVMKeystores(s) {
+		dir := filepath.Dir(keystore)
+		keystoresByDir[dir] = append(keystoresByDir[dir], filepath.Base(keystore))
+	}
+	for hostDir, names := range keystoresByDir {
+		containerDir := containerPathOf(s.rootfs, hostDir)
+		if covering := bindCovering(binds, containerDir); covering != nil {
+			for _, name := range names {
+				rel := filepath.Join(strings.TrimPrefix(containerDir, covering.containerDir), name)
+				covering.coverKeystore(rel, ca)
+			}
+		} else if b := prepareBind(s, bundle, hostDir, names, ca, true, true); b != nil {
+			binds = append(binds, b)
 		}
-		names := make([]string, len(files))
-		for i, f := range files {
-			names[i] = filepath.Base(f)
-		}
-		b := &dirBind{
-			rootfs:       s.rootfs,
-			hostDir:      hostDir,
-			containerDir: containerDir,
-			scratchDir:   scratch,
-			bundleFiles:  names,
-			custom:       !(store.found && hostDir == store.dir()),
-		}
-		if err := b.prepare(ca); err != nil {
-			logf("cannot prepare CA injection for %s: %v", containerDir, err)
-			b.cleanup()
-			continue
-		}
-		s.addBindMount(containerDir, scratch)
-		binds = append(binds, b)
 	}
 
 	s.setEnv(plan.env)
@@ -219,5 +274,55 @@ func inject(bundle string, ca []byte) (*injection, error) {
 		logf("cannot update the process spec: %v", err)
 	}
 
-	return &injection{binds: binds, createdOwnCA: plan.createdOwnCA}, nil
+	return &injection{rootfs: s.rootfs, ca: ca, binds: binds, createdOwnCA: plan.createdOwnCA, created: created, upper: upper}, nil
+}
+
+// bindCovering returns the bind whose mirrored directory contains containerDir,
+// or nil. A JVM keystore that resolves inside a directory a store bind already
+// mirrors is folded into that bind rather than bound separately, which the
+// store's mount would otherwise shadow.
+func bindCovering(binds []*dirBind, containerDir string) *dirBind {
+	for _, b := range binds {
+		if containerDir == b.containerDir || strings.HasPrefix(containerDir, b.containerDir+"/") {
+			return b
+		}
+	}
+	return nil
+}
+
+// prepareBind mirrors hostDir, injects the CA into each named file (a PEM
+// bundle, or a JVM keystore when keystore is set), binds the mirror over the
+// step's view of the directory, and returns what finish reconciles. It returns
+// nil, having logged why, when the directory cannot be bound.
+func prepareBind(s *spec, bundle, hostDir string, names []string, ca []byte, custom, keystore bool) *dirBind {
+	containerDir := containerPathOf(s.rootfs, hostDir)
+	if containerDir == "/" {
+		logf("refusing to bind the container root; skipping CA injection for %v", names)
+		return nil
+	}
+	if s.mountConflicts(containerDir) {
+		logf("a mount already covers %s; skipping CA injection there", containerDir)
+		return nil
+	}
+	scratch, err := newScratchDir(bundle)
+	if err != nil {
+		logf("cannot create a scratch directory for %s: %v", containerDir, err)
+		return nil
+	}
+	b := &dirBind{
+		rootfs:       s.rootfs,
+		hostDir:      hostDir,
+		containerDir: containerDir,
+		scratchDir:   scratch,
+		bundleFiles:  names,
+		custom:       custom,
+		keystore:     keystore,
+	}
+	if err := b.prepare(ca); err != nil {
+		logf("cannot prepare CA injection for %s: %v", containerDir, err)
+		b.cleanup()
+		return nil
+	}
+	s.addBindMount(containerDir, scratch)
+	return b
 }

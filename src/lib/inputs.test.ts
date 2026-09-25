@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 
-import { readBuilderName, readEngineInputs, readRuleInputs } from "./inputs.ts";
+import { readBuilderName, readEngineInputs, readRuleInputs, resolveProxyMode } from "./inputs.ts";
 import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
 
 /** Stands in for core.getInput, which returns "" for anything unset. */
@@ -26,31 +26,26 @@ describe("readBuilderName", () => {
 });
 
 describe("readEngineInputs", () => {
-  const silent = () => {};
-
-  it("defaults to universal when unset", () => {
-    expect(readEngineInputs(silent, inputs())).toStrictEqual({ proxyEngine: "universal" });
+  it("defaults to inspect when unset", () => {
+    expect(readEngineInputs(inputs())).toStrictEqual({ proxyEngine: "inspect" });
   });
 
   it("passes the input through resolveProxyEngine", () => {
-    expect(readEngineInputs(silent, inputs({ proxy_engine: "inspect" }))).toStrictEqual({
+    expect(readEngineInputs(inputs({ proxy_engine: "inspect" }))).toStrictEqual({
       proxyEngine: "inspect",
     });
   });
 
   it("rejects an unknown engine", () => {
-    expect(() => readEngineInputs(silent, inputs({ proxy_engine: "nope" }))).toThrow(
+    expect(() => readEngineInputs(inputs({ proxy_engine: "nope" }))).toThrow(
       /Invalid proxy_engine/,
     );
   });
 
-  it("hands the deprecated alias's notice to the caller", () => {
-    const notice = vi.fn();
-
-    expect(readEngineInputs(notice, inputs({ proxy_engine: "transparent" }))).toStrictEqual({
-      proxyEngine: "universal",
-    });
-    expect(notice).toHaveBeenCalledOnce();
+  it("rejects the removed transparent alias", () => {
+    expect(() => readEngineInputs(inputs({ proxy_engine: "transparent" }))).toThrow(
+      /transparent has been renamed/,
+    );
   });
 });
 
@@ -61,6 +56,12 @@ describe("readRuleInputs", () => {
 
   it("keeps an explicit proxy_mode", () => {
     expect(readRuleInputs(inputs({ proxy_mode: "audit" })).proxyMode).toBe("audit");
+  });
+
+  it("rejects an unknown proxy_mode before any rule", () => {
+    expect(() =>
+      readRuleInputs(inputs({ proxy_mode: "Audit", allowed_https_rules: "no-port" })),
+    ).toThrow(/Invalid proxy_mode/);
   });
 
   it("returns empty rule lists when nothing is set", () => {
@@ -108,6 +109,35 @@ describe("readRuleInputs", () => {
   // Compiled at setup on every engine, even the two that ignore them, so a
   // typo fails here rather than silently doing nothing inside the container.
   it("rejects a malformed URL rule even though only inspect enforces one", () => {
-    expect(() => readRuleInputs(inputs({ allowed_url_rules: "GET not-a-url" }))).toThrow();
+    expect(() => readRuleInputs(inputs({ allowed_url_rules: "GET not-a-url" }))).toThrow(
+      expect.objectContaining({ code: "INVALID_RULES" }),
+    );
+  });
+
+  it("rejects a rule the setup parser accepts but the container would refuse", () => {
+    expect(() => readRuleInputs(inputs({ allowed_https_rules: "10.0.0.0/8:443" }))).toThrow(
+      expect.objectContaining({ code: "INVALID_RULES" }),
+    );
+  });
+});
+
+describe("resolveProxyMode", () => {
+  it("defaults to restrict when unset or blank", () => {
+    expect(resolveProxyMode(undefined)).toBe("restrict");
+    expect(resolveProxyMode("  ")).toBe("restrict");
+  });
+
+  it("accepts both modes", () => {
+    expect(resolveProxyMode("audit")).toBe("audit");
+    expect(resolveProxyMode("restrict")).toBe("restrict");
+  });
+
+  // Anything else would enforce a run meant only to record.
+  it("rejects anything else, a differently cased mode included", () => {
+    for (const mode of ["Audit", "RESTRICT", "enforce"]) {
+      expect(() => resolveProxyMode(mode)).toThrow(
+        expect.objectContaining({ code: "INVALID_PROXY_MODE" }),
+      );
+    }
   });
 });

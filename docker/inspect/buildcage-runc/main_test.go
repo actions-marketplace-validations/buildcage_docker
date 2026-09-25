@@ -191,7 +191,7 @@ func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
 	if code != 1 {
 		t.Errorf("run exited %d, want 1: a failed write-back has to fail the step", code)
 	}
-	if !strings.Contains(stderr, "CA write-back failed") {
+	if !strings.Contains(stderr, "CA write-back failed for") {
 		t.Errorf("the failure did not reach stderr:\n%s", stderr)
 	}
 }

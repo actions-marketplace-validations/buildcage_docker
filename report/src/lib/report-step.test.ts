@@ -31,10 +31,15 @@ const CONTAINER = "container-abc123";
 const PROJECT_NAME = "buildcage-eeb358f947ee";
 
 let prevExitCode: number | string | null | undefined;
+let prevHooks: string | undefined;
 
 beforeEach(() => {
   prevExitCode = process.exitCode;
   process.exitCode = undefined;
+  // The build-test-hooks flag is a build-time gate the source reads from
+  // process.env; save and clear it so each test starts with the override off.
+  prevHooks = process.env.BUILDCAGE_BUILD_TEST_HOOKS;
+  delete process.env.BUILDCAGE_BUILD_TEST_HOOKS;
   vi.resetAllMocks();
   mocks.readBuilderName.mockReturnValue("buildcage");
   mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: false });
@@ -47,6 +52,8 @@ beforeEach(() => {
 
 afterEach(() => {
   process.exitCode = prevExitCode;
+  if (prevHooks === undefined) delete process.env.BUILDCAGE_BUILD_TEST_HOOKS;
+  else process.env.BUILDCAGE_BUILD_TEST_HOOKS = prevHooks;
 });
 
 describe("runReportStep", () => {
@@ -96,10 +103,8 @@ describe("the COMPOSE_PROJECT_NAME override, which is this repo's own test hook"
   });
 
   it("takes the name as given once the flag is set", async () => {
-    await runReportStep(
-      { BUILDCAGE_BUILD_TEST_HOOKS: "1", COMPOSE_PROJECT_NAME: "buildcage-e2e" },
-      deps,
-    );
+    process.env.BUILDCAGE_BUILD_TEST_HOOKS = "1";
+    await runReportStep({ COMPOSE_PROJECT_NAME: "buildcage-e2e" }, deps);
     expect(mocks.findReportSourceContainer).toHaveBeenCalledWith(
       expect.anything(),
       "buildcage-e2e",
@@ -123,7 +128,7 @@ describe("the traffic artifact", () => {
       `${SCRATCH}/traffic.json`,
       "buildcage",
       mocks.warn,
-      { retentionDays: 7, reportScriptFinished: true },
+      { retentionDays: 7 },
     );
   });
 
@@ -136,9 +141,7 @@ describe("the traffic artifact", () => {
     expect(order).toStrictEqual(["upload", "remove"]);
   });
 
-  it("still uploads when the report script was never launched, saying it did not finish", async () => {
-    // The traffic JSON is most wanted on the run that failed, and a file
-    // missing because the script never ran says nothing about the engine.
+  it("still uploads when the report script throws, since the run that failed wants it most", async () => {
     mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true });
     mocks.runReportScript.mockImplementation(() => {
       throw new ReportError("node is not on PATH", "REPORT_SCRIPT_FAILED");
@@ -148,7 +151,7 @@ describe("the traffic artifact", () => {
       `${SCRATCH}/traffic.json`,
       "buildcage",
       mocks.warn,
-      { retentionDays: undefined, reportScriptFinished: false },
+      { retentionDays: undefined },
     );
     expect(mocks.removeScratchDir).toHaveBeenCalledWith(SCRATCH);
   });

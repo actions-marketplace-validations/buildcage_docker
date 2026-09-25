@@ -3,9 +3,11 @@ import {
   wildcardToRegex,
   convertRule,
   buildRules,
+  splitRuleTokens,
   parseAndValidateRules,
   completeRulePort,
   parseAndValidateKnownBlockedRules,
+  isKnownBlockedUrlRule,
 } from "./wildcard-rules.ts";
 
 describe("wildcardToRegex", () => {
@@ -33,8 +35,25 @@ describe("wildcardToRegex", () => {
     expect(() => wildcardToRegex("w*.example.com:443")).toThrow(/Invalid wildcard/);
   });
 
-  it("escapes regex meta characters in domain", () => {
-    expect(wildcardToRegex("example+site.com:443")).toBe("example\\+site\\.com:443");
+  it("rejects a character no hostname can", () => {
+    expect(() => wildcardToRegex("example+site.com:443")).toThrow(/no hostname can/);
+    expect(() => wildcardToRegex("a'b.com:443")).toThrow(/no hostname can/);
+  });
+
+  it("rejects an internationalized name, pointing at its punycode form", () => {
+    expect(() => wildcardToRegex("münchen.de:443")).toThrow(/punycode/);
+    expect(wildcardToRegex("xn--mnchen-3ya.de:443")).toBe("xn--mnchen-3ya\\.de:443");
+  });
+
+  it("rejects an empty label, which no host has", () => {
+    expect(() => wildcardToRegex(".example.com:443")).toThrow(/empty label/);
+    expect(() => wildcardToRegex("example.com.:443")).toThrow(/empty label/);
+    expect(() => wildcardToRegex("a..example.com:443")).toThrow(/empty label/);
+  });
+
+  it("keeps an IPv4 CIDR block, which only an IP rule gives meaning", () => {
+    expect(wildcardToRegex("10.0.0.0/8:443")).toBe("10\\.0\\.0\\.0/8:443");
+    expect(() => wildcardToRegex("example.com/8:443")).toThrow(/no hostname can/);
   });
 
   it("wildcard port *", () => {
@@ -70,6 +89,10 @@ describe("convertRule", () => {
 
   it("refuses an IPv6 authority, whose colons are not the port separator", () => {
     expect(() => convertRule("~^\\[::1\\]:443$")).toThrow(/IPv6/);
+  });
+
+  it("refuses a host half the resolver's config cannot quote", () => {
+    expect(() => convertRule("~a'b\\.com:443")).toThrow(/cannot quote/);
   });
 
   it("leaves an alternation inside a group or a class alone", () => {
@@ -157,6 +180,43 @@ describe("buildRules", () => {
   });
 });
 
+describe("splitRuleTokens comments", () => {
+  it("drops a full-line comment and a blank line", () => {
+    expect(
+      splitRuleTokens("# npm\nregistry.npmjs.org:443\n\n# internal\napi.example.com:443"),
+    ).toStrictEqual(["registry.npmjs.org:443", "api.example.com:443"]);
+  });
+
+  it("drops an end-of-line comment, keeping the tokens before it", () => {
+    expect(splitRuleTokens("registry.npmjs.org:443  # packages")).toStrictEqual([
+      "registry.npmjs.org:443",
+    ]);
+    // Several tokens can share a line; only the whitespace-preceded # starts the comment.
+    expect(splitRuleTokens("a.example.com:443 b.example.com:443 # both")).toStrictEqual([
+      "a.example.com:443",
+      "b.example.com:443",
+    ]);
+  });
+
+  it("rejects a # glued to a rule, since one never legitimately appears in a rule", () => {
+    // A bare `#` in a host or a ~ regex would otherwise pass as a rule matching
+    // a `#` that no host ever carries, so it is reported instead of trimmed.
+    expect(() => splitRuleTokens("~^a#b:443$")).toThrow(/Invalid rule/);
+    expect(() => splitRuleTokens("example.com#c:443")).toThrow(/never part of a host or URL/);
+  });
+
+  it("names the offending token, not the whole line, when others share it", () => {
+    expect(() => splitRuleTokens("a.example.com:443 b#c.example.com:443")).toThrow(
+      /Invalid rule "b#c\.example\.com:443"/,
+    );
+  });
+
+  it("treats a comment-only input the same as an empty one", () => {
+    expect(splitRuleTokens("# only a comment")).toStrictEqual([]);
+    expect(splitRuleTokens("")).toStrictEqual([]);
+  });
+});
+
 describe("parseAndValidateRules", () => {
   it("returns raw (unconverted) rule tokens", () => {
     expect(parseAndValidateRules("example.com:443 *.foo.com:8443")).toStrictEqual([
@@ -203,11 +263,56 @@ describe("known_blocked_rules port completion", () => {
     expect(completeRulePort("~^a\\$")).toBe("~^a\\$:\\d+");
   });
 
-  it("is what parseAndValidateKnownBlockedRules returns", () => {
-    expect(parseAndValidateKnownBlockedRules("a.example.com b.example.com:443")).toStrictEqual([
+  it("treats a missing input the same as an empty one", () => {
+    expect(parseAndValidateKnownBlockedRules(undefined)).toStrictEqual([]);
+  });
+
+  it("is what parseAndValidateKnownBlockedRules returns, one rule per line", () => {
+    expect(parseAndValidateKnownBlockedRules("a.example.com\nb.example.com:443")).toStrictEqual([
       "a.example.com:*",
       "b.example.com:443",
     ]);
+  });
+
+  it("reads two host rules crammed onto one line as a malformed URL rule (v4)", () => {
+    // Newline-separated now, so a space is a URL rule's method separator; the
+    // old whitespace-separated form no longer parses.
+    expect(() => parseAndValidateKnownBlockedRules("a.example.com b.example.com:443")).toThrow(
+      /Invalid method/,
+    );
+  });
+
+  it("keeps a URL rule line as written, validating it through the URL compiler", () => {
+    expect(
+      parseAndValidateKnownBlockedRules(
+        "telemetry.example.com\nPOST https://api.example.com/telemetry",
+      ),
+    ).toStrictEqual(["telemetry.example.com:*", "POST https://api.example.com/telemetry"]);
+  });
+
+  it("rejects a malformed URL rule line", () => {
+    expect(() => parseAndValidateKnownBlockedRules("GET https://api.example.com/x#frag")).toThrow();
+  });
+
+  it("classifies a line by the space a method prefix introduces", () => {
+    expect(isKnownBlockedUrlRule("telemetry.example.com")).toBe(false);
+    expect(isKnownBlockedUrlRule("*.example.com:443")).toBe(false);
+    expect(isKnownBlockedUrlRule("~^a[.]example[.]com:443$")).toBe(false);
+    expect(isKnownBlockedUrlRule("POST https://api.example.com/telemetry")).toBe(true);
+    expect(isKnownBlockedUrlRule("* https://api.example.com")).toBe(true);
+  });
+
+  it("drops comments instead of completing them into a rule", () => {
+    // Port completion would otherwise turn `# noisy` into `#:*` and `noisy:*`,
+    // both valid, so the comment would silently become expected rules.
+    expect(
+      parseAndValidateKnownBlockedRules("# noisy\nnoisy.example.com  # telemetry"),
+    ).toStrictEqual(["noisy.example.com:*"]);
+  });
+
+  it("rejects a # glued to a rule rather than completing it into a dead rule", () => {
+    // Without a port, `noisy#c` used to gain `:*` and pass as `noisy#c:*`.
+    expect(() => parseAndValidateKnownBlockedRules("noisy.example.com#c")).toThrow(/Invalid rule/);
   });
 
   it("still rejects a rule that is malformed for other reasons", () => {

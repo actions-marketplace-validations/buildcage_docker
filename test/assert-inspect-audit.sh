@@ -36,6 +36,10 @@ echo ""
 
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
+echo "[report] the log reads as complete:"
+assert_report_complete "$REPORT_MARKDOWN"
+echo ""
+
 echo "[report] audit heading and the hosts that were reached:"
 if grep -qF "### 📋 Audited Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
@@ -59,7 +63,6 @@ echo "[report] the restrict-mode example built from what was observed:"
 # These rules are meant to be pasted into a restrict run, so they are checked
 # against what the build actually did rather than only for being present.
 if grep -qF "Switch to restrict mode" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "proxy_engine: inspect" <<< "$REPORT_MARKDOWN" \
   && grep -qF "allowed_url_rules: |" <<< "$REPORT_MARKDOWN"; then
   pass "the example is offered as URL rules"
 else

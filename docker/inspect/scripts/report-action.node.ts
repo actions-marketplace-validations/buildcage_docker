@@ -9,6 +9,7 @@
  *
  * Everything but those two log paths is core/lib/report/action-main.ts.
  */
+import { readProxyDroppedLogs } from "#core/lib/docker/proxy-dropped-logs.ts";
 import { readRotatedLog } from "#core/lib/docker/rotated-log.ts";
 import { runReportAction } from "#core/lib/report/action-main.ts";
 import { buildInspectReportData } from "#core/lib/report/build/inspect.ts";
@@ -24,6 +25,7 @@ runReportAction({
       readRotatedLog(docker, containerId, PROXY_LOG_DIR),
       readRotatedLog(docker, containerId, RESOLVER_LOG_DIR),
       parameters,
+      readProxyDroppedLogs(docker, containerId),
     ),
   // The only engine with a per-request timeline to write.
   writesTrafficFile: true,

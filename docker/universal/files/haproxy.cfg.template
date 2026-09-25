@@ -3,6 +3,9 @@ global
     # at all, taking the decision it carried out of the report. len must
     # precede format, or the config is rejected.
     log stdout len 16384 format raw local0
+    # Threads sharing the stdout fd contend for its lock, and the loser drops
+    # its line (fd_write_frag_line).
+    nbthread 1
     maxconn 2048
     user haproxy
     group haproxy
@@ -33,11 +36,15 @@ defaults
     timeout server 1m
 
 # --- Health Check ---
+# Readiness for s6-notifyoncheck, and the dropped-log count for the report.
 frontend health
     bind /var/run/haproxy-health.sock mode 666
     mode http
     no log
     monitor-uri /health
+    # A line HAProxy cannot write at once is dropped without a trace in the
+    # log itself; only this counter says one went missing.
+    http-request use-service prometheus-exporter if { path /metrics }
 
 # --- Frontend ---
 frontend outbound_proxy
@@ -52,14 +59,17 @@ frontend outbound_proxy
     tcp-request content set-var(txn.rule_type) str(UNKNOWN)
 
     # dst is the gateway only when the name went through this container's DNS.
-    acl is_dns_routed dst 172.20.0.1
+    acl is_dns_routed dst 198.19.255.1
     # set-dst below overwrites dst, so capture the state first.
     tcp-request content set-var(txn.dns_routed) str(true) if is_dns_routed
 
     acl is_tls req.ssl_hello_type 1
     acl has_sni req_ssl_sni -m found
 
-    acl is_ip_match var(txn.target) -m reg -i -f /etc/haproxy/rules/allowed_ips.lst
+    # Its own variable, never overwritten: an acl is evaluated where it is used,
+    # and txn.target below turns into the client-chosen SNI.
+    tcp-request content set-var-fmt(txn.dst_target) %[dst]:%[dst_port]
+    acl is_ip_match var(txn.dst_target) -m reg -i -f /etc/haproxy/rules/allowed_ips.lst
 
     # A trailing dot denotes the same DNS name, so it must not affect matching,
     # resolution or logging. Strip it once here, upstream of every other use.
@@ -70,7 +80,6 @@ frontend outbound_proxy
     # reaches the log is reduced to a hostname charset here; the ACL below
     # still matches the untouched txn.sni_port.
     tcp-request content set-var(txn.sni_log) var(txn.sni),regsub([^A-Za-z0-9._-],_,g) if is_tls has_sni
-    tcp-request content set-var-fmt(txn.target) %[var(txn.sni_log)]:%[dst_port] if is_tls has_sni
 
     acl is_https_allowed var(txn.sni_port) -m reg -i -f /etc/haproxy/rules/allowed_https.lst
 
@@ -84,6 +93,9 @@ frontend outbound_proxy
     ${HAPROXY_AUDIT_ACCEPT}
     tcp-request content set-var(txn.reason) str(ip-not-allowed) if !is_dns_routed !is_ip_match
     tcp-request content reject if !is_dns_routed !is_ip_match
+
+    # Only after the IP section, so an IP row logs the address it went to.
+    tcp-request content set-var-fmt(txn.target) %[var(txn.sni_log)]:%[dst_port] if is_tls has_sni
 
     # ---------------------------------------------------------
     # 2. TLS without SNI
@@ -106,7 +118,7 @@ frontend outbound_proxy
     tcp-request content reject if is_tls has_sni ! { var(txn.tls_actual_ip) -m found }
     # Block the resolved address from landing on a never-public range, e.g.
     # cloud metadata. Keep in sync with INTERNAL_RANGES in haproxy-rules.ts.
-    acl dst_internal var(txn.tls_actual_ip) -m ip 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 192.0.0.0/24 ::1/128 fe80::/10 172.20.0.1
+    acl dst_internal var(txn.tls_actual_ip) -m ip 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 192.0.0.0/24 168.63.129.16/32 ::1/128 fe80::/10 198.19.255.1
     # Repeating the acl name ORs it with the line above. The file holds the
     # runner's own addresses; see init-haproxy-cfg.
     acl dst_internal var(txn.tls_actual_ip) -m ip -f /etc/haproxy/rules/host_addrs.lst
@@ -123,7 +135,10 @@ frontend outbound_proxy
     use_backend tls_passthrough if is_tls
     default_backend http_filter_backend
 
-    log-format "[%T] buildcage [%[var(txn.decision)]] (%[var(txn.rule_type)]) \"%[var(txn.target)]\" %[var(txn.reason)]"
+    # %[date(0,ms)] leads so the report can order the timeline and time each
+    # line against the startup marker; %B is the only per-connection detail a
+    # passthrough has, seeing no method, URL or status. See log/haproxy.ts.
+    log-format "buildcage %[date(0,ms)] [%[var(txn.decision)]] (%[var(txn.rule_type)]) \"%[var(txn.target)]\" %[var(txn.reason)] %B"
 
 # --- IP direct passthrough backend ---
 backend ip_passthrough
@@ -166,7 +181,7 @@ backend http_filter_backend
     http-request deny deny_status 503 content-type "text/plain" string "DNS Resolution Failed" if ! { var(txn.actual_ip) -m found }
 
     # Same guard as the TLS path above.
-    acl dst_internal_http var(txn.actual_ip) -m ip 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 192.0.0.0/24 ::1/128 fe80::/10 172.20.0.1
+    acl dst_internal_http var(txn.actual_ip) -m ip 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 192.0.0.0/24 168.63.129.16/32 ::1/128 fe80::/10 198.19.255.1
     acl dst_internal_http var(txn.actual_ip) -m ip -f /etc/haproxy/rules/host_addrs.lst
     http-request set-var(txn.reason) str(internal-address) if dst_internal_http
     http-request deny deny_status 403 content-type "text/plain" string "Blocked by egress proxy" if dst_internal_http

@@ -222,11 +222,25 @@ else
 fi
 echo ""
 
+echo "[DNS over TCP] a resolver an ip rule allows passes through, the gateway's does not:"
+if grep -qE "^buildcage [0-9]+ pass tcp [0-9]+ ts=\S+ reason=\S+ dst=10\.200\.0\.53:53 sni=-$" <<< "$LOGS"; then
+  pass "the fixture resolver's :53 recorded as a tcp passthrough"
+else
+  fail "no tcp passthrough was recorded for the fixture resolver's :53"
+fi
+if grep -qE "dst=198\.19\.255\.1:53 " <<< "$LOGS"; then
+  fail "the gateway's :53 reached the proxy instead of CoreDNS"
+else
+  pass "the gateway's :53 never reached the proxy"
+fi
+echo ""
+
 # Everything not passed through is recorded by the frontend that terminates it,
 # so nothing else may appear at the tcp stage or it would be counted twice.
 # The count is not asserted: a reused container's log spans several builds.
 OTHER=$(grep -E "^buildcage [0-9]+ pass " <<< "$LOGS" \
   | grep -v "sni=tlspass\.example\.com" \
+  | grep -v "dst=10\.200\.0\.53:53" \
   | grep -cv "dst=10\.200\.0\.100:9080" || true)
 if [ "$OTHER" -eq 0 ]; then
   pass "only the passthrough is logged at the tcp stage"
@@ -287,12 +301,12 @@ echo "[DNS] a reverse lookup is recorded without being judged:"
 # No rule can name a reverse zone, so calling one denied would put a row in the
 # report that writing a rule could never take away. The resolver still records
 # the lookup, under a verb of its own that the report layer does not read.
-if grep -qF "buildcage dns reverse name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+if grep -qF "buildcage dns reverse name=1.255.19.198.in-addr.arpa" <<< "$DNS_LOG"; then
   pass "the reverse lookup was recorded under its own verb"
 else
   fail "the reverse lookup was not recorded"
 fi
-if grep -qF "buildcage dns denied name=1.0.20.172.in-addr.arpa" <<< "$DNS_LOG"; then
+if grep -qF "buildcage dns denied name=1.255.19.198.in-addr.arpa" <<< "$DNS_LOG"; then
   fail "the reverse lookup was recorded as a denied name"
 else
   pass "the reverse lookup was not recorded as denied"
@@ -321,6 +335,10 @@ echo ""
 
 REPORT_MARKDOWN=$(GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 || true)
 
+echo "[report] the log reads as complete:"
+assert_report_complete "$REPORT_MARKDOWN"
+echo ""
+
 echo "[report] Allowed Hosts:"
 if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
   && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
@@ -343,9 +361,10 @@ else
   fail "the Blocked Hosts table is missing expected rows"
 fi
 # A refusal made before a whole request arrived is still a refusal, and counts
-# towards fail_on_blocked. The plain stage has no SNI to name it by, hence the
-# host these two carry.
-if grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| bad-request \|' <<< "$REPORT_MARKDOWN" \
+# towards fail_on_blocked. The plain stage has no SNI to name it by: bytes sent
+# to an address are named by it, as the ip rule that could pass them would be,
+# and a request to a name lands on the proxy's own address, which names nothing.
+if grep -qF '| 10.200.0.100:5432 | IP | bad-request |' <<< "$REPORT_MARKDOWN" \
   && grep -qE '^\| \(unknown\):[0-9]+ \| HTTP \| missing-host-header \|' <<< "$REPORT_MARKDOWN"; then
   pass "both refusals that named no host are in the table"
 else
@@ -419,8 +438,8 @@ else
   fail "the refused name is missing from the timeline"
 fi
 
-# No rule decided it, so it belongs in neither table and the timeline is the
-# only place it can appear.
+# No rule decided it and nothing else reached this host, so its close is kept,
+# and neither table can hold it: the timeline is the only place it can appear.
 if grep -qE "⚠️ .*: HTTPS aborted\.example\.com:443 -> client-(aborted|timeout)$" <<< "$REPORT_MARKDOWN"; then
   pass "a connection the client left is in the timeline, with a mark of its own"
 else
@@ -439,7 +458,7 @@ else
   fail "the refused lookup for the aborted host was folded away"
 fi
 
-if grep -qF "1.0.20.172.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
+if grep -qF "1.255.19.198.in-addr.arpa" <<< "$REPORT_MARKDOWN"; then
   fail "a reverse lookup reached the report"
 else
   pass "a reverse lookup is left out of the report entirely"

@@ -1,4 +1,9 @@
-import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import {
+  clientEndedNoise,
+  connectedHosts,
+  isRedundantDns,
+  type TrafficEvent,
+} from "#core/lib/log/traffic-event.ts";
 import { formatElapsedVariable } from "../elapsed-time.ts";
 import { wrapCommunicationDetails } from "./communication-section.ts";
 
@@ -16,8 +21,12 @@ export function renderInspectDetails(
   timeline: TrafficEvent[],
   startedAt: number | undefined,
 ): string {
-  const connected = connectedHosts(timeline);
-  const shown = timeline.filter((e) => !isRedundantDns(e, connected));
+  // The keepalive noise clientEndedNoise marks is dropped here, before
+  // connectedHosts, so a hidden close cannot mask a name's other rows.
+  const isNoise = clientEndedNoise(timeline);
+  const relevant = timeline.filter((e) => !isNoise(e));
+  const connected = connectedHosts(relevant);
+  const shown = relevant.filter((e) => !isRedundantDns(e, connected));
   if (shown.length === 0) return "";
 
   const body = shown.map((event) => renderEvent(event, startedAt)).join("\n") + "\n";
@@ -54,18 +63,26 @@ function renderEvent(event: TrafficEvent, startedAt: number | undefined): string
  * verbatim, and are where a suspected payload is read.
  */
 const CREDENTIAL_PARAMS = new Set([
+  "access_key",
   "access_token",
   "api_key",
+  "api_token",
   "apikey",
   "auth",
+  "auth_token",
   "client_secret",
   "code",
   "id_token",
+  "jwt",
   "key",
+  "passwd",
   "password",
+  "private-token",
   "private_token",
+  "pwd",
   "refresh_token",
   "secret",
+  "session_token",
   "sig",
   "signature",
   "token",
@@ -109,7 +126,10 @@ function subject(event: TrafficEvent): string {
   // request has nothing to show, so for both a name and a port is all there is.
   // Not written as a URL: that would drop a non-default port.
   if (event.url === undefined) {
-    const nameAndPort = `${event.protocol.toUpperCase()} ${event.host}:${event.port}`;
+    // A refused name reached for over no connection has no port; universal's
+    // coarse events otherwise always carry one.
+    const authority = event.port === undefined ? event.host : `${event.host}:${event.port}`;
+    const nameAndPort = `${event.protocol.toUpperCase()} ${authority}`;
     // Unless a method did arrive: the request was then whole, and it is its
     // target that no URL fits (`OPTIONS *`; see log/inspect.ts's urlOf).
     // Dropping the method would read as a connection that carried no request.

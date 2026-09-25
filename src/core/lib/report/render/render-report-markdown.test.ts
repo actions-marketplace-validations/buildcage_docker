@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderReportMarkdown } from "./render-report-markdown.ts";
-import type { UniversalReportData, ExplicitReportData, InspectReportData } from "../types.ts";
+import type { UniversalReportData, InspectReportData } from "../types.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
 import { reportParams, expectedRows } from "#core/lib/test/report-data.node.ts";
 
@@ -23,6 +23,8 @@ describe("renderReportMarkdown: universal", () => {
     failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
+    timeline: [],
+    startedAt: undefined,
   };
 
   it("renders a bare restrict-mode title, since that is the day-to-day mode", () => {
@@ -31,6 +33,18 @@ describe("renderReportMarkdown: universal", () => {
     expect(md).not.toMatch(/restrict mode\)/);
     expect(md).toMatch(/### ✅ Allowed Hosts/);
     expect(md).toMatch(/good\.com/);
+  });
+
+  it("escapes structural Markdown in the title, so no caller can inject via it", () => {
+    const md = renderReportMarkdown(
+      { ...base, parameters: reportParams({ mode: "audit" }) },
+      "buildcage/docker",
+      "v2",
+      { title: "Outbound Traffic Report — [x](javascript:alert(1))\n# owned <b>|*" },
+    );
+    expect(md.split("\n")[0]).toBe(
+      "## Outbound Traffic Report — \\[x\\](javascript:alert(1)) # owned \\<b\\>\\|\\* (audit mode)",
+    );
   });
 
   it("warns above the tables when the log is not a complete record", () => {
@@ -46,7 +60,7 @@ describe("renderReportMarkdown: universal", () => {
     // as body text, which the "incomplete" match above would not catch.
     expect(warning.split("\n").every((line) => line.startsWith("> "))).toBe(true);
     expect(warning.replaceAll("\n> ", " ")).toMatch(
-      /Either the logs don't begin where a real run does, or one carries a line that cannot be read\./,
+      /Either the logs don't begin where a real run does, one carries a line that cannot be read, or the proxy dropped lines it could not write/,
     );
   });
 
@@ -111,6 +125,19 @@ describe("renderReportMarkdown: universal", () => {
     expect(blockedMd).not.toMatch(/_\(no communication\)_/);
   });
 
+  it("omits the '(no communication)' note for a build that only looked names up", () => {
+    const discovery: TrafficEvent = {
+      time: 1,
+      action: "discovery",
+      protocol: "dns",
+      host: "_http._tcp.example.com",
+      queryType: "SRV",
+    };
+    const md = renderReportMarkdown({ ...base, timeline: [discovery] }, "buildcage/docker", "v2");
+    expect(md).not.toMatch(/_\(no communication\)_/);
+    expect(md).toMatch(/Communication details/);
+  });
+
   it("uses the title option verbatim, e.g. a run step's em-dash label", () => {
     const md = renderReportMarkdown(base, "buildcage/docker", "v2", {
       title: "Outbound Traffic Report — npm install",
@@ -136,7 +163,7 @@ describe("renderReportMarkdown: universal", () => {
     expect(md).not.toMatch(/Expected/);
   });
 
-  it("keeps each matched row, having no Communication details to name its host in", () => {
+  it("folds the rows one known_blocked_rule matched into a single row naming the rule", () => {
     const md = renderReportMarkdown(
       {
         ...base,
@@ -146,59 +173,8 @@ describe("renderReportMarkdown: universal", () => {
       "buildcage/docker",
       "v2",
     );
-    expect(md).toMatch(/\| a\.sury\.org:443 \|/);
-    expect(md).toMatch(/\| b\.sury\.org:443 \|/);
-    expect(md).not.toMatch(/hosts\)/);
-  });
-});
-
-describe("renderReportMarkdown: explicit", () => {
-  const base: ExplicitReportData = {
-    engine: "explicit",
-    parameters: reportParams(),
-    passed: [allowedRow],
-    blocked: [blockedRow],
-    failed: [],
-    blockedCount: 1,
-    logLooksPlausible: true,
-    proxyLogs: {
-      builds: [
-        [
-          {
-            command: "[2/3] RUN curl https://good.com/",
-            started: "2026-01-01T00:00:00Z",
-            completed: "2026-01-01T00:00:01Z",
-            entries: [{ method: "GET", url: "https://good.com/", status: 200 }],
-          },
-        ],
-      ],
-      denied: [{ url: "https://bad.com/", timestamp: "2026-01-01T00:00:02Z" }],
-    },
-  };
-
-  it("renders Communication details instead of the SNI footnote", () => {
-    const md = renderReportMarkdown(base, "buildcage/docker", "v2");
-    expect(md).toMatch(/Communication details/);
-    expect(md).toMatch(/Allowed Urls/);
-    expect(md).toMatch(/Blocked Urls/);
-    expect(md).not.toMatch(/based on the Host header/);
-  });
-
-  it("folds known_blocked_rules matches into one row naming the rule", () => {
-    const md = renderReportMarkdown(
-      {
-        ...base,
-        parameters: reportParams({ knownBlockedRules: ["*.sury.org:*"] }),
-        blocked: [blockedRow, ...expectedRows],
-      },
-      "buildcage/docker",
-      "v2",
-    );
-    expect(md).toMatch(
-      /\| \\\*\.sury\.org:\\\* \(2 hosts\) \| HTTPS \| https-not-allowed \| 2 \| ✅ \|/,
-    );
-    expect(md).not.toMatch(/a\.sury\.org/);
-    expect(md).toMatch(/\| bad\.com:80 \|/);
+    expect(md).toMatch(/\(2 hosts\)/);
+    expect(md).not.toMatch(/\| a\.sury\.org:443 \|/);
   });
 });
 

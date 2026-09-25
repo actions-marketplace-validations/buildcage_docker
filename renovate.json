@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "description": [
-    "ignorePaths is spelled out because config:recommended's :ignoreModulesAndTests preset ignores **/test/**, and every fixture image and probe pin lives under test/. Left to the preset they are managed by nothing, so they drift behind the engine images' own base."
+    "ignorePaths is spelled out because config:recommended's :ignoreModulesAndTests preset ignores **/test/**, and every fixture image and probe pin lives under test/. Left to the preset they are managed by nothing, so they drift behind the engine images' own base.",
+    "lockFileMaintenance is how transitive dependencies get updated at all. Renovate cannot apply minimumReleaseAge to it; pnpm does, from pnpm-workspace.yaml, when it regenerates the lockfile."
   ],
   "ignorePaths": [
     "**/node_modules/**",
@@ -13,6 +14,7 @@
   ],
   "schedule": ["* * * * 6"],
   "minimumReleaseAge": "14 days",
+  "lockFileMaintenance": { "enabled": true, "schedule": ["* * * * 6"] },
   "internalChecksFilter": "strict",
   "customManagers": [
     {
@@ -56,9 +58,23 @@
       "schedule": ["at any time"]
     },
     {
-      "description": "vite-plus asserts that @vitest/coverage-v8 matches the vitest version it bundles, so bumping either one alone breaks the unit test job.",
-      "matchPackageNames": ["vite-plus", "@vitest/coverage-v8"],
-      "groupName": "vite-plus toolchain"
+      "description": "@vitest/coverage-v8 must equal the vitest that vite-plus bundles, which Renovate cannot see, so pin it by hand when upgrading vite-plus instead of letting Renovate bump it.",
+      "matchPackageNames": ["@vitest/coverage-v8"],
+      "enabled": false
+    },
+    {
+      "description": "buildcage-runc builds this fork through a replace. The fork also has upstream's tags, which semver ranks above the -buildcage.N prereleases, so only those are candidates. The tags are ours, so no release-age wait.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/buildcage/go-pkcs12"],
+      "allowedVersions": "/-buildcage\\.\\d+$/",
+      "ignoreUnstable": false,
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Overridden by the replace above. An upstream release arrives as a new fork tag instead.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["software.sslmate.com/src/go-pkcs12"],
+      "enabled": false
     }
   ]
 }
