@@ -124,6 +124,9 @@ func pbeCipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher.B
 	if err := unmarshal(algorithm.Parameters.FullBytes, &params); err != nil {
 		return nil, nil, err
 	}
+	if err := checkIterations(params.Iterations); err != nil {
+		return nil, nil, err
+	}
 
 	key := cipherType.deriveKey(params.Salt, password, params.Iterations)
 	iv := cipherType.deriveIV(params.Salt, password, params.Iterations)
@@ -221,6 +224,9 @@ func pbes2CipherFor(algorithm pkix.AlgorithmIdentifier, password []byte) (cipher
 	}
 	if kdfParams.Salt.Tag != asn1.TagOctetString {
 		return nil, nil, NotImplementedError("only octet string salts are supported for pbes2/pbkdf2")
+	}
+	if err := checkIterations(kdfParams.Iterations); err != nil {
+		return nil, nil, err
 	}
 
 	var prf func() hash.Hash

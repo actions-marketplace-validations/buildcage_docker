@@ -90,6 +90,9 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	if kdfParams.Salt.Tag != asn1.TagOctetString {
 		return nil, NotImplementedError("only octet string salts are supported for PBMAC1/PBKDF2")
 	}
+	if err := checkIterations(kdfParams.Iterations); err != nil {
+		return nil, err
+	}
 
 	// Determine PRF function for PBKDF2
 	var prf func() hash.Hash
@@ -158,6 +161,10 @@ func doMac(macData *macData, message, password []byte) ([]byte, error) {
 		}
 		utf8Password := []byte(originalPassword)
 		return doPBMAC1(macData.Mac.Algorithm, message, utf8Password)
+	}
+
+	if err := checkIterations(macData.Iterations); err != nil {
+		return nil, err
 	}
 
 	var hFn func() hash.Hash

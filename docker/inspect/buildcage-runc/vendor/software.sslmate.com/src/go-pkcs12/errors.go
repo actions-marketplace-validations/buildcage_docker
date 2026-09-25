@@ -13,7 +13,24 @@ var (
 	// ErrIncorrectPassword is returned when an incorrect password is detected.
 	// Usually, P12/PFX data is signed to be able to verify the password.
 	ErrIncorrectPassword = errors.New("pkcs12: decryption password incorrect")
+
+	// ErrTooManyIterations is returned when a key derivation would run more
+	// iterations than MaxIterations allows.
+	ErrTooManyIterations = errors.New("pkcs12: too many key derivation iterations")
 )
+
+// MaxIterations caps the iteration count of every key derivation, for the MAC
+// and for encryption alike. The count a file names is what decoding it runs,
+// so a file from an untrusted source can make a decode take days. Zero, the
+// default, means no cap.
+var MaxIterations int
+
+func checkIterations(iterations int) error {
+	if MaxIterations > 0 && iterations > MaxIterations {
+		return ErrTooManyIterations
+	}
+	return nil
+}
 
 // NotImplementedError indicates that the input is not currently supported.
 type NotImplementedError string
