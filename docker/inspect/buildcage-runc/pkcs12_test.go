@@ -707,9 +707,7 @@ func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
 	}
 }
 
-// storePastTheIterationLimit returns a trust store holding ca whose MAC and
-// bags both name one iteration more than the limit. The cap applies to encoding
-// too, so it is lifted while the store is written.
+// The cap applies to encoding too, so it is lifted while the store is written.
 func storePastTheIterationLimit(t *testing.T, ca *x509.Certificate) []byte {
 	t.Helper()
 	pkcs12.MaxIterations = 0
@@ -731,14 +729,12 @@ func TestPKCS12PastTheIterationLimitIsNotDecoded(t *testing.T) {
 	}
 }
 
-// go-pkcs12 checks the PBKDF2 salt's tag number but not its class, so a salt
-// retagged context-specific still decodes. The count after it is still capped.
+// go-pkcs12 accepts a salt of any class, which must not hide the count after it.
 func TestPKCS12PastTheIterationLimitBehindAContextSpecificSalt(t *testing.T) {
 	ca, _ := testIssuer(t, "this run")
 	content := storePastTheIterationLimit(t, ca)
 
-	// Dropping the MacData leaves the bags' PBES2 parameters as the only count
-	// read, and leaves no MAC for the retagging below to break.
+	// With no MAC, the retag below breaks nothing and only the bags' count is read.
 	var pfx asn1.RawValue
 	if _, err := asn1.Unmarshal(content, &pfx); err != nil {
 		t.Fatal(err)
