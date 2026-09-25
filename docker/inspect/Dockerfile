@@ -21,7 +21,7 @@ ARG CNI_SHA256_ARM64
 ARG COREDNS_VERSION
 ARG COREDNS_SHA256_AMD64
 ARG COREDNS_SHA256_ARM64
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache curl util-linux-misc && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     mkdir -p /opt/cni/bin && \
     CNI_SHA=$([ "$ARCH" = "amd64" ] && echo "$CNI_SHA256_AMD64" || echo "$CNI_SHA256_ARM64") && \
@@ -107,6 +107,9 @@ ENV S6_KILL_GRACETIME=500
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
+# For s6-rc.d/haproxy/run. The binary alone needs only musl; the package
+# would pull in ~6MB.
+COPY --from=deps /bin/pipesz /usr/bin/pipesz
 
 # CoreDNS answers queries the build controls, so it must not run as root.
 # setcap keeps :53 bindable once it has dropped.
