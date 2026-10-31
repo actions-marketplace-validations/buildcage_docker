@@ -1,5 +1,5 @@
-import type { VerifyBundleOptions } from "./sigstore.ts";
 import { derUtf8 } from "./signed-digest.ts";
+import type { VerifyBundleOptions } from "./sigstore.ts";
 
 const EXPECTED_ISSUER = "https://token.actions.githubusercontent.com";
 const RELEASE_WORKFLOW = ".github/workflows/docker-publish.yml";
@@ -12,6 +12,12 @@ const OID_SOURCE_REPO_DIGEST = "1.3.6.1.4.1.57264.1.13";
 const RELEASE_REF = /^v\d+(\.\d+(\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?)?)?$/;
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// GitHub resolves `uses:` owner/repo case-insensitively and passes it on as
+// written, while the SAN carries the canonical case. Only this part ignores
+// case: V2.1.0 is a different tag.
+const caseInsensitive = (s: string): string =>
+  escapeRegex(s).replace(/[A-Za-z]/g, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 
 export interface VerifyImageIdentity {
   actionRef: string;
@@ -30,7 +36,7 @@ export function buildVerifyOptions({
   actionRef,
   actionRepo,
 }: VerifyImageIdentity): VerifyBundleOptions | null {
-  const sanPrefix = `^${escapeRegex(`https://github.com/${actionRepo}/${RELEASE_WORKFLOW}@refs/tags/`)}`;
+  const sanPrefix = `^${escapeRegex("https://github.com/")}${caseInsensitive(actionRepo)}${escapeRegex(`/${RELEASE_WORKFLOW}@refs/tags/`)}`;
   const base = {
     certificateIssuer: EXPECTED_ISSUER,
     tlogThreshold: 1,

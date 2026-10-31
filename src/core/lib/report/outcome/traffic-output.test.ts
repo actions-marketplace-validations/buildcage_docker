@@ -1,9 +1,12 @@
-import { describe, it, expect } from "vitest";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTrafficRecords, writeTrafficFile } from "./traffic-output.ts";
+
+import { describe, it, expect } from "vitest";
+
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
+
+import { buildTrafficRecords, writeTrafficFile } from "./traffic-output.ts";
 
 const t = 1787471975;
 const EVENTS: TrafficEvent[] = [
@@ -90,6 +93,34 @@ describe("buildTrafficRecords", () => {
     expect("destination" in blocked).toBe(false);
   });
 
+  it("carries the block restrict would have made, and only where there was one", () => {
+    const [noted, plain] = buildTrafficRecords(
+      [
+        { ...EVENTS[1], action: "audit", wouldBlock: "example-block" },
+        { ...EVENTS[1], action: "audit" },
+      ],
+      t,
+    );
+    expect(noted.wouldBlock).toBe("example-block");
+    expect("wouldBlock" in plain).toBe(false);
+  });
+
+  it("raises an action's own objects to the top level, never over a field of the record's own", () => {
+    const [r] = buildTrafficRecords<{ example: { kind: string } }>(
+      [
+        {
+          ...EVENTS[1],
+          extensions: { example: { kind: "signed" }, host: { kind: "x" }, reason: { kind: "x" } },
+        },
+      ],
+      t,
+    );
+    expect(r.example).toStrictEqual({ kind: "signed" });
+    expect(r.host).toBe(EVENTS[1].host);
+    expect("reason" in r).toBe(false);
+    expect("extensions" in r).toBe(false);
+  });
+
   it("keeps millisecond precision, not just whole seconds", () => {
     const [r] = buildTrafficRecords([{ ...EVENTS[1], time: t + 0.123 }], t);
     expect(r.time).toBe("2026-08-23T07:59:35.123Z");
@@ -108,7 +139,7 @@ describe("buildTrafficRecords", () => {
   });
 
   it("omits what does not apply rather than reporting it as zero", () => {
-    // A refusal has no status because nothing answered; consumers filter on
+    // A block has no status because nothing answered; consumers filter on
     // action, not on status.
     const blocked = records.find((r) => r.action === "block" && r.protocol === "https")!;
     expect(blocked.status === undefined).toBe(true);
@@ -156,7 +187,7 @@ describe("writeTrafficFile", () => {
     const file = join(mkdtempSync(join(tmpdir(), "buildcage-art-")), "traffic.json");
     writeTrafficFile(file, buildTrafficRecords(EVENTS, t));
     const text = readFileSync(file, "utf8");
-    expect(text.includes('\n  {\n    "time"')).toBe(true);
+    expect(text).toContain('\n  {\n    "time"');
     expect(JSON.parse(text).length).toBe(6);
   });
 });

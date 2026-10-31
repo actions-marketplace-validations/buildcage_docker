@@ -4,31 +4,31 @@
  * all, so a silently reordered view block matters as much as a wrong one.
  */
 import { describe, it } from "vitest";
+
+import { PROXY_ADDRESS } from "../log/proxy-address.ts";
+import { expectMatchesGolden } from "../test/golden.node.ts";
 import { generateCorednsConfig, type CorednsConfigOptions } from "./coredns-config.ts";
 import { compileRuleSet, type RuleInputs } from "./haproxy-rules.ts";
 import { buildUrlRules } from "./url-rules.ts";
-import { expectMatchesGolden } from "../test/golden.node.ts";
-
-const PROXY = "198.19.255.1";
 
 const CASES: Record<string, RuleInputs & Partial<CorednsConfigOptions>> = {
-  // Nothing but the proxy address: the skeleton, refusing every name.
-  "restrict-empty": { proxyAddress: PROXY },
+  // Nothing but the proxy address: the skeleton, blocking every name.
+  "restrict-empty": { proxyAddress: PROXY_ADDRESS },
 
   "restrict-basic": {
     httpsRules: ["a.example.com:443"],
     httpRules: ["b.example.com:80"],
     tlsRules: ["db.example.com:443"],
-    proxyAddress: PROXY,
+    proxyAddress: PROXY_ADDRESS,
   },
 
-  // audit answers for every name instead of refusing, so the view set differs.
+  // audit answers for every name instead of blocking, so the view set differs.
   "audit-basic": {
     mode: "audit",
     httpsRules: ["a.example.com:443"],
     httpRules: ["b.example.com:80"],
     tlsRules: ["db.example.com:443"],
-    proxyAddress: PROXY,
+    proxyAddress: PROXY_ADDRESS,
   },
 
   // Only the host half of a URL rule reaches the resolver.
@@ -40,19 +40,19 @@ const CASES: Record<string, RuleInputs & Partial<CorednsConfigOptions>> = {
         "GET http://c.example.com/z",
       ].join("\n"),
     ),
-    proxyAddress: PROXY,
+    proxyAddress: PROXY_ADDRESS,
   },
 
   "restrict-wildcards": {
     httpsRules: ["*.example.com:443", "**.example.org:*"],
     urlRules: buildUrlRules("GET ~^https://c\\.example\\.com:8443/x$"),
-    proxyAddress: PROXY,
+    proxyAddress: PROXY_ADDRESS,
   },
 
   // A non-default TTL, which every synthesised answer carries.
   "restrict-ttl": {
     httpsRules: ["a.example.com:443"],
-    proxyAddress: PROXY,
+    proxyAddress: PROXY_ADDRESS,
     ttlSeconds: 30,
   },
 };
@@ -65,8 +65,8 @@ describe("generateCorednsConfig golden files", () => {
       expectMatchesGolden(
         generateCorednsConfig(compileRuleSet({ httpsRules, httpRules, tlsRules, urlRules }), {
           ...options,
-          proxyAddress: options.proxyAddress ?? PROXY,
-        }).config,
+          proxyAddress: options.proxyAddress ?? PROXY_ADDRESS,
+        }),
         new URL(`./__fixtures__/coredns/${name}.conf`, import.meta.url),
       );
     });

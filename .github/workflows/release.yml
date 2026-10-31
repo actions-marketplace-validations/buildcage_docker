@@ -19,6 +19,14 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::Release must be dispatched from main; github.ref is $REF"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,9 +138,9 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           case "$TAG" in
             *-*)
-              echo "This is a **prerelease** tag — do NOT tick **Publish this Action to the GitHub Marketplace**. Marketplace publishing is for stable releases only." >> "$GITHUB_STEP_SUMMARY"
+              echo "This is a **prerelease** tag: do NOT tick **Publish this Action to the GitHub Marketplace**. Marketplace publishing is for stable releases only." >> "$GITHUB_STEP_SUMMARY"
               ;;
             *)
-              echo "Tick **Publish this Action to the GitHub Marketplace** on the draft's own page before publishing — the release API has no field for it, so it has to be set by hand every time." >> "$GITHUB_STEP_SUMMARY"
+              echo "Tick **Publish this Action to the GitHub Marketplace** on the draft's own page before publishing; the release API has no field for it, so it has to be set by hand every time." >> "$GITHUB_STEP_SUMMARY"
               ;;
           esac

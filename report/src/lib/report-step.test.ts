@@ -1,14 +1,22 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { runReportStep, type ReportStepDeps } from "./report-step.ts";
-import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
+import { InvalidInputError } from "#core/lib/actions/inputs.ts";
+import { REPORT_ACTION_SCRIPT_PATH } from "#report/report-source.ts";
+
 import { ReportError } from "./errors.ts";
+import { runReportStep, type ReportStepDeps } from "./report-step.ts";
 
 // Every collaborator is tested in its own file; what is left to check here is
 // the order they run in, what each one is handed, and which of them still run
 // when an earlier step fails.
 const mocks = {
+  applyConfigFile: vi.fn(),
   readBuilderName: vi.fn(),
+  checkFailOnBlocked: vi.fn(),
   readTrafficArtifactInputs: vi.fn(),
   createDocker: vi.fn(),
   findReportSourceContainer: vi.fn(),
@@ -27,7 +35,7 @@ const deps = mocks as unknown as ReportStepDeps;
 const SCRATCH = "/tmp/buildcage-report-abc123";
 const CONTAINER = "container-abc123";
 /** `buildcage-` + the first 12 hex of sha256("buildcage"): the same name
- *  setup derives from its own builder_name input. */
+ *  setup derives from its own builder-name input. */
 const PROJECT_NAME = "buildcage-eeb358f947ee";
 
 let prevExitCode: number | string | null | undefined;
@@ -42,7 +50,7 @@ beforeEach(() => {
   delete process.env.BUILDCAGE_BUILD_TEST_HOOKS;
   vi.resetAllMocks();
   mocks.readBuilderName.mockReturnValue("buildcage");
-  mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: false });
+  mocks.readTrafficArtifactInputs.mockReturnValue({ upload: false });
   mocks.createDocker.mockReturnValue({ docker: true });
   mocks.findReportSourceContainer.mockReturnValue(CONTAINER);
   mocks.makeScratchDir.mockReturnValue(SCRATCH);
@@ -57,6 +65,59 @@ afterEach(() => {
 });
 
 describe("runReportStep", () => {
+  it("applies config-file to the env the script inherits, before reading any input", async () => {
+    const env = { "INPUT_CONFIG-FILE": "c.yml" };
+    await runReportStep(env, deps);
+    expect(mocks.applyConfigFile).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ known: expect.arrayContaining(["fail-on-blocked"]) }),
+    );
+    expect(mocks.applyConfigFile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.readBuilderName.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.runReportScript.mock.calls[0][2].env).toBe(env);
+    expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it("reads an input's underscore spelling, before config-file, and warns of one it ignored", async () => {
+    const env = {
+      INPUT_CONFIG_FILE: "c.yml",
+      INPUT_FAIL_ON_BLOCKED: "false",
+      "INPUT_FAIL-ON-BLOCKED": "true",
+    };
+    await runReportStep(env, deps);
+    expect(mocks.applyConfigFile.mock.calls[0][0]).toStrictEqual({
+      "INPUT_CONFIG-FILE": "c.yml",
+      "INPUT_FAIL-ON-BLOCKED": "true",
+    });
+    expect(mocks.warn).toHaveBeenCalledWith(
+      "Ignored fail_on_blocked, as fail-on-blocked is also set.",
+    );
+  });
+
+  it("keeps the list inputs config-file appended to out of the script's environment", async () => {
+    mocks.applyConfigFile.mockImplementation((env: NodeJS.ProcessEnv) => {
+      env["INPUT_ALLOWED-HTTPS-RULES"] = "# a comment\n".repeat(20_000);
+    });
+    const env = { "INPUT_CONFIG-FILE": "c.yml", "INPUT_FAIL-ON-BLOCKED": "false" };
+    await runReportStep(env, deps);
+    expect(mocks.runReportScript.mock.calls[0][2].env).toStrictEqual({
+      "INPUT_CONFIG-FILE": "c.yml",
+      "INPUT_FAIL-ON-BLOCKED": "false",
+    });
+  });
+
+  it("warns of the config-file inputs the workflow overrode", async () => {
+    mocks.applyConfigFile.mockReturnValue({
+      path: "/w/c.yml",
+      warning: "Ignored from config-file c.yml, set by the workflow: fail-on-blocked",
+    });
+    await runReportStep({ "INPUT_CONFIG-FILE": "c.yml" }, deps);
+    expect(mocks.warn).toHaveBeenCalledWith(
+      "Ignored from config-file c.yml, set by the workflow: fail-on-blocked",
+    );
+  });
+
   it("finds the container by the project name derived from the builder name", async () => {
     await runReportStep({}, deps);
     expect(mocks.findReportSourceContainer).toHaveBeenCalledWith(
@@ -92,6 +153,17 @@ describe("runReportStep", () => {
   });
 });
 
+describe("input checks", () => {
+  it("stops before touching Docker when an input is invalid", async () => {
+    mocks.checkFailOnBlocked.mockImplementation(() => {
+      throw new InvalidInputError("bad", "INVALID_BOOLEAN_INPUT");
+    });
+    await expect(runReportStep({}, deps)).rejects.toThrow(InvalidInputError);
+    expect(mocks.createDocker).not.toHaveBeenCalled();
+    expect(mocks.runReportScript).not.toHaveBeenCalled();
+  });
+});
+
 describe("the COMPOSE_PROJECT_NAME override, which is this repo's own test hook", () => {
   it("is ignored without the build-test-hooks flag, however the environment is set", async () => {
     await runReportStep({ COMPOSE_PROJECT_NAME: "somebody-elses-project" }, deps);
@@ -113,6 +185,51 @@ describe("the COMPOSE_PROJECT_NAME override, which is this repo's own test hook"
   });
 });
 
+describe("the Job Summary copy, which is this repo's own test hook", () => {
+  let dir: string;
+  let env: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "report-step-test-"));
+    env = {
+      GITHUB_STEP_SUMMARY: join(dir, "step-summary.md"),
+      BUILDCAGE_TEST_SUMMARY_FILE: join(dir, "copy.md"),
+    };
+    mocks.runReportScript.mockImplementation(() => {
+      writeFileSync(join(dir, "step-summary.md"), "### Report\n");
+      return 1;
+    });
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("is not written without the build-test-hooks flag, however the environment is set", async () => {
+    await runReportStep(env, deps);
+    expect(existsSync(join(dir, "copy.md"))).toBe(false);
+  });
+
+  it("holds what the script wrote to the step summary once the flag is set, whatever its exit status", async () => {
+    process.env.BUILDCAGE_BUILD_TEST_HOOKS = "1";
+    await runReportStep(env, deps);
+    expect(readFileSync(join(dir, "copy.md"), "utf8")).toBe("### Report\n");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("is not written when the runner gave the step no summary file", async () => {
+    process.env.BUILDCAGE_BUILD_TEST_HOOKS = "1";
+    await runReportStep({ BUILDCAGE_TEST_SUMMARY_FILE: env.BUILDCAGE_TEST_SUMMARY_FILE }, deps);
+    expect(existsSync(join(dir, "copy.md"))).toBe(false);
+  });
+
+  it("is not written, and the script's exit status stands, when the script wrote no step summary", async () => {
+    process.env.BUILDCAGE_BUILD_TEST_HOOKS = "1";
+    mocks.runReportScript.mockReturnValue(2);
+    await runReportStep(env, deps);
+    expect(existsSync(join(dir, "copy.md"))).toBe(false);
+    expect(process.exitCode).toBe(2);
+  });
+});
+
 describe("the traffic artifact", () => {
   it("names no traffic file, and uploads nothing, when none was asked for", async () => {
     await runReportStep({}, deps);
@@ -121,7 +238,7 @@ describe("the traffic artifact", () => {
   });
 
   it("names a file inside the scratch dir, so only what this step created is uploaded", async () => {
-    mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true, retentionDays: 7 });
+    mocks.readTrafficArtifactInputs.mockReturnValue({ upload: true, retentionDays: 7 });
     await runReportStep({}, deps);
     expect(mocks.runReportScript.mock.calls[0][2].trafficFile).toBe(`${SCRATCH}/traffic.json`);
     expect(mocks.uploadTrafficArtifact).toHaveBeenCalledWith(
@@ -133,7 +250,7 @@ describe("the traffic artifact", () => {
   });
 
   it("uploads before the scratch dir is removed, since the file lives inside it", async () => {
-    mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true });
+    mocks.readTrafficArtifactInputs.mockReturnValue({ upload: true });
     const order: string[] = [];
     mocks.uploadTrafficArtifact.mockImplementation(async () => void order.push("upload"));
     mocks.removeScratchDir.mockImplementation(() => void order.push("remove"));
@@ -142,7 +259,7 @@ describe("the traffic artifact", () => {
   });
 
   it("still uploads when the report script throws, since the run that failed wants it most", async () => {
-    mocks.readTrafficArtifactInputs.mockReturnValue({ wanted: true });
+    mocks.readTrafficArtifactInputs.mockReturnValue({ upload: true });
     mocks.runReportScript.mockImplementation(() => {
       throw new ReportError("node is not on PATH", "REPORT_SCRIPT_FAILED");
     });

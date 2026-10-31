@@ -4,7 +4,14 @@
  * frame, so no renderer's tests have to.
  */
 import { describe, it, expect } from "vitest";
-import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
+
+import {
+  exampleStepHead,
+  exampleStepTail,
+  restrictExampleBlock,
+  restrictExampleTruncationNote,
+  usesLine,
+} from "./restrict-example.ts";
 
 const REPO = "owner/repo";
 
@@ -23,11 +30,55 @@ describe("usesLine", () => {
   });
 });
 
+describe("exampleStepHead", () => {
+  it("names the step Start Buildcage unless told otherwise", () => {
+    expect(exampleStepHead(REPO, "v2")).toBe(
+      `- name: Start Buildcage\n  uses: ${REPO}@v2\n  with:\n`,
+    );
+    expect(exampleStepHead(REPO, "v2", { stepName: "Start isolated-run" })).toBe(
+      `- name: Start isolated-run\n  uses: ${REPO}@v2\n  with:\n`,
+    );
+  });
+});
+
+describe("exampleStepTail", () => {
+  it("writes each extra input at the input indentation, and nothing when none is given", () => {
+    expect(exampleStepTail({ extraInputs: ["a: 1", "b: 2 # note"] })).toBe(
+      "    a: 1\n    b: 2 # note\n",
+    );
+    expect(exampleStepTail({})).toBe("");
+  });
+
+  it("repeats a run command under run: |, after the extra inputs, with no trailing blank line", () => {
+    expect(exampleStepTail({ extraInputs: ["a: 1"], runCommand: "npm ci\nnpm test\n" })).toBe(
+      "    a: 1\n    run: |\n      npm ci\n      npm test\n",
+    );
+  });
+
+  it("pins the block indentation with |2 when the command's first non-empty line is indented", () => {
+    // Plain run: | would read the indented line as the base and leave the rest
+    // under it, which breaks the YAML. A leading blank line counts: the base is
+    // read from the first non-empty line, not the first line.
+    expect(exampleStepTail({ runCommand: "  echo indented\necho base" })).toBe(
+      "    run: |2\n        echo indented\n      echo base\n",
+    );
+    expect(exampleStepTail({ runCommand: "\n  echo indented\necho base" })).toBe(
+      "    run: |2\n      \n        echo indented\n      echo base\n",
+    );
+  });
+
+  it("keeps plain run: | for a tab-indented first line, read as content not indentation", () => {
+    expect(exampleStepTail({ runCommand: "\techo tabbed\necho base" })).toBe(
+      "    run: |\n      \techo tabbed\n      echo base\n",
+    );
+  });
+});
+
 describe("restrictExampleBlock", () => {
   it("wraps the yaml in the collapsed section, at the step indent Actions expects", () => {
     // A blank line stays blank: trailing spaces on it would show in the fence.
     expect(restrictExampleBlock("- name: Start\n  with:\n\n    x: 1\n")).toBe(
-      "\n<details>\n" +
+      "<details>\n" +
         "<summary>🛡️ Switch to restrict mode</summary>\n\n" +
         "```yaml\n" +
         "      - name: Start\n" +
@@ -43,5 +94,15 @@ describe("restrictExampleBlock", () => {
     expect(restrictExampleBlock("x\n", { footnote: "only the host is checked" })).toContain(
       "```\n\n<sub>*only the host is checked*</sub>\n\n</details>\n",
     );
+  });
+});
+
+describe("restrictExampleTruncationNote", () => {
+  it("points at the artifact when one was uploaded", () => {
+    expect(restrictExampleTruncationNote(true)).toContain("buildcage-traffic artifact");
+  });
+
+  it("suggests turning the artifact on when none was uploaded", () => {
+    expect(restrictExampleTruncationNote(false)).toContain("upload-traffic-artifact: true");
   });
 });

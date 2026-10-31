@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { describeReportOutcomes } from "./report-outcomes.ts";
-import { reportParams } from "#core/lib/test/report-data.node.ts";
 import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
+import { HEALTHY, reportParams, UNINTERRUPTED } from "#core/lib/test/report-data.node.ts";
+
+import { buildUniversalReportData } from "../build/universal.ts";
 import type { InspectReportData, UniversalReportData } from "../types.ts";
+import { describeReportOutcomes } from "./report-outcomes.ts";
 
 function universal(overrides: Partial<UniversalReportData> = {}): UniversalReportData {
   return {
@@ -14,6 +16,7 @@ function universal(overrides: Partial<UniversalReportData> = {}): UniversalRepor
     failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
+    ...UNINTERRUPTED,
     timeline: [],
     startedAt: undefined,
     ...overrides,
@@ -32,6 +35,7 @@ function inspect(
     failed: [],
     blockedCount: 0,
     logLooksPlausible: true,
+    ...UNINTERRUPTED,
     startedAt: 1787471970,
     timeline,
     ...overrides,
@@ -67,7 +71,23 @@ describe("describeReportOutcomes", () => {
     expect(rest).toStrictEqual([]);
   });
 
-  it("says nothing more for an engine that reports no timeline", () => {
+  it("names lookups in the count under universal too", async () => {
+    const report = await buildUniversalReportData(
+      ["buildcage haproxy starting 1787471970000"],
+      [
+        "2026-08-23 16:44:58.000000000  buildcage coredns starting",
+        "2026-08-23 16:45:00.000000000  [INFO] buildcage dns denied name=evil.example.com.",
+      ],
+      reportParams(),
+      HEALTHY,
+    );
+    const [blocked] = describeReportOutcomes(report, options);
+    expect(blocked.message).toBe(
+      "1 blocked connection(s) and lookup(s) detected by buildcage proxy",
+    );
+  });
+
+  it("says nothing more for an empty timeline", () => {
     expect(describeReportOutcomes(universal({ blockedCount: 1 }), options).length).toBe(1);
   });
 
@@ -85,6 +105,21 @@ describe("describeReportOutcomes", () => {
     expect(outcomes[1].message.startsWith("2 request(s) buildcage proxy could not act on")).toBe(
       true,
     );
+  });
+
+  it("warns for universal too, whose HTTP stage logs a connection that sent no request", () => {
+    const unnamed: TrafficEvent = {
+      time: 1787471975,
+      action: "incomplete",
+      protocol: "http",
+      host: "(unknown)",
+      port: 25,
+      reason: "client-aborted",
+    };
+    const outcomes = describeReportOutcomes(universal({ timeline: [unnamed] }), options);
+    expect(outcomes.length).toBe(2);
+    expect(outcomes[1].level).toBe("warning");
+    expect(outcomes[1].shouldFail).toBe(false);
   });
 
   it("counts a client-ended close to a host that completed nothing, as it shows it", () => {
@@ -114,7 +149,24 @@ describe("describeReportOutcomes", () => {
     expect(outcomes[0].level).toBe("none");
   });
 
-  it("never fails the step over one: no rule refused it and none can clear it", () => {
+  it("counts a failed client handshake even where the host completed a connection", () => {
+    // Another client reaching the host does not mean this one trusts the CA.
+    const completed: TrafficEvent = {
+      time: 1787471974,
+      action: "allow",
+      protocol: "https",
+      host: incomplete.host,
+      port: 443,
+      status: 200,
+      bytes: 10,
+    };
+    const tlsFailed: TrafficEvent = { ...incomplete, reason: "client-tls-failed" };
+    const outcomes = describeReportOutcomes(inspect([completed, tlsFailed]), options);
+    expect(outcomes.length).toBe(2);
+    expect(outcomes[1].level).toBe("warning");
+  });
+
+  it("never fails the step over one: no rule blocked it and none can clear it", () => {
     const outcomes = describeReportOutcomes(inspect([incomplete]), options);
     expect(outcomes.every((outcome) => !outcome.shouldFail)).toBe(true);
   });
@@ -124,12 +176,12 @@ describe("describeReportOutcomes", () => {
       failOnBlocked: false,
       engineLabel: "sandbox",
     });
-    expect(warning.message.includes("buildcage sandbox")).toBe(true);
+    expect(warning.message).toContain("buildcage sandbox");
   });
 
   it("avoids the word the report already uses for a log that lost its beginning", () => {
     const [, warning] = describeReportOutcomes(inspect([incomplete]), options);
-    expect(warning.message.includes("incomplete")).toBe(false);
+    expect(warning.message).not.toContain("incomplete");
   });
 
   it("notices connections that failed after the rules allowed them", () => {
@@ -160,7 +212,7 @@ describe("describeReportOutcomes", () => {
     expect(levels).toStrictEqual(["none", "warning", "notice"]);
   });
 
-  it("notices them for universal too, which has no timeline to count", () => {
+  it("notices them for universal too", () => {
     const [, notice] = describeReportOutcomes(universal({ failed: failedRows }), options);
     expect(notice.level).toBe("notice");
     expect(notice.message.startsWith("2 connection(s) failed after buildcage proxy")).toBe(true);

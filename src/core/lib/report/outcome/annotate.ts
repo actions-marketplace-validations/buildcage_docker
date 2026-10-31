@@ -7,9 +7,7 @@ export interface OutcomeEmission {
 }
 
 /** Emits the annotations for a computed report outcome, in the order given, and
- *  sets the process exit code if any of them calls for failing the step. Shared
- *  by outcome/emit.ts in the report action and writeReportSummary in the run
- *  action, so a report's annotations are decided in one place for both. */
+ *  sets the process exit code if any of them calls for failing the step. */
 export function applyOutcomeAnnotations(
   annotation: Annotation,
   emissions: OutcomeEmission[],

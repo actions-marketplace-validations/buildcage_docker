@@ -10,14 +10,9 @@ interface ExpectedGroup {
 }
 
 /**
- * Collapse the blocked rows a known_blocked_rules rule matched into one row per
- * rule, below the rows nothing matched. A rule covering noisy traffic then
- * costs the table one line however many hosts it names, and the rows a reader
- * has to act on come first.
- *
- * Only for engines whose report lists the individual requests as well, since a
- * folded row names its rule rather than its hosts (see
- * render-report-markdown.ts).
+ * Collapse the blocked rows a known-blocked-rules rule matched into one row per
+ * rule, after any row no rule claimed. A rule covering noisy traffic then
+ * costs the table one line however many hosts it names.
  */
 export function foldExpectedBlockedRows(rows: HostTableRow[]): HostTableRow[] {
   const unmatched: HostTableRow[] = [];
@@ -28,7 +23,7 @@ export function foldExpectedBlockedRows(rows: HostTableRow[]): HostTableRow[] {
       unmatched.push(row);
       continue;
     }
-    // One rule can cover a refused name and a refused connection at once, so
+    // One rule can cover a blocked name and a blocked connection at once, so
     // ruleType and reason stay in the key rather than one row claiming both.
     const key = `${row.expectedBy}\t${row.ruleType}\t${row.reason}`;
     const group = groups.get(key);
@@ -66,6 +61,6 @@ function toRow(group: ExpectedGroup): HostTableRow {
     count: group.count,
     expected: true,
     expectedBy: group.rule,
-    display: `${group.rule} (${group.hosts.size} host${group.hosts.size === 1 ? "" : "s"})`,
+    note: `(${group.hosts.size} host${group.hosts.size === 1 ? "" : "s"})`,
   };
 }

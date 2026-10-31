@@ -6,6 +6,7 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const sigstore = vi.hoisted(() => ({
@@ -19,8 +20,22 @@ vi.mock("@sigstore/tuf", () => ({
   getTrustedRoot: (options: unknown) => sigstore.getTrustedRoot(options),
 }));
 
+// Parses the way @sigstore/protobuf-specs does: messageSignature wins when both
+// are present, and the DSSE payload comes back as the decoded bytes.
 vi.mock("@sigstore/bundle", () => ({
-  bundleFromJSON: vi.fn((json: unknown) => ({ parsed: json })),
+  bundleFromJSON: vi.fn((json: any) =>
+    json.messageSignature
+      ? { content: { $case: "messageSignature", messageSignature: json.messageSignature } }
+      : {
+          content: {
+            $case: "dsseEnvelope",
+            dsseEnvelope: {
+              payloadType: json.dsseEnvelope.payloadType,
+              payload: Buffer.from(json.dsseEnvelope.payload, "base64"),
+            },
+          },
+        },
+  ),
 }));
 
 vi.mock("@sigstore/verify", () => ({
@@ -36,14 +51,13 @@ vi.mock("@sigstore/verify", () => ({
   },
 }));
 
-import { verifyBundle, type VerifyBundleOptions } from "./sigstore.ts";
 import { VerifyImageError } from "./errors.ts";
-import type { DsseBundle } from "./signed-digest.ts";
+import { verifyBundle, type VerifyBundleOptions } from "./sigstore.ts";
 
 const DIGEST = "sha256:" + "a".repeat(64);
 
 /** A DSSE bundle whose signed in-toto payload names `digest`. */
-function bundleFor(digest: string): DsseBundle {
+function bundleFor(digest: string) {
   const statement = { subject: [{ digest: { sha256: digest.replace("sha256:", "") } }] };
   return {
     dsseEnvelope: {
@@ -92,6 +106,12 @@ describe("verifyBundle", () => {
     );
     // The signature check did pass; what refused is the digest assertion.
     expect(sigstore.verify.mock.calls.length).toBe(1);
+  });
+
+  it("rejects a bundle that also carries a message signature before verifying it", async () => {
+    const bundle = { ...bundleFor(DIGEST), messageSignature: { signature: "c2ln" } };
+    expect(await codeOfRejection(() => verifyBundle(bundle, {}, DIGEST))).toBe("VERIFY_FAILED");
+    expect(sigstore.verify.mock.calls.length).toBe(0);
   });
 
   it("reports a verifier refusal as VERIFY_FAILED, keeping the underlying message", async () => {

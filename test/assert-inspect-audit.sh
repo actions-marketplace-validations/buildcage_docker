@@ -8,7 +8,7 @@ echo ""
 echo "=== Inspect Proxy Engine Assertions (audit) ==="
 echo ""
 
-echo "[audit records everything, with no rules configured]:"
+echo "[audit records everything, whatever the rules allow]:"
 assert_logged GET "https://allowed.example.com/public/pkg.tgz" 200
 assert_logged POST "https://api.example.com/v1/thing" 200
 assert_logged GET "https://allowed.example.com:9443/private/secret" 200
@@ -18,10 +18,18 @@ echo ""
 
 echo "[audit enforces nothing]:"
 if grep -qE "^buildcage [0-9]+ https? [A-Z]+ (403|502) " <<< "$LOGS"; then
-  fail "something was refused in audit mode"
+  fail "something was blocked in audit mode"
   grep -E "(403|502) " <<< "$LOGS" || true
 else
-  pass "no request was refused"
+  pass "no request was blocked"
+fi
+echo ""
+
+echo "[a rule naming an address exempts it from the internal-address guard in audit too]:"
+if docker compose exec builder grep -qF "set-var(txn.named_address) bool(true)" /etc/haproxy/haproxy.cfg; then
+  pass "GET http://10.200.0.100/pub-by-addr/** carried its exemption into haproxy.cfg"
+else
+  fail "no address exemption in haproxy.cfg, so audit blocks what restrict allows"
 fi
 echo ""
 
@@ -42,9 +50,9 @@ echo ""
 
 echo "[report] audit heading and the hosts that were reached:"
 if grep -qF "### 📋 Audited Hosts" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| blocked.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| allowed.example.com:9080 | HTTP |" <<< "$REPORT_MARKDOWN"; then
+  && grep -qF "| \`allowed.example.com:443\` | HTTPS |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`blocked.example.com:443\` | HTTPS |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`allowed.example.com:9080\` | HTTP |" <<< "$REPORT_MARKDOWN"; then
   pass "the audited table lists every host, on its own port"
 else
   fail "the Audited Hosts table is missing expected rows"
@@ -52,7 +60,7 @@ fi
 echo ""
 
 echo "[report] nothing is reported as blocked:"
-if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN"; then
+if grep -qF "### 🚫 Blocked" <<< "$REPORT_MARKDOWN"; then
   fail "audit produced a Blocked Hosts table"
 else
   pass "no Blocked Hosts table"
@@ -63,7 +71,7 @@ echo "[report] the restrict-mode example built from what was observed:"
 # These rules are meant to be pasted into a restrict run, so they are checked
 # against what the build actually did rather than only for being present.
 if grep -qF "Switch to restrict mode" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "allowed_url_rules: |" <<< "$REPORT_MARKDOWN"; then
+  && grep -qF "allowed-url-rules: |" <<< "$REPORT_MARKDOWN"; then
   pass "the example is offered as URL rules"
 else
   fail "no restrict-mode URL rule example was rendered"
@@ -71,11 +79,11 @@ fi
 
 RULES=$(
   awk '
-    # Stops at the next top-level key (allowed_tls_rules/allowed_ip_rules are
+    # Stops at the next top-level key (allowed-tls-rules/allowed-ip-rules are
     # echoed into the same fenced block, see inspect-example.ts) as well as
-    # the closing fence, so only the allowed_url_rules value is captured.
-    /allowed_url_rules: \|/ { capture=1; next }
-    capture && /^ *(allowed_tls_rules|allowed_ip_rules): \|/ { exit }
+    # the closing fence, so only the allowed-url-rules value is captured.
+    /allowed-url-rules: \|/ { capture=1; next }
+    capture && /^ *(allowed-tls-rules|allowed-ip-rules): \|/ { exit }
     capture && /```/ { exit }
     capture { print }
   ' <<< "$REPORT_MARKDOWN" | sed 's/^ *//'
@@ -117,7 +125,7 @@ echo ""
 
 echo "[report] the traffic artifact:"
 # writeTrafficFile only runs when BUILDCAGE_TRAFFIC_FILE is set, which
-# report/src/main.ts normally does itself from upload_traffic_artifact; set
+# report/src/main.ts normally does itself from upload-traffic-artifact; set
 # it directly here to reach the same path without a real GitHub Actions
 # runtime to upload through.
 BUILDER_CID=$(docker compose ps -q builder)

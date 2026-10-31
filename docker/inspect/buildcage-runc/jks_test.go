@@ -11,26 +11,6 @@ import (
 	"testing"
 )
 
-// The fixtures below are the format written out: a keystore small enough to
-// read at a glance, rather than the 160 KB one a distribution ships. Building
-// them here is also what says what each field is.
-
-func javaUTF(s string) []byte {
-	return append(binary.BigEndian.AppendUint16(nil, uint16(len(s))), s...)
-}
-
-// trustedEntry is tag 2: the one a trust store rebuild adds the CA as.
-func trustedEntry(version uint32, alias string, der []byte) []byte {
-	entry := binary.BigEndian.AppendUint32(nil, 2)
-	entry = append(entry, javaUTF(alias)...)
-	entry = binary.BigEndian.AppendUint64(entry, 1700000000000)
-	if version > 1 {
-		entry = append(entry, javaUTF("X.509")...)
-	}
-	entry = binary.BigEndian.AppendUint32(entry, uint32(len(der)))
-	return append(entry, der...)
-}
-
 // keyEntry is tag 1, whose certificates are a chain behind a wrapped private
 // key rather than anything the trust store put there.
 func keyEntry(version uint32, alias string, key []byte, chain ...[]byte) []byte {
@@ -48,31 +28,6 @@ func keyEntry(version uint32, alias string, key []byte, chain ...[]byte) []byte 
 		entry = append(entry, der...)
 	}
 	return entry
-}
-
-// keystore seals the entries the way the JDK does, so the parser meets a file
-// it would accept.
-func keystore(version uint32, entries ...[]byte) []byte {
-	out := append([]byte{}, keystoreMagic...)
-	out = binary.BigEndian.AppendUint32(out, version)
-	out = binary.BigEndian.AppendUint32(out, uint32(len(entries)))
-	for _, entry := range entries {
-		out = append(out, entry...)
-	}
-	return append(out, keystoreDigest(out)...)
-}
-
-// testDER is what testCA's base64 decodes to: what a container holds of a
-// certificate, and what every shape of copy has in common.
-var testDER = []byte("BUILDCAGE-CA")
-
-var otherDER = []byte("SOMEONE-ELSE")
-
-func mustWriteKeystore(t *testing.T, content []byte) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "cacerts")
-	mustWriteFile(t, path, string(content))
-	return path
 }
 
 // The case the whole format is here for: a rebuild put the CA in the JVM's own
@@ -132,40 +87,43 @@ func TestRemoveFromKeystoreResealsWhatItWrites(t *testing.T) {
 	}
 }
 
+// assertKeystoreLeft checks that removeFromBinaryStore left the keystore at
+// path untouched for the caller to report, and logged why.
+func assertKeystoreLeft(t *testing.T, path string, want []byte, reason string) {
+	t.Helper()
+	useTempLog(t)
+	rewritten, err := removeFromBinaryStore(path, [][]byte{testDER})
+	if err != nil || rewritten {
+		t.Fatalf("got (%v, %v), want the keystore left for the caller", rewritten, err)
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, want) {
+		t.Error("the keystore was changed")
+	}
+	if !strings.Contains(ownLog.String(), reason) {
+		t.Errorf("the log does not say why:\n%s", ownLog.String())
+	}
+}
+
 // A keystore somebody sealed with a password of their own is not this
 // wrapper's to reseal: guessing would leave it unreadable to whatever opens it.
-func TestRemoveFromKeystoreRefusesOneSealedWithAnotherPassword(t *testing.T) {
+func TestRemoveFromKeystoreLeavesOneSealedWithAnotherPassword(t *testing.T) {
 	sealed := keystore(2, trustedEntry(2, "buildcage", testDER))
 	sealed[len(sealed)-1] ^= 0xff
-	path := mustWriteKeystore(t, sealed)
-
-	_, err := removeFromBinaryStore(path, [][]byte{testDER})
-	if err == nil || !strings.Contains(err.Error(), "system keystore password") {
-		t.Fatalf("got %v, want the seal to be refused", err)
-	}
+	assertKeystoreLeft(t, mustWriteKeystore(t, sealed), sealed, "system keystore password")
 }
 
 // Only a trusted certificate can be dropped on its own. One in a key's chain
-// would take the key with it, so it is reported instead.
-func TestRemoveFromKeystoreRefusesACertificateInAKeyChain(t *testing.T) {
-	path := mustWriteKeystore(t, keystore(2, keyEntry(2, "server", []byte("KEY"), otherDER, testDER)))
-
-	_, err := removeFromBinaryStore(path, [][]byte{testDER})
-	if err == nil || !strings.Contains(err.Error(), "private key's own chain") {
-		t.Fatalf("got %v, want the key chain to be refused", err)
-	}
+// would take the key with it.
+func TestRemoveFromKeystoreLeavesACertificateInAKeyChain(t *testing.T) {
+	content := keystore(2, keyEntry(2, "server", []byte("KEY"), otherDER, testDER))
+	assertKeystoreLeft(t, mustWriteKeystore(t, content), content, "private key's own chain")
 }
 
 // The scan found the certificate somewhere in the file, so a rewrite that
-// takes nothing out has not understood where. Silence there would leave it in
-// the layer.
-func TestRemoveFromKeystoreRefusesOneHoldingTheCertificateOutsideAnEntry(t *testing.T) {
-	path := mustWriteKeystore(t, keystore(2, trustedEntry(2, string(testDER), otherDER)))
-
-	_, err := removeFromBinaryStore(path, [][]byte{testDER})
-	if err == nil || !strings.Contains(err.Error(), "outside any entry") {
-		t.Fatalf("got %v, want the certificate's place to be refused", err)
-	}
+// takes nothing out has not understood where.
+func TestRemoveFromKeystoreLeavesOneHoldingTheCertificateOutsideAnEntry(t *testing.T) {
+	content := keystore(2, trustedEntry(2, string(testDER), otherDER))
+	assertKeystoreLeft(t, mustWriteKeystore(t, content), content, "outside any entry")
 }
 
 // Anything this has not been shown the shape of is left for the caller to

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { connectedHosts, isRedundantDns, type TrafficEvent } from "./traffic-event.ts";
+
+import {
+  clientEndedNoise,
+  connectedHosts,
+  isRedundantDns,
+  type TrafficEvent,
+} from "./traffic-event.ts";
 
 function event(
   partial: Partial<TrafficEvent> & Pick<TrafficEvent, "protocol" | "action" | "host">,
@@ -13,7 +19,7 @@ function redundant(subject: TrafficEvent, timeline: TrafficEvent[]): boolean {
 }
 
 describe("isRedundantDns", () => {
-  it("is redundant once a refused request for the same host also appears", () => {
+  it("is redundant once a blocked request for the same host also appears", () => {
     const dns = event({ protocol: "dns", action: "block", host: "notallowed.example.com" });
     const request = event({ protocol: "https", action: "block", host: "notallowed.example.com" });
     expect(redundant(dns, [dns, request])).toBe(true);
@@ -34,7 +40,7 @@ describe("isRedundantDns", () => {
     expect(redundant(dns, [dns, request])).toBe(false);
   });
 
-  it("keeps a refused lookup that an allowed request contradicts", () => {
+  it("keeps a blocked lookup that an allowed request contradicts", () => {
     const dns = event({ protocol: "dns", action: "block", host: "a.example.com" });
     const request = event({ protocol: "https", action: "allow", host: "a.example.com" });
     expect(redundant(dns, [dns, request])).toBe(false);
@@ -46,10 +52,22 @@ describe("isRedundantDns", () => {
     expect(redundant(dns, [dns, request])).toBe(true);
   });
 
-  it("matches a host the request spelled with different case", () => {
+  it("keeps a lookup whose only connection ended before a request", () => {
+    // What a client that cannot trust the CA leaves, and no table lists it.
     const dns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
-    const request = event({ protocol: "https", action: "allow", host: "A.Example.COM" });
-    expect(redundant(dns, [dns, request])).toBe(true);
+    const ended = event({
+      protocol: "https",
+      action: "incomplete",
+      host: "a.example.com",
+      reason: "client-tls-failed",
+    });
+    expect(redundant(dns, [dns, ended])).toBe(false);
+  });
+
+  it("drops a lookup once a connection sent its name with a trailing dot", () => {
+    const dns = event({ protocol: "dns", action: "allow", host: "a.example.com" });
+    const pass = event({ protocol: "tls", action: "allow", host: "a.example.com." });
+    expect(redundant(dns, [dns, pass])).toBe(true);
   });
 
   it("ignores a second DNS record for the same host", () => {
@@ -80,13 +98,26 @@ describe("isRedundantDns", () => {
 });
 
 describe("connectedHosts", () => {
-  it("indexes only what was connected to, lowercased and split by outcome", () => {
+  it("indexes only what was connected to, split by outcome", () => {
     const connected = connectedHosts([
-      event({ protocol: "https", action: "allow", host: "Allowed.Example.COM" }),
-      event({ protocol: "https", action: "block", host: "Refused.Example.COM" }),
+      event({ protocol: "https", action: "allow", host: "allowed.example.com" }),
+      event({ protocol: "https", action: "block", host: "blocked.example.com" }),
       event({ protocol: "dns", action: "block", host: "lookup.example.com" }),
     ]);
-    expect([...connected.any].sort().join(",")).toBe("allowed.example.com,refused.example.com");
-    expect([...connected.blocked].join(",")).toBe("refused.example.com");
+    expect([...connected.any].sort().join(",")).toBe("allowed.example.com,blocked.example.com");
+    expect([...connected.blocked].join(",")).toBe("blocked.example.com");
+  });
+});
+
+describe("clientEndedNoise", () => {
+  it("treats a close named by an SNI with a trailing dot as its host's noise", () => {
+    const request = event({ protocol: "https", action: "allow", host: "a.example.com" });
+    const close = event({
+      protocol: "https",
+      action: "incomplete",
+      host: "a.example.com.",
+      reason: "client-aborted",
+    });
+    expect(clientEndedNoise([request, close])(close)).toBe(true);
   });
 });

@@ -13,6 +13,22 @@ describe("readLocalImageOverride", () => {
 
   it("returns the literal image ref and pullPolicy 'never' when set", () => {
     const result = readLocalImageOverride({ BUILDCAGE_LOCAL_IMAGE_REF: "buildcage-builder" });
-    expect(result).toStrictEqual({ imageRef: "buildcage-builder", pullPolicy: "never" });
+    expect(result).toStrictEqual({
+      imageRef: "buildcage-builder",
+      pullPolicy: "never",
+      composeOverlay: undefined,
+    });
+  });
+
+  it("also carries BUILDCAGE_TEST_COMPOSE_OVERLAY when set", () => {
+    const result = readLocalImageOverride({
+      BUILDCAGE_LOCAL_IMAGE_REF: "buildcage-builder",
+      BUILDCAGE_TEST_COMPOSE_OVERLAY: "docker/compose.action.test-inspect.yaml",
+    });
+    expect(result).toStrictEqual({
+      imageRef: "buildcage-builder",
+      pullPolicy: "never",
+      composeOverlay: "docker/compose.action.test-inspect.yaml",
+    });
   });
 });

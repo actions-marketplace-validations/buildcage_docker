@@ -3,33 +3,72 @@ name: Example (inspect engine, restrict mode)
 on:
   workflow_dispatch:
 
+  # Renovate moves the pin below to each new release, so that pull request
+  # runs the release through the same path a user's workflow takes: the image
+  # pulled by tag and its signature verified.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/example-inspect-restrict.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
+  # Renovate sees the release's tag as soon as it is pushed, while
+  # docker-publish.yml is still building and signing that tag's images, and
+  # the example would fail on an image that is not signed yet.
+  release_image:
+    runs-on: ubuntu-slim
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+
+      - name: Wait for the pinned release's images
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/wait-for-release-image
+        with:
+          workflow: .github/workflows/example-inspect-restrict.yml
+
   build:
+    needs: release_image
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
     steps:
-      # Same build as the audit example, with the rules that run produced. npm
-      # publish is a PUT, so it's refused: no rule here covers that method.
+      # The audit example's build, with the rules that run produced and one
+      # request they block. The rules name methods too, so an npm publish (a
+      # PUT) would be blocked as well.
       - name: Start Buildcage builder
-        uses: buildcage/docker@e97cf73f1ca5094c62968f6e8617bde0948deb3d # v4.0.0
+        uses: buildcage/docker@ef2b79a3baaddc6a69c1b10a2c473a134ece2eca # v4.4.0
         with:
-          proxy_mode: restrict
-          proxy_engine: inspect
-          allowed_url_rules: |
+          proxy-mode: restrict
+          proxy-engine: inspect
+          allowed-url-rules: |
             # apt, over plain HTTP
             GET http://deb.debian.org/debian/**
             GET http://deb.debian.org/debian-security/**
 
-            # npm install, plus its post-install audit-endpoint POST
+            # npm install, plus the audit POST it sends after installing
             GET|HEAD https://registry.npmjs.org/**
             POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: remote
           endpoint: docker-container://buildcage
@@ -45,21 +84,21 @@ jobs:
               apt-get install -y wget && \
               rm -rf /var/lib/apt/lists/*
           RUN npm init -y && npm install --ignore-scripts @hono/node-server
-          # Refused: the report names the full URL, not just the host.
+          # Blocked: the report names the full URL, not just the host.
           RUN wget -q -O /dev/null --timeout=5 https://example.com/ || true
           EOF
 
       - name: Build test image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: /tmp/build-context
           push: false
           no-cache: true
 
-      # fail_on_blocked is false only because this example blocks on purpose;
+      # fail-on-blocked is false only because this example blocks on purpose;
       # leave it at its default so a real workflow fails on a disallowed request.
       - name: Show proxy report
         if: always()
-        uses: buildcage/docker/report@e97cf73f1ca5094c62968f6e8617bde0948deb3d # v4.0.0
+        uses: buildcage/docker/report@ef2b79a3baaddc6a69c1b10a2c473a134ece2eca # v4.4.0
         with:
-          fail_on_blocked: false
+          fail-on-blocked: false

@@ -1,0 +1,197 @@
+import { describe, it, expect } from "vitest";
+
+import { restrictExampleBlock } from "./restrict-example.ts";
+import { buildUniversalRestrictExample } from "./universal-example.ts";
+
+const REPO = "owner/repo";
+const REF = "v1";
+
+describe("buildUniversalRestrictExample", () => {
+  it("renders nothing for an empty row list", () => {
+    expect(buildUniversalRestrictExample([], REPO)).toBe("");
+  });
+
+  it("renders nothing when the rows are null or undefined", () => {
+    expect(buildUniversalRestrictExample(null, REPO)).toBe("");
+    expect(buildUniversalRestrictExample(undefined, REPO)).toBe("");
+  });
+
+  it("keeps several rules under one param, in the order they appeared", () => {
+    const rows = [
+      { host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 5 },
+      { host: "github.com", port: "443", ruleType: "HTTPS", count: 2 },
+    ];
+    expect(buildUniversalRestrictExample(rows, REPO, REF)).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+          "      github.com:443",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("writes a host once when it appears twice, as reached and as failed", () => {
+    const rows = [
+      { host: "a.example.com", port: "443", ruleType: "HTTPS" },
+      { host: "b.example.com", port: "443", ruleType: "HTTPS" },
+      { host: "a.example.com", port: "443", ruleType: "HTTPS" },
+    ];
+    const md = buildUniversalRestrictExample(rows, REPO, REF);
+    expect(md.match(/a\.example\.com:443/g)).toHaveLength(1);
+    expect(md).toMatch(/a\.example\.com:443\n\s+b\.example\.com:443\n/);
+  });
+
+  it("all three rule types", () => {
+    const rows = [
+      { host: "example.com", port: "443", ruleType: "HTTPS", count: 2 },
+      { host: "example.com", port: "80", ruleType: "HTTP", count: 1 },
+      { host: "10.0.0.1", port: "8080", ruleType: "IP", count: 1 },
+    ];
+    expect(buildUniversalRestrictExample(rows, REPO, REF)).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      example.com:443",
+          "    allowed-http-rules: >-",
+          "      example.com:80",
+          "    allowed-ip-rules: >-",
+          "      10.0.0.1:8080",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("includes the run command when provided", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 5 }];
+    expect(buildUniversalRestrictExample(rows, REPO, REF, { runCommand: "npm install" })).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+          "    run: |",
+          "      npm install",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("preserves multi-line run commands, indented under run: |", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 1 }];
+    expect(buildUniversalRestrictExample(rows, REPO, REF, { runCommand: "npm ci\nnpm test" })).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+          "    run: |",
+          "      npm ci",
+          "      npm test",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("strips the trailing newline GitHub Actions adds to `run: |` block scalars", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 1 }];
+    expect(
+      buildUniversalRestrictExample(rows, REPO, REF, { runCommand: "npm ci\nnpm test\n" }),
+    ).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+          "    run: |",
+          "      npm ci",
+          "      npm test",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("without a runCommand, omits the run: block", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 1 }];
+    expect(buildUniversalRestrictExample(rows, REPO, REF)).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+  it("writes the caller's extra inputs after the rules", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 1 }];
+    expect(
+      buildUniversalRestrictExample(rows, REPO, REF, { extraInputs: ["fail-on-blocked: false"] }),
+    ).toBe(
+      restrictExampleBlock(
+        [
+          "- name: Start Buildcage",
+          `  uses: ${REPO}@${REF}`,
+          "  with:",
+          "    proxy-mode: restrict",
+          "    proxy-engine: universal",
+          "    allowed-https-rules: >-",
+          "      registry.npmjs.org:443",
+          "    fail-on-blocked: false",
+        ].join("\n") + "\n",
+      ),
+    );
+  });
+
+  it("names the step as the caller asks", () => {
+    const rows = [{ host: "registry.npmjs.org", port: "443", ruleType: "HTTPS", count: 1 }];
+    expect(
+      buildUniversalRestrictExample(rows, REPO, REF, { stepName: "Start isolated-run" }),
+    ).toMatch(/^ {6}- name: Start isolated-run$/m);
+  });
+});
+
+describe("buildUniversalRestrictExample: rows that map to no action input", () => {
+  const audited = (ruleType: string) => ({
+    host: "a.example.com",
+    port: "443",
+    ruleType,
+    count: 1,
+  });
+
+  it("skips a rule type the setup action has no input for", () => {
+    const yaml = buildUniversalRestrictExample([audited("DNS"), audited("HTTPS")], REPO, "v3");
+    expect(yaml.match(/a\.example\.com/g)?.length).toBe(1);
+  });
+
+  it("renders nothing when no row maps to an input", () => {
+    expect(buildUniversalRestrictExample([audited("DNS")], REPO, "v3")).toBe("");
+  });
+});

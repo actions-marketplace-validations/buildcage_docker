@@ -1,11 +1,10 @@
 #!/bin/bash
-# HAProxy binds *:10024 (both engines' CoreDNS also binds *:53), but only
-# buildcage0, the CNI bridge BuildKit wires up once a build
-# starts, may reach them (see docker/{universal,inspect}/files/s6-scripts/
-# init-iptables). This starts each engine's builder on its own, with no build
-# running, so buildcage0 never exists: :10024/:53 must be unreachable both from
-# another container on the builder's own compose network and from the runner
-# host itself.
+# HAProxy binds *:10024 (CoreDNS also binds *:53), but only buildcage0, the CNI
+# bridge BuildKit wires up once a build starts, may reach them (see
+# docker/common/files/s6-scripts/init-iptables). This starts each engine's
+# builder on its own, with no build running, so buildcage0 never exists:
+# :10024/:53 must be unreachable both from another container on the builder's
+# own compose network and from the runner host itself.
 #
 # The same standalone builder also has to reach its own readiness checks over
 # loopback and exit on SIGTERM, which is what tells an over-broad rule from a
@@ -17,10 +16,9 @@ source "$(dirname "$0")/helpers.sh"
 
 cd "$(dirname "$0")/.."
 
-# Both engines run in audit mode so that CoreDNS answers every name (it refuses
-# an unlisted name only in restrict mode, see coredns-config.ts).
-# An answer then proves the port was reachable rather than that a rule matched.
-# The INPUT rules under test are the same in either mode.
+# CoreDNS answers every name with the proxy's address in either mode (see
+# coredns-config.ts), so an answer proves only that the port was reachable. The
+# INPUT rules under test are the same in either mode too, so audit is enough.
 dns_answered() {
   local network="$1" target="$2"
   docker run --rm --network "$network" "$TEST_ALPINE_IMAGE" sh -c \
@@ -30,22 +28,26 @@ dns_answered() {
 
 run_engine() {
   local engine="$1"
-  # Both are global to the daemon, so they carry the Makefile's worktree suffix.
+  # All three are global to the daemon, so they carry the Makefile's worktree
+  # suffix. The image is this script's own, so removing it touches no other.
   local project="buildcage-listener-scope-$engine${BUILDCAGE_WORKTREE_SUFFIX:-}"
   local builder="buildcage-listener-scope${BUILDCAGE_WORKTREE_SUFFIX:-}"
-  local compose=(docker compose -p "$project" -f compose.yaml)
+  local compose=(docker compose -p "$project" -f docker/compose.action.yaml)
+  local image="$project"
 
   echo ""
   echo "=== Listener Scope Assertions ($engine) ==="
   echo ""
 
   cleanup() {
-    BUILDER_NAME="$builder" "${compose[@]}" down -v --rmi local >/dev/null 2>&1 || true
+    BUILDER_NAME="$builder" "${compose[@]}" down -v >/dev/null 2>&1 || true
+    docker rmi "$image" >/dev/null 2>&1 || true
   }
   trap cleanup RETURN
 
-  BUILDER_NAME="$builder" PROXY_ENGINE="$engine" PROXY_MODE=audit \
-    "${compose[@]}" up -d --build --wait
+  build_builder_image "$engine" "$image"
+  BUILDER_NAME="$builder" BUILDCAGE_IMAGE_REF="$image" PROXY_ENGINE="$engine" PROXY_MODE=audit \
+    "${compose[@]}" up -d --pull never --no-build --wait
 
   local net
   net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$builder")

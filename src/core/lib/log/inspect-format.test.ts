@@ -2,6 +2,7 @@
 // holding the two together: a field moved on one side and not the other leaves
 // a report that says the build reached nothing at all.
 import { describe, it, expect } from "vitest";
+
 import { generateHaproxyConfig } from "../acl/haproxy-config.ts";
 import { scanInspectLog } from "./inspect.ts";
 
@@ -10,7 +11,6 @@ const OPTIONS = {
   httpRules: ["b.example.com:80"],
   ipRules: ["10.0.0.5:5432"],
   tlsRules: ["db.example.com:443"],
-  resolverAddress: ["1.1.1.1"],
   proxyAddress: "198.19.255.1",
 };
 
@@ -34,17 +34,21 @@ const SAMPLES: Record<string, string> = {
   "%[var(txn.proto)]": "tls",
   "%[var(txn.sni)]": "db.example.com",
   "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "registry.npmjs.org",
+  "%[fc_err_name]": "-",
+  "%[var(txn.would_block),regsub([^A-Za-z0-9._-],_,g)]": "-",
+  "%[var(txn.example_kind),regsub([^A-Za-z0-9._-],_,g)]": "-",
+  "%[var(txn.example_owner),regsub([^A-Za-z0-9._-],_,g)]": "-",
 };
 
 // The inner alternative is the character class a regsub argument carries, so
 // the `]` closing it does not end the token.
 const TOKEN = /%(?:\[(?:[^[\]]|\[[^[\]]*\])*\]|[A-Za-z]+)/g;
 
-/** The log-format strings the generator emits, unquoted, in config order. */
-function logFormats(config: string): string[] {
+/** The strings the generator emits for one directive, unquoted, in config order. */
+function logFormats(config: string, directive = "log-format"): string[] {
   return config
     .split("\n")
-    .filter((line) => line.includes('log-format "buildcage'))
+    .filter((line) => line.trim().startsWith(`${directive} "buildcage`))
     .map((line) => line.slice(line.indexOf('"') + 1, line.lastIndexOf('"')));
 }
 
@@ -62,7 +66,20 @@ function render(
   });
 }
 
-const FORMATS = logFormats(generateHaproxyConfig(OPTIONS).config);
+const FORMATS = logFormats(generateHaproxyConfig(OPTIONS));
+const EXTENDED_FORMATS = logFormats(
+  generateHaproxyConfig({
+    ...OPTIONS,
+    extension: {
+      requestRules: () => [],
+      responseRules: () => [],
+      logFields: {
+        name: "example",
+        fields: { kind: "txn.example_kind", owner: "txn.example_owner" },
+      },
+    },
+  }),
+);
 const [PASSTHROUGH, HTTPS, HTTP] = [
   FORMATS.find((f) => f.includes(" pass ")) ?? "",
   FORMATS.find((f) => f.includes(" https ")) ?? "",
@@ -75,6 +92,78 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(PASSTHROUGH === "").toBe(false);
     expect(HTTPS === "").toBe(false);
     expect(HTTP === "").toBe(false);
+  });
+
+  it("writes a failed client handshake in the https line's own format", () => {
+    expect(logFormats(generateHaproxyConfig(OPTIONS), "error-log-format")).toStrictEqual([HTTPS]);
+  });
+
+  it("reads a failed client handshake as undecided, named by its SNI", async () => {
+    const line = render(HTTPS, {
+      "%HM": "<BADREQ>",
+      "%ST": "0",
+      "%B": "0",
+      "%ts": "PR",
+      "%[fc_err_name]": "SSL_HANDSHAKE",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("client-tls-failed");
+    expect(e.host).toBe("registry.npmjs.org");
+  });
+
+  it("reads a client that broke off after a completed handshake by how it ended", async () => {
+    // haproxy's own words for a corrupt record once the handshake is done.
+    const line = render(HTTPS, {
+      "%HM": "<BADREQ>",
+      "%ST": "400",
+      "%B": "0",
+      "%ts": "CR",
+      "%[fc_err_name]": "SSL_FATAL",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("incomplete");
+    expect(e.reason).toBe("client-aborted");
+  });
+
+  it("never reads the proxy's own TLS trouble as a block", async () => {
+    const line = render(HTTPS, {
+      "%HM": "<BADREQ>",
+      "%ST": "0",
+      "%B": "0",
+      "%ts": "PR",
+      "%[fc_err_name]": "SSL_TOO_MANY",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("incomplete");
+  });
+
+  it("keeps the trailing dot of the SNI that names a failed handshake", async () => {
+    const line = render(HTTPS, {
+      "%HM": "<BADREQ>",
+      "%ST": "0",
+      "%B": "0",
+      "%ts": "PR",
+      "%[fc_err_name]": "SSL_HANDSHAKE",
+      "%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]": "Registry.npmjs.org.",
+    });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.host).toBe("registry.npmjs.org.");
+  });
+
+  it("reads a request it parsed by its own outcome, whatever the connection error", async () => {
+    const line = render(HTTPS, { "%[fc_err_name]": "SSL_HANDSHAKE" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("allow");
+    expect(e.reason).toBeUndefined();
+  });
+
+  it("still reads an unreadable request after a completed handshake as a block", async () => {
+    // HTTP/2 framing the proxy could not read logs the same way, minus fcerr.
+    const line = render(HTTPS, { "%HM": "<BADREQ>", "%ST": "0", "%B": "0", "%ts": "PR" });
+    const [e] = (await scanInspectLog([line])).events;
+    expect(e.action).toBe("block");
+    expect(e.reason).toBe("bad-request");
   });
 
   it("reads every field of a request line back out of where it was written", async () => {
@@ -118,7 +207,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.url).toBe(`https://${host}${PATH}`);
   });
 
-  it("reads a refusal the config named out of the reason field", async () => {
+  it("reads a block the config named out of the reason field", async () => {
     const line = render(
       HTTPS,
       { "%ts": "PR--", "%ST": "403", "%B": "0" },
@@ -130,7 +219,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.status === undefined).toBe(true);
   });
 
-  it("reads an upstream resolution failure as failed, not as a refusal", async () => {
+  it("reads an upstream resolution failure as failed, not as a block", async () => {
     const line = render(
       HTTPS,
       { "%ts": "PR--", "%ST": "502", "%B": "0" },
@@ -150,7 +239,7 @@ describe("the generated log-format and this parser describe the same line", () =
   });
 
   // Both end in the same termination state, so the field is the only thing
-  // between them. Both are refusals: this proxy completed neither connection,
+  // between them. Both are blocks: this proxy completed neither connection,
   // so it authenticated neither origin.
   it("tells an origin it would not trust from one it could not reach", async () => {
     const connect = { "%ts": "SC--", "%ST": "503", "%B": "0" };
@@ -181,7 +270,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.action).toBe("block");
   });
 
-  it("leaves a passthrough this proxy could not connect for a failure, not a refusal", async () => {
+  it("leaves a passthrough this proxy could not connect for a failure, not a block", async () => {
     // That stage relays the handshake for the build to judge, so a connection
     // it never made hid no certificate and no rule can change the outcome.
     const line = render(PASSTHROUGH, { "%ts": "SC--", "%B": "0" });
@@ -231,7 +320,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.reason).toBe("client-timeout");
   });
 
-  it("reads haproxy's own 400 as a refusal, named by the handshake", async () => {
+  it("reads haproxy's own 400 as a block, named by the handshake", async () => {
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "PR" });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("block");
@@ -258,7 +347,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.url).toBe(`https://registry.npmjs.org:9443${PATH}`);
   });
 
-  it("refuses a request that named no host in audit too, where no rule would have", async () => {
+  it("blocks a request that named no host in audit too, where no rule would have", async () => {
     // There is nothing to resolve and nothing to connect to, so the stage
     // denies it in either mode, as the universal engine does.
     const line = render(
@@ -274,10 +363,10 @@ describe("the generated log-format and this parser describe the same line", () =
   // The log rewrites only whitespace, quotes and control characters, so a
   // Host of the build's own choosing reaches the log as sent. Reading the
   // authority to decide whether one arrived would let a sender move its own
-  // refusals out of both tables and out of fail_on_blocked, by writing the very
+  // blocks out of both tables and out of fail-on-blocked, by writing the very
   // text the log prints for a Host that never came.
   it.each(["-evil.example.com", "-", "--", "-:443", "-/evil.example.com"])(
-    "leaves a refusal whose sender chose the Host %j a block",
+    "leaves a block whose sender chose the Host %j a block",
     async (host) => {
       const line = render(HTTPS, {
         "%ST": "403",
@@ -314,7 +403,7 @@ describe("the generated log-format and this parser describe the same line", () =
 
   it("names a phase R neither the client nor this proxy ended as no request at all", async () => {
     // `RR` is haproxy running out of a resource while reading the request: its
-    // own doing and not a decision, so it is neither allowed nor refused.
+    // own doing and not a decision, so it is neither allowed nor blocked.
     const line = render(HTTPS, { ...NO_REQUEST, "%ts": "RR" });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("incomplete");
@@ -371,7 +460,7 @@ describe("the generated log-format and this parser describe the same line", () =
     expect(e.url).toBe(`https://registry.npmjs.org${PATH}`);
   });
 
-  it("names a passthrough refusal the same way, though it has no status at all", async () => {
+  it("names a passthrough block the same way, though it has no status at all", async () => {
     const line = render(PASSTHROUGH, { "%ts": "PR", "%B": "0" }, { reason: "internal-address" });
     const [e] = (await scanInspectLog([line])).events;
     expect(e.action).toBe("block");
@@ -392,5 +481,85 @@ describe("the generated log-format and this parser describe the same line", () =
 
   it("refuses to render a field it has never been shown", () => {
     expect(() => render("buildcage %[var(txn.unknown)]")).toThrow("no sample");
+  });
+
+  describe("with an extension", () => {
+    const [https, http] = [
+      EXTENDED_FORMATS.find((f) => f.includes(" https ")) ?? "",
+      EXTENDED_FORMATS.find((f) => f.includes(" http ")) ?? "",
+    ];
+
+    it("adds its field to both request formats and nothing else", () => {
+      expect(EXTENDED_FORMATS.length).toBe(3);
+      expect(EXTENDED_FORMATS.filter((f) => f.includes(" wb=")).length).toBe(2);
+    });
+
+    it("still reads the rest of the line where it was", async () => {
+      for (const format of [https, http]) {
+        const [e] = (await scanInspectLog([render(format)])).events;
+        expect(e.action).toBe("allow");
+        expect(e.host).toBe("registry.npmjs.org");
+        expect(e.wouldBlock).toBe(undefined);
+      }
+    });
+
+    it("names the block restrict made", async () => {
+      const line = render(
+        https,
+        { "%ST": "403", "%B": "0", "%ts": "PR" },
+        { reason: "example-block" },
+      );
+      const [e] = (await scanInspectLog([line])).events;
+      expect(e.action).toBe("block");
+      expect(e.reason).toBe("example-block");
+      expect(e.wouldBlock).toBe(undefined);
+    });
+
+    it("keeps the block restrict would have made where the request came to nothing", async () => {
+      const line = render(
+        https,
+        {
+          "%ST": "502",
+          "%B": "0",
+          "%ts": "PR",
+          "%[var(txn.would_block),regsub([^A-Za-z0-9._-],_,g)]": "example-block",
+        },
+        { reason: "dns-failed" },
+      );
+      const [e] = (await scanInspectLog([line], true)).events;
+      expect(e.reason).toBe("dns-failed");
+      expect(e.wouldBlock).toBe("example-block");
+    });
+
+    it("reads the fields it logs back as one object, leaving out those logged empty", async () => {
+      const both = render(https, {
+        "%[var(txn.example_kind),regsub([^A-Za-z0-9._-],_,g)]": "signed",
+        "%[var(txn.example_owner),regsub([^A-Za-z0-9._-],_,g)]": "111111111111",
+      });
+      const one = render(http, { "%[var(txn.example_kind),regsub([^A-Za-z0-9._-],_,g)]": "none" });
+      const [e1, e2, e3] = (await scanInspectLog([both, one, render(https)])).events;
+      expect(e1.extensions).toStrictEqual({ example: { kind: "signed", owner: "111111111111" } });
+      expect(e2.extensions).toStrictEqual({ example: { kind: "none" } });
+      expect(e2.host).toBe("registry.npmjs.org");
+      expect("extensions" in e3).toBe(false);
+    });
+
+    it("keeps a field under an object named like a prototype member to that object", async () => {
+      const line = render(https).replace(" fcerr=", " constructor.kind=x fcerr=");
+      const [e] = (await scanInspectLog([line])).events;
+      // toStrictEqual would read the `constructor` key as the object's type.
+      expect(JSON.stringify(e.extensions)).toBe('{"constructor":{"kind":"x"}}');
+      expect("kind" in Object).toBe(false);
+    });
+
+    it("notes the block restrict would have made of a request audit let through", async () => {
+      const line = render(https, {
+        "%[var(txn.would_block),regsub([^A-Za-z0-9._-],_,g)]": "example-block",
+      });
+      const [e] = (await scanInspectLog([line], true)).events;
+      expect(e.action).toBe("audit");
+      expect(e.status).toBe(200);
+      expect(e.wouldBlock).toBe("example-block");
+    });
   });
 });

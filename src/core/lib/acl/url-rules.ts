@@ -31,6 +31,7 @@
 import { stripLineComment, rejectGluedHash } from "../line-comments.ts";
 import {
   anchorRawRegex,
+  checkPort,
   checkRawRegexHalf,
   pathToRegexPartial,
   splitDomainFromPortPattern,
@@ -51,10 +52,9 @@ export interface UrlRule {
    */
   schemes: UrlScheme[];
   /**
-   * Host-only regex (no port), which the resolver's allowlist is built from:
-   * a DNS query carries no port to match against. For a `~` rule, this is
-   * `hostRegex` with anything after its own `:` discarded; see
-   * splitRawRegexUrl.
+   * The authority as a regex: `^<host>$` for a `~` rule (its port pattern
+   * dropped; see splitRawRegexUrl), `^<host>:<port>$` otherwise. The
+   * resolver's allowlist is built from its host part.
    */
   authorityRegex: string;
   /** Regex matching the path alone, anchored at the start. */
@@ -63,7 +63,7 @@ export interface UrlRule {
    * For a `~` rule: the host half's own regex, port included verbatim if the
    * user wrote one. The proxy matches this against the connection's host
    * both with and without a port, since the pattern's port (if any) is
-   * optional; see haproxy-config.ts. Meaningless when `isRegex` is false,
+   * optional; see haproxy-rule-block.ts. Meaningless when `isRegex` is false,
    * since a wildcard rule's host and (literal) port are matched separately.
    */
   hostRegex: string;
@@ -215,7 +215,7 @@ function splitRawRegexUrl(
   if (!pathSep) {
     throw new Error(
       `Invalid regex in rule "${rule}": expected a "/" (or "\\/") after "://" to start the path; ` +
-        `a host-only rule belongs in allowed_https_rules instead`,
+        `a host-only rule belongs in allowed-https-rules instead`,
     );
   }
   const pathStart = hostStart + pathSep.index;
@@ -307,9 +307,7 @@ function compileUrl(
   if (host === "") {
     throw new Error(`Invalid URL in rule "${rule}": missing host`);
   }
-  if (port !== "" && !/^(?:\d+|\*)$/.test(port)) {
-    throw new Error(`Invalid port in rule "${rule}": "${port}"`);
-  }
+  if (port !== "") checkPort(port, rule);
 
   // Compile the host through the host-rule entry point so the two rule forms
   // can never drift: wildcardToRegexPartial takes `host:port` and returns

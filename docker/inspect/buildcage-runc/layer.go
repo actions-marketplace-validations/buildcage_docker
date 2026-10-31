@@ -28,10 +28,32 @@ import (
 	"time"
 )
 
-// errUnstrippableCA means a copy of the certificate is in a container this
+// errUnstrippableCA means a copy of the certificate is in a file format this
 // cannot rewrite. Detection covers every format; removal does not, and the
 // difference fails the build rather than passing silently.
 var errUnstrippableCA = errors.New("the certificate is in a format this cannot strip")
+
+// unstrippableError is errUnstrippableCA with the paths, so the reading back
+// can leave out what it already names.
+type unstrippableError struct{ paths []string }
+
+func (e *unstrippableError) Error() string {
+	return fmt.Sprintf("%v: %s", errUnstrippableCA, strings.Join(e.paths, " "))
+}
+
+func (e *unstrippableError) Unwrap() error { return errUnstrippableCA }
+
+// errCALeftInLayer means the reading back found a copy the sweep did not take
+// out.
+var errCALeftInLayer = errors.New("the certificate is still in the step's layer")
+
+// errNSSSlotLeftInLayer means a pkcs11.txt in the layer still names the
+// proxy CA's database after its slot was cut out, or was too large to read.
+var errNSSSlotLeftInLayer = errors.New("the proxy CA's NSS slot is still in the step's layer")
+
+// errLayerUnread means no overlay upper directory was found for the step's
+// layer, so nothing could say whether it would hold a copy. The log says why.
+var errLayerUnread = errors.New("no overlay upper directory was found for the step's layer, so it could not be checked for copies of the proxy CA")
 
 // readMountInfo is a var so tests can hand the parser lines captured from a
 // real build rather than the test process's own mount table.
@@ -210,10 +232,15 @@ func sweepDir(listing, root string, ca []byte, marks caMarks) (int, error) {
 	if err != nil {
 		return files, err
 	}
-	if len(unstrippable) > 0 {
-		return files, fmt.Errorf("%w: %s", errUnstrippableCA, strings.Join(unstrippable, " "))
+	// Before the unstrippable copies are reported, so a build that carries on
+	// past them (fail-on-ca-residue: false) still loses the links it removed.
+	if err := dropRemovedLinks(listing, root, removed); err != nil {
+		return files, err
 	}
-	return files, dropRemovedLinks(listing, root, removed)
+	if len(unstrippable) > 0 {
+		return files, &unstrippableError{unstrippable}
+	}
+	return files, nil
 }
 
 // dropRemovedLinks takes out the symlinks left pointing at something the sweep
@@ -319,36 +346,109 @@ func stripCA(path string, ca []byte, marks caMarks) (bool, error) {
 // Reading it back is the check that matters: the guarantee is about what
 // BuildKit commits, not about what the removals above believed they did.
 //
-// upper is the layer found when the injection began, not one located afresh: a
-// mount table that read cleanly at inject but fails to now would otherwise
-// report no layer and let the anchors' scattered copies through unswept.
-func stripLayer(rootfs, upper string, ca []byte) error {
+// upper is the layer found when the injection began (see injection.upper).
+func stripLayer(rootfs, upper string, ca, nssAppended []byte) error {
 	if upper == "" {
-		// Nothing to read the removal back from. The mirrors' own undo is
-		// unaffected, so this is the behaviour the engine had before.
-		logf("the step's layer is not an overlay upper directory; leaving it unswept")
-		// Also to stderr, which is the step's output in the build log.
-		fmt.Fprintln(os.Stderr, "buildcage: this step's layer is not an overlay upper directory that can be read back, so it is not checked for copies of the proxy CA")
-		return nil
+		return errLayerUnread
 	}
 
 	marks := caMarksOf(ca)
 	started := time.Now()
+	var errs []error
+	reported := map[string]bool{}
 	files, err := sweepDir(upper, rootfs, ca, marks)
+	// A copy it cannot strip does not stop the slots being cut and the layer
+	// read back, which a build going on past it still needs.
+	var unstrippable *unstrippableError
+	if errors.As(err, &unstrippable) {
+		errs = append(errs, err)
+		for _, path := range unstrippable.paths {
+			reported[path] = true
+		}
+	} else if err != nil {
+		return err
+	}
+	slots, err := stripNSSSlotCopies(upper, rootfs, nssAppended)
 	if err != nil {
 		return err
 	}
-	left, err := verifyLayer(upper, marks.needles)
+	all, err := verifyLayer(upper, marks.needles)
 	// Paths only, never what is in them: the sweep reads every byte the step
 	// wrote, tokens and credentials among them.
 	logf("swept the step's layer at %s: %d files in %s", upper, files, time.Since(started).Round(time.Millisecond))
 	if err != nil {
 		return err
 	}
-	if len(left) > 0 {
-		return fmt.Errorf("the certificate is still in the step's layer: %s", strings.Join(left, " "))
+	var left []string
+	for _, path := range all {
+		if !reported[path] {
+			left = append(left, path)
+		}
 	}
-	return nil
+	if len(left) > 0 {
+		errs = append(errs, fmt.Errorf("%w: %s", errCALeftInLayer, strings.Join(left, " ")))
+	}
+	if len(slots) > 0 {
+		errs = append(errs, fmt.Errorf("%w: %s", errNSSSlotLeftInLayer, strings.Join(slots, ", ")))
+	}
+	return errors.Join(errs...)
+}
+
+// stripNSSSlotCopies cuts the slot out of every pkcs11.txt in the step's layer,
+// such as one in a copy of the home, and returns those still counting as
+// residue, each with why. Other files are not read: NSS opens no other name,
+// and the wrapper's own binary contains the slot text. A pkcs11.txt that is a
+// symlink has the file it leads to cut instead, when the step wrote that file
+// too: NSS reads through the link, and a file the step did not write cannot
+// hold this step's slot, nor be opened for writing without being copied up.
+func stripNSSSlotCopies(upper, rootfs string, nssAppended []byte) ([]string, error) {
+	upper = filepath.Clean(upper)
+	var left []string
+	seen := map[string]bool{}
+	err := walkDir(upper, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.Name() != "pkcs11.txt" {
+			return err
+		}
+		rel := path[len(upper):]
+		var target string
+		switch {
+		case d.Type().IsRegular():
+			if target, err = resolveInRoot(rootfs, rel); err != nil {
+				return err
+			}
+		case d.Type()&os.ModeSymlink != 0:
+			if target, rel = linkedPkcs11Txt(upper, rootfs, rel); target == "" {
+				return nil
+			}
+		default:
+			return nil
+		}
+		if seen[target] {
+			return nil
+		}
+		seen[target] = true
+		why, err := stripNSSSlotCopy(target, nssAppended)
+		if why != "" {
+			left = append(left, rel+" ("+why+")")
+		}
+		return err
+	})
+	return left, err
+}
+
+// linkedPkcs11Txt returns where the pkcs11.txt symlink at rel leads, as a host
+// path and a container path, or "" when that is not a regular file in the
+// step's layer. A link NSS cannot follow leads nowhere for it either.
+func linkedPkcs11Txt(upper, rootfs, rel string) (string, string) {
+	target, err := resolveInRoot(rootfs, rel)
+	if err != nil {
+		return "", ""
+	}
+	linked := containerPathOf(rootfs, target)
+	if info, err := os.Lstat(filepath.Join(upper, linked)); err != nil || !info.Mode().IsRegular() {
+		return "", ""
+	}
+	return target, linked
 }
 
 // verifyLayer lists what still carries the certificate after a sweep.

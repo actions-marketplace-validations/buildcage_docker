@@ -4,9 +4,11 @@
  */
 
 import { stripLineComment, rejectGluedHash } from "../line-comments.ts";
+import { IPV4_CIDR } from "./ipv4.ts";
 import {
   anchorRawRegex,
   checkHostLabel,
+  checkPort,
   endsAnchored,
   splitDomainFromPortPattern,
   splitRawRegexHost,
@@ -33,14 +35,9 @@ export function splitRuleTokens(rulesInput: string | undefined): string[] {
   return tokens;
 }
 
-export function buildRules(rulesInput: string): string[] {
-  return splitRuleTokens(rulesInput).map(convertRule);
-}
-
 /**
- * Split+validate a whitespace-separated rules string, returning the raw
- * (unconverted) rule tokens, for callers that need the original wildcard or
- * `~` regex syntax preserved, such as known_blocked_rules.
+ * Split+validate a whitespace-separated rules string, returning the rule
+ * tokens as written.
  *
  * @throws {Error} if any rule has invalid wildcard/regex syntax
  */
@@ -51,12 +48,12 @@ export function parseAndValidateRules(rulesInput: string | undefined): string[] 
 }
 
 /**
- * `known_blocked_rules` only: give a rule that names no port the `:*` the
+ * `known-blocked-rules` only: give a rule that names no port the `:*` the
  * syntax otherwise requires.
  *
  * Every other rule input is matched against a connection, where the port is
  * part of what is being permitted. This one is matched against a row of the
- * report, and a row for a name the resolver refused has no port at all,
+ * report, and a row for a name the resolver blocked has no port at all,
  * nothing having been connected to. Requiring one there means writing a port
  * that was never involved, and that is true of every DNS row.
  */
@@ -70,7 +67,7 @@ export function completeRulePort(rule: string): string {
 }
 
 /**
- * Split a `known_blocked_rules` input into one rule per line. Unlike the
+ * Split a `known-blocked-rules` input into one rule per line. Unlike the
  * whitespace-separated host rule inputs, this one is newline-separated so a
  * line can be a URL rule, which carries a space between its method and its
  * URL (see isKnownBlockedUrlRule). Each line's `#` comment is dropped first, a
@@ -87,7 +84,7 @@ export function splitKnownBlockedLines(rulesInput: string | undefined): string[]
 }
 
 /**
- * Whether a `known_blocked_rules` line is a URL rule rather than a host rule.
+ * Whether a `known-blocked-rules` line is a URL rule rather than a host rule.
  *
  * A URL rule carries a space between its method and its URL; a host rule is a
  * bare `host:port`. So the space tells them apart, the same split convertUrlRule
@@ -99,7 +96,7 @@ export function isKnownBlockedUrlRule(line: string): boolean {
 }
 
 /**
- * Split+validate `known_blocked_rules`, one rule per line. A host line has its
+ * Split+validate `known-blocked-rules`, one rule per line. A host line has its
  * missing port completed (see completeRulePort) and is returned in completed
  * form; a URL line is validated through the `inspect` engine's own compiler and
  * returned as written. Everything downstream re-classifies a line the same way
@@ -126,11 +123,11 @@ export function parseAndValidateKnownBlockedRules(rulesInput: string | undefined
 /**
  * Convert a single rule (wildcard or `~`-prefixed regex) to a regex string.
  *
- * The `~` case reuses the `inspect` engine's own validator (a port is always
- * required there too) so both engines reject the same malformed regex the
- * same way, instead of this engine silently accepting a rule that then never
- * matches. anchorRawRegex then makes it cover a whole `host:port`, as a
- * wildcard rule does.
+ * The `~` case runs the same validator compileRuleSet does (a port is always
+ * required there too), so a malformed regex is rejected the same way wherever
+ * it is compiled instead of silently becoming a rule that never matches.
+ * anchorRawRegex then makes it cover a whole `host:port`, as a wildcard rule
+ * does.
  */
 export function convertRule(rule: string): string {
   if (rule.startsWith("~")) {
@@ -141,19 +138,42 @@ export function convertRule(rule: string): string {
 }
 
 /**
- * An IPv4 CIDR block. Only `allowed_ip_rules` gives one meaning, and only on
- * `inspect` (see engine-rule-support.ts), but the label check below would
- * refuse its `/` on every input.
+ * A CIDR block as a regex over the dotted addresses it covers, since the
+ * `universal` engine matches an IP rule against the address as text. An octet
+ * the prefix fixes is written out, one it partly fixes lists its values, and
+ * one it leaves free takes any number.
  */
-const IPV4_CIDR = /^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/;
+function cidrToRegex(cidr: string): string {
+  const [address, prefix] = cidr.split("/");
+  return address
+    .split(".")
+    .map((octet, i) => {
+      const bits = Math.min(Math.max(Number(prefix) - 8 * i, 0), 8);
+      if (bits === 0) return "[0-9]+";
+      const low = Number(octet) & (0xff << (8 - bits)) & 0xff;
+      if (bits === 8) return String(low);
+      const values = Array.from({ length: 2 ** (8 - bits) }, (_, n) => low + n);
+      return `(?:${values.join("|")})`;
+    })
+    .join("\\.");
+}
 
 /**
  * Convert a domain wildcard to a regex string (without anchors or port).
  *
  * A dot-separated part containing `*` must be exactly `*` or `**`.
+ * A CIDR block skips the label check, which would refuse its `/`.
  */
 function domainToRegex(domain: string): string {
-  if (IPV4_CIDR.test(domain)) return domain.replace(/\./g, "\\.");
+  if (/^[\d.]+\/\d+$/.test(domain)) {
+    if (!IPV4_CIDR.test(domain)) {
+      throw new Error(
+        `Invalid CIDR block "${domain}": each octet is a decimal from 0 to 255 without a ` +
+          `leading zero, and the prefix is 0 to 32`,
+      );
+    }
+    return cidrToRegex(domain);
+  }
   const regexParts = domain.split(".").map((part) => {
     checkHostLabel(part, domain);
     if (part === "**") return ".+";
@@ -174,10 +194,11 @@ function domainToRegex(domain: string): string {
  * Convert a wildcard pattern (`<domain>:<port|*>`) to a regex string (without anchors).
  */
 export function wildcardToRegex(pattern: string): string {
-  if (!/^[^:]+:(?:\d+|\*)$/.test(pattern)) {
+  if (!/^[^:]+:[^:]*$/.test(pattern)) {
     throw new Error(`Invalid pattern "${pattern}"`);
   }
   const [domain, port] = pattern.split(":");
+  checkPort(port, pattern);
   const portRegex = port === "*" ? "\\d+" : port;
   return `${domainToRegex(domain)}:${portRegex}`;
 }

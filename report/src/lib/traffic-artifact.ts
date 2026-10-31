@@ -2,8 +2,10 @@ import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { errorMessage } from "#core/lib/errors.ts";
-import { DEFAULT_BUILDER_NAME } from "#core/lib/docker/report-source.ts";
-import type { Warn } from "./inputs.ts";
+import { DEFAULT_BUILDER_NAME } from "#report/report-source.ts";
+
+/** Where a failed upload's explanation goes; the entry point supplies it. */
+type Warn = (message: string) => void;
 
 /** Fixed so a workflow can name it, suffixed per builder against collisions. */
 export function artifactName(builderName: string): string {
@@ -55,8 +57,8 @@ export async function uploadTrafficArtifact(
     upload = uploadViaActionsArtifact,
   }: UploadTrafficArtifactOptions = {},
 ): Promise<void> {
-  // Both engines write the file whenever a traffic artifact is asked for, so a
-  // missing file means the report script died before writing one: nothing to
+  // The report script writes the file whenever a traffic artifact is asked
+  // for, so a missing file means it died before writing one: nothing to
   // upload, and its absence says nothing worth a warning.
   if (!fileExists(file)) return;
   const name = artifactName(builderName);

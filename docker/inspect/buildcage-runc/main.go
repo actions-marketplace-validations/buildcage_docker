@@ -35,9 +35,9 @@ var (
 	logFile  = "/var/log/buildcage/runc.log"
 )
 
-// One file carries every step of every build, and BuildKit runs steps
-// concurrently: an offset into it bounds nothing, and a line in it says nothing
-// about which step wrote it.
+// One file carries every step of every build, written concurrently, so each
+// line is tagged with its step and this process keeps its own lines to print on
+// failure.
 var (
 	logTag = fmt.Sprintf("[pid %d]", os.Getpid())
 	ownLog strings.Builder
@@ -114,7 +114,12 @@ func run(args []string) int {
 	if bundle != "" {
 		logTag = "[" + filepath.Base(bundle) + "]"
 	}
-	injected := setupInjection(sub, bundle)
+	injected, err := setupInjection(sub, bundle)
+	if err != nil {
+		logf("not running the step: %v", err)
+		dumpOwnLog(os.Stderr)
+		return 1
+	}
 
 	cmd := exec.Command(realRunc, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -122,7 +127,7 @@ func run(args []string) int {
 	if err := cmd.Start(); err != nil {
 		logf("cannot run %s: %v", realRunc, err)
 		if injected != nil {
-			_ = injected.finish(false)
+			_ = injected.finish()
 		}
 		return 1
 	}
@@ -145,11 +150,12 @@ func run(args []string) int {
 		//coverage:ignore stop
 	}
 	if injected != nil {
-		// Only a step that exited zero has a layer BuildKit will commit, and
-		// so a layer worth reading back.
-		if err := injected.finish(code == 0); err != nil {
+		if err := injected.finish(); err != nil {
 			logf("taking the CA back out failed, failing the build: %v", err)
 			dumpOwnLog(os.Stderr)
+			if isCAResidue(err) {
+				fmt.Fprintf(os.Stderr, "buildcage: hint: %s\n", residueHint)
+			}
 			if code == 0 {
 				code = 1
 			}
@@ -159,28 +165,32 @@ func run(args []string) int {
 }
 
 // setupInjection makes the step trust the proxy's CA, returning what undoes it
-// again, or nil when there is nothing to undo.
+// again, or nil when there is nothing to undo. An error means the step must
+// not run.
 //
 // `run` only, not `create`: restore is tied to the wrapped process exiting, but
 // `runc create` returns before the process runs, so the CA would be gone by
 // `runc start`. BuildKit's runcexecutor uses `run`.
-func setupInjection(sub, bundle string) *injection {
+func setupInjection(sub, bundle string) (*injection, error) {
 	if sub != "run" || bundle == "" {
-		return nil
+		return nil, nil
 	}
 	ca, err := os.ReadFile(caFile)
 	if err != nil {
 		// Without a CA there is nothing to trust and nothing to undo; the step
 		// still runs, and its TLS failures will say so.
 		logf("no CA at %s (%v); running without injection", caFile, err)
-		return nil
+		return nil, nil
 	}
 	injected, err := inject(bundle, ca)
+	if errors.Is(err, errLayerUnread) || errors.Is(err, errKeystoreHalfWritten) {
+		return nil, err
+	}
 	if err != nil {
 		logf("injection failed for %s: %v", bundle, err)
-		return nil
+		return nil, nil
 	}
-	return injected
+	return injected, nil
 }
 
 // forwardSignals relays signals to runc until the returned function is called.

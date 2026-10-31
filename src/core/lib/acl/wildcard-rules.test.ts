@@ -2,7 +2,6 @@ import { describe, it, expect, reportResults } from "../test/test-shim.ts";
 import {
   wildcardToRegex,
   convertRule,
-  buildRules,
   splitRuleTokens,
   parseAndValidateRules,
   completeRulePort,
@@ -11,27 +10,27 @@ import {
 } from "./wildcard-rules.ts";
 
 describe("wildcardToRegex", () => {
-  it("exact domain: dots escaped", () => {
+  it("escapes the dots of an exact domain", () => {
     expect(wildcardToRegex("example.com:443")).toBe("example\\.com:443");
   });
 
-  it("single wildcard *", () => {
+  it("turns * into exactly one label", () => {
     expect(wildcardToRegex("*.example.com:443")).toBe("[^.]+\\.example\\.com:443");
   });
 
-  it("double wildcard **", () => {
+  it("turns ** into one or more labels", () => {
     expect(wildcardToRegex("**.example.com:443")).toBe(".+\\.example\\.com:443");
   });
 
-  it("question mark ?", () => {
+  it("turns ? into one character other than a dot", () => {
     expect(wildcardToRegex("exampl?.com:443")).toBe("exampl[^.]\\.com:443");
   });
 
-  it("multiple wildcards", () => {
+  it("converts each wildcard label of a rule on its own", () => {
     expect(wildcardToRegex("*.*.example.com:443")).toBe("[^.]+\\.[^.]+\\.example\\.com:443");
   });
 
-  it("rejects mixed * in part", () => {
+  it("rejects a * that shares its label with other characters", () => {
     expect(() => wildcardToRegex("w*.example.com:443")).toThrow(/Invalid wildcard/);
   });
 
@@ -51,18 +50,41 @@ describe("wildcardToRegex", () => {
     expect(() => wildcardToRegex("a..example.com:443")).toThrow(/empty label/);
   });
 
-  it("keeps an IPv4 CIDR block, which only an IP rule gives meaning", () => {
-    expect(wildcardToRegex("10.0.0.0/8:443")).toBe("10\\.0\\.0\\.0/8:443");
+  it("turns an IPv4 CIDR block into the addresses it covers", () => {
+    expect(wildcardToRegex("10.0.0.0/8:443")).toBe("10\\.[0-9]+\\.[0-9]+\\.[0-9]+:443");
+    expect(wildcardToRegex("10.1.2.3/32:443")).toBe("10\\.1\\.2\\.3:443");
+    expect(wildcardToRegex("0.0.0.0/0:443")).toBe("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+:443");
     expect(() => wildcardToRegex("example.com/8:443")).toThrow(/no hostname can/);
   });
 
-  it("wildcard port *", () => {
+  it("lists the values of an octet a CIDR prefix only partly fixes", () => {
+    expect(wildcardToRegex("192.168.1.9/30:*")).toBe("192\\.168\\.1\\.(?:8|9|10|11):\\d+");
+    // Host bits are masked off, as HAProxy's dst does.
+    expect(wildcardToRegex("172.31.0.0/12:443")).toBe(
+      "172\\.(?:16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31)\\.[0-9]+\\.[0-9]+:443",
+    );
+  });
+
+  it("matches a CIDR block against exactly the addresses inside it", () => {
+    const re = new RegExp(convertRule("10.20.0.0/14:443"));
+    expect(re.test("10.20.0.1:443")).toBe(true);
+    expect(re.test("10.23.255.255:443")).toBe(true);
+    expect(re.test("10.24.0.1:443")).toBe(false);
+    expect(re.test("10.19.255.255:443")).toBe(false);
+    expect(re.test("10.20.0.1:444")).toBe(false);
+  });
+
+  it("rejects a CIDR block HAProxy would misread", () => {
+    expect(() => wildcardToRegex("010.0.0.0/8:443")).toThrow(/Invalid CIDR block/);
+  });
+
+  it("turns a * port into any number", () => {
     expect(wildcardToRegex("example.com:*")).toBe("example\\.com:\\d+");
   });
 
   it("rejects a port that is missing, non-numeric or not after the last colon", () => {
     expect(() => wildcardToRegex("example.com")).toThrow(/Invalid pattern/);
-    expect(() => wildcardToRegex("example.com:abc")).toThrow(/Invalid pattern/);
+    expect(() => wildcardToRegex("example.com:abc")).toThrow(/Invalid port/);
     expect(() => wildcardToRegex("example.com:443:extra")).toThrow(/Invalid pattern/);
   });
 });
@@ -72,7 +94,7 @@ describe("convertRule", () => {
     expect(convertRule("*.example.com:8443")).toBe("^[^.]+\\.example\\.com:8443$");
   });
 
-  it("regex rule (~ prefix): returned as-is without ~", () => {
+  it("passes a ~ regex rule through without its ~", () => {
     expect(convertRule("~^custom\\.regex:443$")).toBe("^custom\\.regex:443$");
   });
 
@@ -85,6 +107,10 @@ describe("convertRule", () => {
   it("refuses a top-level alternation, which anchors cannot bind around", () => {
     expect(() => convertRule("~a\\.com:443|b\\.com:443")).toThrow(/top-level "\|"/);
     expect(() => convertRule("~a\\.com|b\\.com:443")).toThrow(/top-level "\|"/);
+  });
+
+  it("refuses an escape that could hide a top-level alternation from the check", () => {
+    expect(() => convertRule("~^x\\.good\\.com:443\\Q[\\E|:443]?")).toThrow(/uses "\\Q"/);
   });
 
   it("refuses an IPv6 authority, whose colons are not the port separator", () => {
@@ -106,77 +132,57 @@ describe("convertRule", () => {
     expect(convertRule("~a\\.com:443\\\\$")).toBe("^a\\.com:443\\\\$");
   });
 
-  it("rejects invalid regex (~ prefix)", () => {
+  it("rejects a ~ regex rule that does not compile", () => {
     expect(() => convertRule("~^(unclosed")).toThrow(/Invalid regex/);
   });
 
-  it("rejects a regex rule (~ prefix) with no port", () => {
+  it("rejects an anchored ~ regex rule with no port", () => {
     expect(() => convertRule("~^example\\.com$")).toThrow(/a port is always required/);
   });
 
-  it("rejects a regex rule (~ prefix) with no port even without anchors", () => {
+  it("rejects an unanchored ~ regex rule with no port", () => {
     expect(() => convertRule("~example\\.com")).toThrow(/a port is always required/);
   });
 });
 
 describe("convertRule: regex behavior", () => {
-  it("* matches single-level subdomain only", () => {
+  it("matches * against a single-level subdomain only", () => {
     const re = new RegExp(convertRule("*.example.com:443"));
-    expect(re.test("sub.example.com:443")).toBeTruthy();
-    expect(!re.test("deep.sub.example.com:443")).toBeTruthy();
-    expect(!re.test("example.com:443")).toBeTruthy();
+    expect(re.test("sub.example.com:443")).toBe(true);
+    expect(re.test("deep.sub.example.com:443")).toBe(false);
+    expect(re.test("example.com:443")).toBe(false);
   });
 
-  it("** matches multi-level subdomains", () => {
+  it("matches ** against subdomains of any depth, but not the bare domain", () => {
     const re = new RegExp(convertRule("**.example.com:443"));
-    expect(re.test("sub.example.com:443")).toBeTruthy();
-    expect(re.test("deep.sub.example.com:443")).toBeTruthy();
-    expect(!re.test("example.com:443")).toBeTruthy();
+    expect(re.test("sub.example.com:443")).toBe(true);
+    expect(re.test("deep.sub.example.com:443")).toBe(true);
+    expect(re.test("example.com:443")).toBe(false);
   });
 
-  it("? matches exactly one non-dot character", () => {
+  it("matches ? against exactly one non-dot character", () => {
     const re = new RegExp(convertRule("exampl?.com:443"));
-    expect(re.test("example.com:443")).toBeTruthy();
-    expect(!re.test("exampl.com:443")).toBeTruthy();
-    expect(!re.test("examplee.com:443")).toBeTruthy();
+    expect(re.test("example.com:443")).toBe(true);
+    expect(re.test("exampl.com:443")).toBe(false);
+    expect(re.test("examplee.com:443")).toBe(false);
   });
 
-  it("exact domain does not match subdomains", () => {
+  it("matches an exact domain but none of its subdomains", () => {
     const re = new RegExp(convertRule("example.com:443"));
-    expect(re.test("example.com:443")).toBeTruthy();
-    expect(!re.test("sub.example.com:443")).toBeTruthy();
+    expect(re.test("example.com:443")).toBe(true);
+    expect(re.test("sub.example.com:443")).toBe(false);
   });
 
-  it("port mismatch is rejected", () => {
+  it("does not match the same host on another port", () => {
     const re = new RegExp(convertRule("example.com:443"));
-    expect(!re.test("example.com:8443")).toBeTruthy();
+    expect(re.test("example.com:8443")).toBe(false);
   });
 
-  it("wildcard port matches any port", () => {
+  it("matches a * port against any numeric port", () => {
     const re = new RegExp(convertRule("example.com:*"));
-    expect(re.test("example.com:443")).toBeTruthy();
-    expect(re.test("example.com:8080")).toBeTruthy();
-    expect(!re.test("example.com:abc")).toBeTruthy();
-  });
-});
-
-describe("buildRules", () => {
-  it("converts multiple rules", () => {
-    expect(buildRules("example.com:443 *.foo.com:8443")).toStrictEqual([
-      "^example\\.com:443$",
-      "^[^.]+\\.foo\\.com:8443$",
-    ]);
-  });
-
-  it("empty input → empty array", () => {
-    expect(buildRules("")).toStrictEqual([]);
-  });
-
-  it("regex rules (~ prefix)", () => {
-    expect(buildRules("~^custom\\.regex:(443|8080)$ example.com:443")).toStrictEqual([
-      "^custom\\.regex:(443|8080)$",
-      "^example\\.com:443$",
-    ]);
+    expect(re.test("example.com:443")).toBe(true);
+    expect(re.test("example.com:8080")).toBe(true);
+    expect(re.test("example.com:abc")).toBe(false);
   });
 });
 
@@ -218,6 +224,11 @@ describe("splitRuleTokens comments", () => {
 });
 
 describe("parseAndValidateRules", () => {
+  it("returns no rules for an unset or empty input", () => {
+    expect(parseAndValidateRules(undefined)).toStrictEqual([]);
+    expect(parseAndValidateRules("")).toStrictEqual([]);
+  });
+
   it("returns raw (unconverted) rule tokens", () => {
     expect(parseAndValidateRules("example.com:443 *.foo.com:8443")).toStrictEqual([
       "example.com:443",
@@ -239,8 +250,8 @@ describe("parseAndValidateRules", () => {
   });
 });
 
-describe("known_blocked_rules port completion", () => {
-  it("completes a rule that names no port, so a refused name can be declared", () => {
+describe("known-blocked-rules port completion", () => {
+  it("completes a rule that names no port, so a blocked name can be declared", () => {
     expect(completeRulePort("_mongodb._tcp.c0.example.net")).toBe("_mongodb._tcp.c0.example.net:*");
     expect(completeRulePort("telemetry.example.com")).toBe("telemetry.example.com:*");
     expect(completeRulePort("*.example.com")).toBe("*.example.com:*");
@@ -274,9 +285,8 @@ describe("known_blocked_rules port completion", () => {
     ]);
   });
 
-  it("reads two host rules crammed onto one line as a malformed URL rule (v4)", () => {
-    // Newline-separated now, so a space is a URL rule's method separator; the
-    // old whitespace-separated form no longer parses.
+  it("reads two host rules crammed onto one line as a malformed URL rule", () => {
+    // One rule per line, so a space is a URL rule's method separator.
     expect(() => parseAndValidateKnownBlockedRules("a.example.com b.example.com:443")).toThrow(
       /Invalid method/,
     );
@@ -311,7 +321,8 @@ describe("known_blocked_rules port completion", () => {
   });
 
   it("rejects a # glued to a rule rather than completing it into a dead rule", () => {
-    // Without a port, `noisy#c` used to gain `:*` and pass as `noisy#c:*`.
+    // Port completion would otherwise turn `noisy#c` into `noisy#c:*`, a rule
+    // no host matches.
     expect(() => parseAndValidateKnownBlockedRules("noisy.example.com#c")).toThrow(/Invalid rule/);
   });
 

@@ -1,18 +1,18 @@
 /**
- * Corefile generator for the `inspect` engine.
+ * Corefile generator.
  *
  * Every name resolves locally to the proxy's own address, allowed or not, so
- * the build connects to the proxy and its full URL is recorded before being
- * denied, and a name that was only looked up still shows up in the log.
+ * the build connects to the proxy and what it asked for is recorded before
+ * being denied, and a name that was only looked up still shows up in the log.
  * Nothing is ever forwarded, so the query itself cannot leak what it asked
  * for.
  *
  * Real resolution happens once, in HAProxy, after a request has passed its
- * host, path and method check; see haproxy-config.ts. What this file decides
- * is only what gets logged as allowed or denied, and that has to match the
- * rules exactly, which is why the engine uses CoreDNS regex views over
- * dnsmasq suffix matching: the latter could only widen `abc*.amazonaws.com`
- * to `/amazonaws.com/`.
+ * rule check; see haproxy-config.ts and haproxy-universal-config.ts. What this
+ * file decides is only what gets logged as allowed or denied, and that has to
+ * match the rules exactly, which is why it uses regex views rather than suffix
+ * matching: the latter could only widen `abc*.amazonaws.com` to all of
+ * `amazonaws.com`.
  *
  * Reverse lookups and service-discovery names are the exceptions; see
  * reverseZoneLines and discoveryZoneLines.
@@ -26,21 +26,10 @@ export interface CorednsConfigOptions {
   /** TTL for the synthesised answers. */
   ttlSeconds?: number;
   /**
-   * `audit` refuses nothing, so every name is logged as allowed. Defaults to
+   * `audit` blocks nothing, so every name is logged as allowed. Defaults to
    * `restrict`.
    */
   mode?: "audit" | "restrict";
-}
-
-export interface GeneratedCorednsConfig {
-  config: string;
-  /**
-   * Always empty: the rule set arrives already compiled, so there is nothing
-   * left to refuse. Present so a caller can merge it with
-   * generateHaproxyConfig's warnings, which IP rules can still fill, and
-   * report both the same way.
-   */
-  warnings: string[];
 }
 
 /**
@@ -74,7 +63,7 @@ function nameMatches(regex: string): string {
  * denied one.
  *
  * `IN ANY` catches every type the two above do not, which would otherwise
- * reach no template and be answered SERVFAIL. NODATA refuses the query
+ * reach no template and be answered SERVFAIL. NODATA blocks the query
  * without telling the resolver the server is broken and worth retrying.
  */
 function proxyAnswerLines(proxyAddress: string, ttlSeconds: number): string[] {
@@ -99,9 +88,8 @@ const REVERSE_NAME_REGEX =
   "^(([0-9]{1,3}[.]){1,4}in-addr[.]arpa|([0-9a-fA-F][.]){1,32}ip6[.]arpa)[.]$";
 
 /**
- * The reverse zones, where a PTR query is answered NXDOMAIN. Nothing inside
- * the cage has a name to give back, and NXDOMAIN matches what dnsmasq gives
- * the universal engine for the same addresses through bogus-priv.
+ * The reverse zones, where a PTR query is answered NXDOMAIN: nothing inside
+ * the cage has a name to give back.
  *
  * Recorded under a verb of its own: no rule can name an address read
  * backwards, so reporting one as denied would put a row in the report that no
@@ -146,7 +134,7 @@ const SERVICE_PREFIX_REGEX = "_[a-z0-9-]{1,15}[.]_(tcp|udp|sctp)[.]";
  * The types defined at a `_service._proto.` name: SRV (RFC 2782), the TXT
  * DNS-SD pairs with it (RFC 6763), TLSA (RFC 7671) and URI (RFC 7553).
  * Enumerated rather than excluding A and AAAA, so a type this block has never
- * heard of is refused rather than exempted on a guess.
+ * heard of is blocked rather than exempted on a guess.
  */
 const DISCOVERY_TYPES = ["SRV", "TXT", "TLSA", "URI"];
 
@@ -159,7 +147,7 @@ const DISCOVERY_TYPES = ["SRV", "TXT", "TLSA", "URI"];
  * Both conditions keep that verb from becoming a hiding place:
  * `_a._tcp.SECRET.attacker.example` is shaped like a service name too.
  * `parentRegex` holds the block to names under a host the rules already allow;
- * it is undefined in audit alone, which refuses nothing and so has no blocked
+ * it is undefined in audit alone, which blocks nothing and so has no blocked
  * table to leave. The type is checked because an underscore name is a
  * convention for the owner name (RFC 8552), not a promise about the question:
  * an A query really is answered here, with the proxy's address.
@@ -192,7 +180,7 @@ function discoveryZoneLines(
 
 /**
  * The block taking every other service name, under a verb of its own. The
- * refusal is like any other but the remedy is not: the name is an attribute of
+ * block is like any other but the remedy is not: the name is an attribute of
  * the host below it (RFC 8552), so a rule naming it silences the row without
  * making the record resolve, and logging it apart is what lets the report
  * point at the host instead.
@@ -204,7 +192,7 @@ function discoveryZoneLines(
  */
 function serviceZoneLines(proxyAddress: string, ttlSeconds: number): string[] {
   return [
-    "# Every other service name: refused like any other name, but recorded apart",
+    "# Every other service name: blocked like any other name, but recorded apart",
     "# so the report can say the remedy is the host below it rather than the name",
     "# itself, which no rule can make resolve.",
     ". {",
@@ -232,9 +220,8 @@ const HEALTH_LINE = "    health 127.0.0.1:8080";
 export function generateCorednsConfig(
   rules: CompiledRuleSet,
   options: CorednsConfigOptions,
-): GeneratedCorednsConfig {
+): string {
   const { proxyAddress, ttlSeconds = 60, mode = "restrict" } = options;
-  const warnings: string[] = [];
   const hostRegexes = rules.resolverHosts;
 
   if (mode === "audit") {
@@ -255,7 +242,7 @@ export function generateCorednsConfig(
       "}",
       "",
     ];
-    return { config: lines.join("\n"), warnings };
+    return lines.join("\n");
   }
 
   const lines: string[] = ["# Generated by buildcage. Do not edit.", ""];
@@ -300,5 +287,5 @@ export function generateCorednsConfig(
     "",
   );
 
-  return { config: lines.join("\n"), warnings };
+  return lines.join("\n");
 }

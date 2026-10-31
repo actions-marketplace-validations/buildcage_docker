@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+
+	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
 // mustHardLink gives one file two names, which is what an overlay's upper
@@ -19,28 +20,6 @@ func mustHardLink(t *testing.T, from, to string) {
 	if err := os.Link(from, to); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// mountLine is the shape /proc/self/mountinfo writes, taken from a real build:
-//
-//	339 508 0:114 / /var/lib/buildkit/.../rootfs rw,relatime - overlay overlay
-//	rw,lowerdir=...,upperdir=.../snapshots/4/fs,workdir=...,uuid=on,nouserxattr
-func mountLine(mountPoint, fstype, superOptions string) string {
-	return fmt.Sprintf("339 508 0:114 / %s rw,relatime shared:1 - %s overlay %s",
-		mountPoint, fstype, superOptions)
-}
-
-func overlayLine(mountPoint, upper string) string {
-	return mountLine(mountPoint, "overlay", "rw,lowerdir=/l,upperdir="+upper+",workdir=/w,nouserxattr")
-}
-
-// useMountInfo hands upperDirOf these lines instead of the test process's own
-// mount table, which holds no overlay over a temporary directory.
-func useMountInfo(t *testing.T, lines ...string) {
-	t.Helper()
-	old := readMountInfo
-	readMountInfo = func() ([]byte, error) { return []byte(strings.Join(lines, "\n") + "\n"), nil }
-	t.Cleanup(func() { readMountInfo = old })
 }
 
 func TestUpperDirOfReadsTheStepsOwnLayer(t *testing.T) {
@@ -154,6 +133,12 @@ func TestUpperDirOfReportsWhatItCannotRead(t *testing.T) {
 			t.Fatalf("got %q, want no layer", got)
 		}
 	})
+
+	t.Run("this process's own mount table", func(t *testing.T) {
+		if got := upperDirOf(t.TempDir()); got != "" {
+			t.Fatalf("got %q, want no overlay over a temporary directory", got)
+		}
+	})
 }
 
 func TestUnescapeMountInfoDecodesTheCharactersTheKernelEscapes(t *testing.T) {
@@ -263,8 +248,8 @@ func TestSweepDirRemovesAFileTheStripEmpties(t *testing.T) {
 	if _, err := os.Stat(anchor); !os.IsNotExist(err) {
 		t.Fatalf("the emptied file was left behind: %v", err)
 	}
-	// The bundle carried a real certificate too, so it is emptied of nothing
-	// and stays.
+	// The bundle carried a real certificate too, so it is not left empty and
+	// stays.
 	if got, _ := os.ReadFile(bundle); string(got) != string(otherCA) {
 		t.Fatalf("the bundle was disturbed: %q", got)
 	}
@@ -526,41 +511,40 @@ func TestSweepDirReportsALinkItCannotRemove(t *testing.T) {
 }
 
 // The link's own directory is resolved inside the rootfs, and a rootfs where
-// that directory is a symlink climbing out is refused rather than followed.
-func TestSweepDirReportsALinkWhoseDirectoryEscapes(t *testing.T) {
+// that directory cannot be resolved fails the sweep.
+func TestSweepDirReportsALinkWhoseDirectoryCannotBeResolved(t *testing.T) {
 	root, upper := t.TempDir(), t.TempDir()
 	// A copy the file pass empties and removes, so the link pass is reached.
 	mustWriteFile(t, filepath.Join(upper, "buildcage.pem"), string(testCA))
 	mustHardLink(t, filepath.Join(upper, "buildcage.pem"), filepath.Join(root, "buildcage.pem"))
 	// The listing has a real subdirectory with a link in it, so the walk
 	// reaches the link and its readlink succeeds.
-	mustMkdirAll(t, filepath.Join(upper, "sub"))
-	mustSymlink(t, "x", filepath.Join(upper, "sub", "hash.0"))
-	// The rootfs resolves that subdirectory to a symlink climbing out of it.
-	mustSymlink(t, "../../../../../../outside", filepath.Join(root, "sub"))
+	mustMkdirAll(t, filepath.Join(upper, "sub", "inner"))
+	mustSymlink(t, "x", filepath.Join(upper, "sub", "inner", "hash.0"))
+	// In the rootfs, a file stands where that subdirectory's parent should be.
+	mustWriteFile(t, filepath.Join(root, "sub"), "")
 
-	if _, err := sweepDir(upper, root, testCA, caMarksOf(testCA)); !errors.Is(err, errEscapesRoot) {
-		t.Fatalf("got %v, want the escaping link directory to be refused", err)
+	if _, err := sweepDir(upper, root, testCA, caMarksOf(testCA)); !errors.Is(err, syscall.ENOTDIR) {
+		t.Fatalf("got %v, want the unresolvable link directory to be reported", err)
 	}
 }
 
-// A link pointing out of the rootfs resolves to nothing inside it, so it is
-// not pointing at anything the sweep removed and is left alone rather than
-// failing the build.
-func TestSweepDirLeavesALinkPointingOutOfTheRoot(t *testing.T) {
+// A link whose target does not resolve inside the rootfs is not pointing at
+// anything the sweep removed, so it is left alone rather than failing the
+// build.
+func TestSweepDirLeavesALinkWhoseTargetDoesNotResolve(t *testing.T) {
 	dir := t.TempDir()
 	mustWriteFile(t, filepath.Join(dir, "buildcage.pem"), string(testCA))
-	// A directory in the target's path is itself a symlink climbing out of the
-	// root, so resolving the target escapes. The link's own directory still
-	// resolves, so only its target is out of bounds.
-	mustSymlink(t, "../../../../../../outside", filepath.Join(dir, "out"))
-	mustSymlink(t, "out/bundle.pem", filepath.Join(dir, "escape.0"))
+	// A directory in the target's path is a symlink loop. The link's own
+	// directory still resolves, so only its target fails.
+	mustSymlink(t, "loop", filepath.Join(dir, "loop"))
+	mustSymlink(t, "loop/bundle.pem", filepath.Join(dir, "unresolvable.0"))
 
 	if _, err := sweepDir(dir, dir, testCA, caMarksOf(testCA)); err != nil {
-		t.Fatalf("an out-of-root link should be left alone, got %v", err)
+		t.Fatalf("an unresolvable link should be left alone, got %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, "escape.0")); err != nil {
-		t.Fatalf("the out-of-root link was taken away: %v", err)
+	if _, err := os.Lstat(filepath.Join(dir, "unresolvable.0")); err != nil {
+		t.Fatalf("the unresolvable link was taken away: %v", err)
 	}
 }
 
@@ -599,7 +583,7 @@ func TestStripLayerSweepsAndThenChecksItself(t *testing.T) {
 	mustHardLink(t, filepath.Join(upper, "roots.pem"), filepath.Join(rootfs, "roots.pem"))
 	useMountInfo(t, overlayLine(rootfs, upper))
 
-	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA); err != nil {
+	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(upper, "bundle.pem"))
@@ -612,14 +596,14 @@ func TestStripLayerSweepsAndThenChecksItself(t *testing.T) {
 }
 
 // Without a layer to read back there is nothing to check a removal against, so
-// the sweep is skipped and the engine behaves as it did before.
-func TestStripLayerSkipsWhatIsNotAnOverlay(t *testing.T) {
+// the sweep is skipped and the layer is reported as unchecked.
+func TestStripLayerReportsWhatIsNotAnOverlay(t *testing.T) {
 	rootfs := t.TempDir()
 	mustWriteFile(t, filepath.Join(rootfs, "bundle.pem"), string(testCA))
 	useMountInfo(t, mountLine(rootfs, "ext4", "rw"))
 
-	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA); err != nil {
-		t.Fatal(err)
+	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA, nil); !errors.Is(err, errLayerUnread) {
+		t.Fatalf("got %v, want the layer reported as unread", err)
 	}
 	got, err := os.ReadFile(filepath.Join(rootfs, "bundle.pem"))
 	if err != nil {
@@ -641,7 +625,7 @@ func TestStripLayerFailsOnACopyItCouldNotRemove(t *testing.T) {
 	mustHardLink(t, filepath.Join(upper, "store.db"), filepath.Join(rootfs, "store.db"))
 	useMountInfo(t, overlayLine(rootfs, upper))
 
-	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA); !errors.Is(err, errUnstrippableCA) {
+	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA, nil); !errors.Is(err, errUnstrippableCA) {
 		t.Fatalf("got %v, want the build to be failed", err)
 	}
 }
@@ -665,7 +649,7 @@ func TestStripLayerFailsOnATraceItCannotRemove(t *testing.T) {
 	}
 	useMountInfo(t, overlayLine(rootfs, upper))
 
-	err := stripLayer(rootfs, upperDirOf(rootfs), caPEM)
+	err := stripLayer(rootfs, upperDirOf(rootfs), caPEM, nil)
 	if !errors.Is(err, errUnstrippableCA) {
 		t.Fatalf("got %v, want the build to be failed", err)
 	}
@@ -679,18 +663,22 @@ func TestStripLayerFailsOnATraceItCannotRemove(t *testing.T) {
 	}
 }
 
-// The second reading is a reading of the layer, so it reports a failure of its
-// own rather than the sweep's conclusion.
+// A walk that fails after the sweep, in the slot pass or the read-back, is
+// reported.
 func TestStripLayerReportsADirectoryItCannotReadBack(t *testing.T) {
-	root := t.TempDir()
-	rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
-	mustMkdirAll(t, rootfs)
-	mustMkdirAll(t, upper)
-	useMountInfo(t, overlayLine(rootfs, upper))
-	failWalkOn(t, upper, 2)
+	for name, nth := range map[string]int{"slot pass": 2, "read-back": 3} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "fs")
+			mustMkdirAll(t, rootfs)
+			mustMkdirAll(t, upper)
+			useMountInfo(t, overlayLine(rootfs, upper))
+			failWalkOn(t, upper, nth)
 
-	if err := stripLayer(rootfs, upperDirOf(rootfs), testCA); !errors.Is(err, errBrokenWalk) {
-		t.Fatalf("got %v, want the failed listing to be reported", err)
+			if err := stripLayer(rootfs, upperDirOf(rootfs), testCA, nil); !errors.Is(err, errBrokenWalk) {
+				t.Fatalf("got %v, want the failed listing to be reported", err)
+			}
+		})
 	}
 }
 
@@ -706,7 +694,7 @@ func TestStripLayerFailsOnWhatTheSweepMissed(t *testing.T) {
 	// the layer keeps its copy and only the reading back notices.
 	useMountInfo(t, overlayLine(rootfs, upper))
 
-	err := stripLayer(rootfs, upperDirOf(rootfs), testCA)
+	err := stripLayer(rootfs, upperDirOf(rootfs), testCA, nil)
 	if err == nil || !strings.Contains(err.Error(), "still in the step's layer") {
 		t.Fatalf("got %v, want the leftover copy to fail the build", err)
 	}
@@ -734,16 +722,105 @@ func TestSweepDirReportsAFailedRead(t *testing.T) {
 	}
 }
 
-// A keystore this cannot reseal fails the build rather than being rewritten
-// into one the JVM that owns it can no longer open.
-func TestSweepDirFailsOnAKeystoreItCannotReseal(t *testing.T) {
+// A keystore this cannot reseal is reported as a copy it cannot strip rather
+// than rewritten into one the JVM that owns it can no longer open, and the
+// sweep carries on to the files after it.
+func TestSweepDirReportsAKeystoreItCannotReseal(t *testing.T) {
+	useTempLog(t)
 	dir := t.TempDir()
 	sealed := keystore(2, trustedEntry(2, "buildcage", testDER))
 	sealed[len(sealed)-1] ^= 0xff
 	mustWriteFile(t, filepath.Join(dir, "cacerts"), string(sealed))
+	mustWriteFile(t, filepath.Join(dir, "zz-bundle.pem"), string(testCA))
 
 	_, err := sweepDir(dir, dir, testCA, caMarksOf(testCA))
-	if err == nil || !strings.Contains(err.Error(), "system keystore password") {
-		t.Fatalf("got %v, want the seal to fail the build", err)
+	if !errors.Is(err, errUnstrippableCA) || !strings.Contains(err.Error(), "cacerts") {
+		t.Fatalf("got %v, want the keystore reported as a copy it cannot strip", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "zz-bundle.pem")); !os.IsNotExist(err) {
+		t.Error("the sweep stopped before the copy after the keystore")
+	}
+}
+
+// The sweep reaches the PKCS#12 rewrite through stripCA: a PKCS#12 cacerts
+// holding the CA is stripped rather than failing the build.
+func TestStripCARewritesPKCS12(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if left {
+		t.Error("stripCA left the CA in a PKCS#12 keystore it can rewrite")
+	}
+}
+
+// A file shaped like a PKCS#12 that carries the CA's DER in the clear but will
+// not decode: the DER is found, the keystore rewrite cannot reach it, and
+// stripCA reports it left rather than passing the build. It fails closed only
+// because the DER is actually present; an encrypted store hides the DER instead,
+// so it is never a strip candidate.
+func TestStripCAUnstrippableWhenUndecodable(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, append([]byte{0x30, 0x82}, ca.Raw...))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a keystore it cannot decode though the DER is present")
+	}
+}
+
+// stripCA hands a rewrite error back rather than swallowing it: a write that
+// fails mid-rewrite leaves the layer possibly still carrying the CA, so the
+// build must not proceed.
+func TestStripCAPropagatesPKCS12Error(t *testing.T) {
+	ca := testCert(t, "buildcage")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, passwordlessStore(t, root, ca))
+	useBrokenBundleFile(t, &brokenFile{failWriteAt: 1})
+	if _, err := stripCA(path, caPEM, caMarksOf(caPEM)); !errors.Is(err, errBrokenFile) {
+		t.Fatalf("want the write failure propagated, got %v", err)
+	}
+}
+
+// What detection opens under changeit, stripCA takes the CA back out of.
+func TestStripCAStripsAChangeitSealedPKCS12(t *testing.T) {
+	ca, _ := testIssuer(t, "this run")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	path := mustWritePKCS12(t, mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, ca))
+	left, err := stripCA(path, caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if left {
+		t.Error("stripCA left the CA in a changeit-sealed trust store")
+	}
+	if found, err := fileHoldsCA(path, caMarksOf(caPEM).needles); err != nil || found {
+		t.Errorf("after the strip: found=%v err=%v", found, err)
+	}
+}
+
+// A certificate the proxy issued is found by the CA's name but is not the CA,
+// so there is nothing to take out and it is reported.
+func TestStripCAReportsAnEncryptedPKCS12ItCannotRewrite(t *testing.T) {
+	ca, caKey := testIssuer(t, "this run")
+	leaf, _ := testLeaf(t, ca, caKey, "app.example")
+	root := testCert(t, "digicert")
+	caPEM := certPEM(ca)
+	store := mustEncodeTrustStore(t, pkcs12.Modern, keystorePassword, root, leaf)
+	left, err := stripCA(mustWritePKCS12(t, store), caPEM, caMarksOf(caPEM))
+	if err != nil {
+		t.Fatalf("stripCA: %v", err)
+	}
+	if !left {
+		t.Error("stripCA cleared a keystore it cannot rewrite")
 	}
 }

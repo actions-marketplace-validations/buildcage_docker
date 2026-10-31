@@ -68,7 +68,14 @@ describe("parseKnownBlockedRulesOrThrow", () => {
 
 describe("parseIpRulesOrThrow", () => {
   it("accepts an address, a wildcard, a CIDR block and a regex", () => {
-    const rules = ["10.0.0.5:443", "10.0.*.*:*", "10.0.0.1?:22", "10.0.0.0/8:443", "~^x:443$"];
+    const rules = [
+      "10.0.0.5:443",
+      "10.0.*.*:*",
+      "10.0.0.1?:22",
+      "10.**:443",
+      "10.0.0.0/8:443",
+      "~^x:443$",
+    ];
     expect(parseIpRulesOrThrow(rules.join(" "))).toStrictEqual(rules);
   });
 
@@ -81,6 +88,16 @@ describe("parseIpRulesOrThrow", () => {
 
   it("still rejects a syntax error first", () => {
     expect(() => parseIpRulesOrThrow(INVALID_RULE)).toThrow(/a\*b\.example\.com/);
+  });
+
+  it("refuses an address HAProxy would misread, naming it", () => {
+    expect(codeOfThrown(() => parseIpRulesOrThrow("010.0.0.1:443"))).toBe("INVALID_RULES");
+    expect(() => parseIpRulesOrThrow("010.0.0.1:443")).toThrow(/is not an IPv4 address/);
+  });
+
+  it("accepts the edges of the address and prefix ranges", () => {
+    const rules = ["0.0.0.0:443", "0.0.0.0/0:443", "255.255.255.255/32:443"];
+    expect(parseIpRulesOrThrow(rules.join(" "))).toStrictEqual(rules);
   });
 });
 
@@ -158,6 +175,49 @@ describe("checkRulesCompileOrThrow", () => {
         urlRules: buildUrlRulesOrThrow("GET https://abc*.example.com/**"),
       }),
     ).not.toThrow();
+  });
+
+  // Node compiles both; QuickJS, which compiles the same rules when the proxy
+  // starts, refuses both.
+  it("refuses, as INVALID_RULES, group syntax the container's QuickJS refuses", () => {
+    for (const group of ["(?i:a)", "((?<n>a)|(?<n>b))"]) {
+      const host = `~^${group}\\.example\\.com:443$`;
+      for (const inputs of [
+        { httpsRules: [host] },
+        { httpRules: [host] },
+        { tlsRules: [host] },
+        { ipRules: [`~^10\\.0\\.0\\.${group}:443$`] },
+      ]) {
+        expect(codeOfThrown(() => checkRulesCompileOrThrow(inputs))).toBe("INVALID_RULES");
+      }
+      expect(codeOfThrown(() => parseKnownBlockedRulesOrThrow(host))).toBe("INVALID_RULES");
+      for (const url of [
+        `GET ~^https://${group}\\.example\\.com/x`,
+        `GET ~^https://example\\.com/${group}`,
+      ]) {
+        expect(codeOfThrown(() => buildUrlRulesOrThrow(url))).toBe("INVALID_RULES");
+      }
+    }
+  });
+
+  it("refuses a port with a leading zero or out of range, in every rule kind", () => {
+    const kinds: ((port: string) => unknown)[] = [
+      (p) => checkRulesCompileOrThrow({ httpsRules: parseRulesOrThrow(`a.com:${p}`) }),
+      (p) => checkRulesCompileOrThrow({ httpRules: parseRulesOrThrow(`a.com:${p}`) }),
+      (p) => checkRulesCompileOrThrow({ tlsRules: parseRulesOrThrow(`a.com:${p}`) }),
+      (p) => checkRulesCompileOrThrow({ ipRules: parseIpRulesOrThrow(`10.0.0.1:${p}`) }),
+      (p) => checkRulesCompileOrThrow({ ipRules: parseIpRulesOrThrow(`10.0.0.0/8:${p}`) }),
+      (p) => parseKnownBlockedRulesOrThrow(`a.com:${p}`),
+      (p) => buildUrlRulesOrThrow(`GET https://a.com:${p}/x`),
+    ];
+    for (const compile of kinds) {
+      for (const port of ["0443", "0", "65536"]) {
+        expect(() => compile(port)).toThrow(new RegExp(`Invalid port .*"${port}"`));
+      }
+      for (const port of ["1", "65535", "*"]) {
+        expect(() => compile(port)).not.toThrow();
+      }
+    }
   });
 
   // Passes the setup parser, which lets a CIDR block through for IP rules, but

@@ -1,10 +1,22 @@
-import type { ProxyEngine } from "./engine.ts";
-import { listHostIpv4Addresses } from "./host-addresses.ts";
+import type { ProxyEngine } from "#core/lib/actions/inputs.ts";
+import type { RuleInputName } from "#core/lib/actions/rule-inputs.ts";
+import { listHostIpv4Addresses } from "#core/lib/docker/host-addresses.ts";
+
+/** The rule inputs the builder gets, each in an environment variable of its own. */
+export const BUILDER_RULE_INPUTS: RuleInputName[] = [
+  "allowed-https-rules",
+  "allowed-http-rules",
+  "allowed-ip-rules",
+  "allowed-url-rules",
+  "allowed-tls-rules",
+  "known-blocked-rules",
+];
 
 export interface ComposeEnvOptions {
   builderName: string;
   proxyMode: string;
   proxyEngine: ProxyEngine;
+  failOnCaResidue: boolean;
   imageRef: string;
   httpsRules: string[];
   httpRules: string[];
@@ -27,6 +39,7 @@ export function buildComposeEnv(
     builderName,
     proxyMode,
     proxyEngine,
+    failOnCaResidue,
     imageRef,
     httpsRules,
     httpRules,
@@ -43,20 +56,19 @@ export function buildComposeEnv(
     BUILDER_NAME: builderName,
     PROXY_MODE: proxyMode,
     PROXY_ENGINE: proxyEngine,
+    // Read by buildcage-runc in each RUN step; universal has no CA to leave.
+    FAIL_ON_CA_RESIDUE: String(failOnCaResidue),
+    // Newline separated, since a URL rule contains a space; the other rule
+    // inputs are joined the same way.
     ALLOWED_HTTPS_RULES: httpsRules.join("\n"),
     ALLOWED_HTTP_RULES: httpRules.join("\n"),
     ALLOWED_IP_RULES: ipRules.join("\n"),
-    // Newline separated because a URL rule contains a space, unlike the others.
     ALLOWED_URL_RULES: urlRules.join("\n"),
     ALLOWED_TLS_RULES: tlsRules.join("\n"),
     KNOWN_BLOCKED_RULES: knownBlockedRules.join("\n"),
     BUILDCAGE_IMAGE_REF: imageRef,
-    // Pinned rather than inherited, like every other variable here: the
-    // resolver the builder uses is the action's choice, not whatever an earlier
-    // step left in the job environment.
-    EXTERNAL_RESOLVER: "",
     // Completed engine-side with the compose network's gateway, which does not
-    // exist yet here. See lib/host-addresses.ts.
+    // exist yet here. See core/lib/docker/host-addresses.ts.
     HOST_ADDRESSES: hostAddresses().join(" "),
   };
 }

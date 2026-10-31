@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-import { buildVerifyOptions } from "./verify-policy.ts";
 import type { VerifyBundleOptions } from "./sigstore.ts";
+import { buildVerifyOptions } from "./verify-policy.ts";
 
 // ── Constants mirrored from verify-policy.ts ──────────────────────────────────
 
@@ -18,7 +18,8 @@ function makeSAN(ref: string) {
 // ── buildVerifyOptions ────────────────────────────────────────────────────────
 //
 // The generated options are checked by converting certificateIdentityURI to a
-// RegExp and matching sample SAN strings, the same test cosign would apply.
+// RegExp and matching sample SAN strings, as @sigstore/verify matches
+// subjectAlternativeName.
 
 describe("buildVerifyOptions: version tag", () => {
   function getOpts(ref: string): VerifyBundleOptions {
@@ -117,7 +118,7 @@ describe("buildVerifyOptions: SHA pin", () => {
   it("lowercases the SHA in the OID value", () => {
     const opts = buildVerifyOptions({ actionRef: pinSha.toUpperCase(), actionRepo: REPO })!;
     const oidValue = opts.certificateOIDs![OID_SOURCE_REPO_DIGEST];
-    expect(oidValue.includes(pinSha.toLowerCase()), "SHA must be lowercased").toBeTruthy();
+    expect(oidValue, "SHA must be lowercased").toContain(pinSha.toLowerCase());
   });
 
   it("certificateIdentityURI accepts any version tag SAN (SHA checked via OID)", () => {
@@ -125,6 +126,30 @@ describe("buildVerifyOptions: SHA pin", () => {
     const regexp = new RegExp(opts.certificateIdentityURI!);
     expect(regexp.test(makeSAN("refs/tags/v2.1.0"))).toBeTruthy();
     expect(regexp.test(makeSAN("refs/tags/v3.0.0"))).toBeTruthy();
+  });
+});
+
+describe("buildVerifyOptions: repository case", () => {
+  function sanMatches(actionRef: string, actionRepo: string, sanRepo: string, tag: string) {
+    const opts = buildVerifyOptions({ actionRef, actionRepo })!;
+    return new RegExp(opts.certificateIdentityURI!).test(
+      `https://github.com/${sanRepo}/${RELEASE_WORKFLOW}@refs/tags/${tag}`,
+    );
+  }
+
+  it("matches the repository in any case", () => {
+    expect(sanMatches("v2.1.0", "Owner/Repo", "owner/repo", "v2.1.0")).toBe(true);
+    expect(sanMatches("v2.1.0", "owner/repo", "Owner/Repo", "v2.1.0")).toBe(true);
+    expect(sanMatches("a".repeat(40), "OWNER/REPO", "owner/repo", "v2.1.0")).toBe(true);
+  });
+
+  it("still matches the tag exactly", () => {
+    expect(sanMatches("v2.1.0", "Owner/Repo", "owner/repo", "V2.1.0")).toBe(false);
+  });
+
+  it("does not match another repository", () => {
+    expect(sanMatches("v2.1.0", "Owner/Repo", "owner/repo2", "v2.1.0")).toBe(false);
+    expect(sanMatches("v2.1.0", "Owner/Repo", "owner/rep", "v2.1.0")).toBe(false);
   });
 });
 

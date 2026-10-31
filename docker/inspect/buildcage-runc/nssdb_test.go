@@ -1,0 +1,593 @@
+package main
+
+import (
+	"encoding/json"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+var testNSSTemplate = map[string]string{
+	"cert9.db":   "CERT9-WITH-THE-PROXY-CA",
+	"key4.db":    "KEY4-EMPTY",
+	"pkcs11.txt": "library=\nname=NSS Internal PKCS #11 Module\n",
+}
+
+func useNSSTemplate(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range testNSSTemplate {
+		mustWriteFile(t, filepath.Join(dir, name), content)
+	}
+	old := nssTemplateDir
+	nssTemplateDir = dir
+	t.Cleanup(func() { nssTemplateDir = old })
+}
+
+// stepUser is a uid and gid the test process can hand files to: any when it
+// runs as root, only its own otherwise. Not as root, a file the code forgot to
+// hand over has that owner anyway, so ownership checks built on it prove the
+// hand-over only in a root run.
+func stepUser() (uid, gid int) {
+	if os.Geteuid() == 0 {
+		return 1000, 1000
+	}
+	return os.Getuid(), os.Getgid()
+}
+
+// newNSSBundle's overlay upper directory is the rootfs itself, so finish reads
+// the layer back.
+func newNSSBundle(t *testing.T, env []string, uid, gid int, home string) (bundle, rootfs string) {
+	t.Helper()
+	bundle, rootfs = newBundleNoStore(t, env)
+	if home != "" {
+		mustMkdirAll(t, filepath.Join(rootfs, home))
+		// The home is the step user's, as in an image.
+		if os.Geteuid() == 0 {
+			giveToStepUser(t, filepath.Join(rootfs, home), uid, gid)
+		}
+	}
+	setSpecField(t, bundle, "process", func(proc map[string]any) {
+		proc["user"] = map[string]any{"uid": uid, "gid": gid}
+	})
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+	return bundle, rootfs
+}
+
+func setSpecField(t *testing.T, bundle, key string, edit func(map[string]any)) {
+	t.Helper()
+	path := filepath.Join(bundle, "config.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	field, _ := config[key].(map[string]any)
+	if field == nil {
+		field = map[string]any{}
+	}
+	edit(field)
+	config[key] = field
+	out, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, path, string(out))
+}
+
+// nssMountSource fails the test when nothing is bound at dest.
+func nssMountSource(t *testing.T, bundle, dest string) string {
+	t.Helper()
+	source, _ := findMount(t, loadMounts(t, bundle), dest)["source"].(string)
+	return source
+}
+
+func assertNoMountAt(t *testing.T, bundle, dest string) {
+	t.Helper()
+	for _, m := range loadMounts(t, bundle) {
+		if m["destination"] == dest {
+			t.Fatalf("a mount was added at %s", dest)
+		}
+	}
+}
+
+func mustOwner(t *testing.T, path string) (uid, gid int, mode os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	return int(st.Uid), int(st.Gid), info.Mode().Perm()
+}
+
+// unwritableNSSDB gives the step a legacy database its user cannot write,
+// which cannot take the slot.
+func unwritableNSSDB(t *testing.T, rootfs, home string) string {
+	t.Helper()
+	dir := filepath.Join(rootfs, home, nssDBPath)
+	mustMkdirAll(t, dir)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	return dir
+}
+
+func TestNSSDBSkipsADatabaseTheStepUserCannotWrite(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/home/app"}, uid, gid, "/home/app")
+	legacy := unwritableNSSDB(t, rootfs, "/home/app")
+	before := listTree(t, legacy)
+	readStderr := captureStderr(t)
+
+	in, err := inject(bundle, testCA)
+	stderr := readStderr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNSSDBSkipped(t, in, bundle, "/home/app/.pki/nssdb", stderr)
+	if !strings.Contains(stderr, "(/home/app/.pki/nssdb is not writable by uid") || strings.Contains(stderr, rootfs) {
+		t.Fatalf("the warning does not name the database as the step sees it:\n%s", stderr)
+	}
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if after := listTree(t, legacy); !maps.Equal(after, before) {
+		t.Fatalf("the step's own database changed: %v, was %v", after, before)
+	}
+}
+
+func assertNSSDBSkipped(t *testing.T, in *injection, bundle, dest, stderr string) {
+	t.Helper()
+	assertNoSlot(t, in)
+	assertNoMountAt(t, bundle, dest)
+	assertNoMountAt(t, bundle, nssCADBDir)
+	if !strings.Contains(stderr, "buildcage: warning: cannot add the proxy CA to Chromium's NSS database") ||
+		!strings.Contains(stderr, "use proxy-engine: universal") {
+		t.Fatalf("the step's output does not warn that Chromium goes without the CA:\n%s", stderr)
+	}
+}
+
+func TestNSSDBLeavesADirectoryTheStepUsed(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, filepath.Join(rootfs, "root/.pki/app.db"), "the step's own")
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(rootfs, "root/.pki/app.db")); err != nil {
+		t.Fatal("the step's own file went with the created directories")
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "root/.pki/nssdb")); !os.IsNotExist(err) {
+		t.Fatal("~/.pki/nssdb was left behind")
+	}
+}
+
+// giveToStepUser hands a database the test made to the step's user, as the
+// step that made it in a real image would have left it.
+func giveToStepUser(t *testing.T, dir string, uid, gid int) {
+	t.Helper()
+	err := filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, uid, gid)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// slotAt fails the test unless the step's own database at dest was given the
+// slot, and returns the mirror bound there.
+func slotAt(t *testing.T, in *injection, bundle, dest string) string {
+	t.Helper()
+	for _, b := range in.binds {
+		if b.nssBase != "" && b.containerDir == dest {
+			ca := findMount(t, loadMounts(t, bundle), nssCADBDir)
+			if opts, _ := ca["options"].([]any); !slices.Contains(opts, any("ro")) {
+				t.Fatalf("the CA database is bound with %v, not read-only", opts)
+			}
+			return nssMountSource(t, bundle, dest)
+		}
+	}
+	t.Fatalf("no slot was added to the database at %s", dest)
+	return ""
+}
+
+func TestNSSDBPrefersTheLegacyDatabaseToTheXDGOne(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	legacy := filepath.Join(rootfs, "root/.pki/nssdb")
+	mustMkdirAll(t, legacy)
+	mustWriteFile(t, filepath.Join(legacy, "cert9.db"), "THE IMAGE'S OWN")
+	giveToStepUser(t, legacy, uid, gid)
+	mustMkdirAll(t, filepath.Join(rootfs, "root/.local/share/pki/nssdb"))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slotAt(t, in, bundle, "/root/.pki/nssdb")
+	assertNoMountAt(t, bundle, "/root/.local/share/pki/nssdb")
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(legacy, "cert9.db"))
+	if err != nil || string(got) != "THE IMAGE'S OWN" {
+		t.Fatalf("the image's own database changed: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "pkcs11.txt")); !os.IsNotExist(err) {
+		t.Fatal("an unchanged database was left a pkcs11.txt")
+	}
+}
+
+// Chromium M146 and later read the XDG database when there is no legacy one,
+// and one there says the image's Chromium is one of those.
+func TestNSSDBUsesAnXDGDatabaseWhenThereIsNoLegacyOne(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	xdg := filepath.Join(rootfs, "root/.local/share/pki/nssdb")
+	mustMkdirAll(t, xdg)
+	mustWriteFile(t, filepath.Join(xdg, "cert9.db"), "THE IMAGE'S OWN")
+	giveToStepUser(t, xdg, uid, gid)
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slotAt(t, in, bundle, "/root/.local/share/pki/nssdb")
+	assertNoMountAt(t, bundle, "/root/.pki/nssdb")
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(xdg, "cert9.db"))
+	if err != nil || string(got) != "THE IMAGE'S OWN" {
+		t.Fatalf("the image's own database changed: %q, %v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "root/.pki")); !os.IsNotExist(err) {
+		t.Fatal("~/.pki was created")
+	}
+}
+
+func TestNSSDBFindsTheHomeInPasswd(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME="}, uid, gid, "/home/app")
+	mustWriteFile(t, filepath.Join(rootfs, "etc/passwd"),
+		"root:x:0:0:root:/root:/bin/sh\n"+
+			"broken line\n"+
+			"app:x:"+itoa(uid)+":"+itoa(gid)+"::/home/app:/bin/sh\n")
+
+	if _, err := inject(bundle, testCA); err != nil {
+		t.Fatal(err)
+	}
+	nssMountSource(t, bundle, "/home/app/.pki/nssdb")
+}
+
+func itoa(i int) string {
+	b, _ := json.Marshal(i)
+	return string(b)
+}
+
+func TestNSSDBIsLeftAloneWhenItCannotBePlaced(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env      []string
+		home     string
+		passwd   string
+		arrange  func(t *testing.T, bundle, rootfs string)
+		template bool
+	}{
+		"no template":              {env: []string{"HOME=/root"}, home: "/root"},
+		"an empty template":        {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: emptyTheTemplate},
+		"a relative HOME":          {env: []string{"HOME=root"}, home: "/root", template: true},
+		"HOME at the root":         {env: []string{"HOME=/"}, template: true},
+		"no passwd entry":          {home: "/root", template: true, passwd: "root:x:0:0:root:/root:/bin/sh\n"},
+		"no passwd":                {home: "/root", template: true},
+		"an empty passwd home":     {home: "/root", template: true, passwd: "app:x:{uid}:{gid}:::/bin/sh\n"},
+		"a HOME that is not there": {env: []string{"HOME=/home/nobody"}, template: true},
+		"a HOME that is a file": {env: []string{"HOME=/home/app"}, template: true, arrange: func(t *testing.T, _, rootfs string) {
+			mustMkdirAll(t, filepath.Join(rootfs, "home"))
+			mustWriteFile(t, filepath.Join(rootfs, "home/app"), "")
+		}},
+		"HOME above the root": {env: []string{"HOME=/../../.."}, template: true},
+		"a HOME behind a symlink loop": {env: []string{"HOME=/loop"}, template: true, arrange: func(t *testing.T, _, rootfs string) {
+			mustSymlink(t, "loop", filepath.Join(rootfs, "loop"))
+		}},
+		"a passwd that is a FIFO": {home: "/root", template: true, arrange: func(t *testing.T, _, rootfs string) {
+			if err := syscall.Mkfifo(filepath.Join(rootfs, "etc/passwd"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		"a passwd behind a symlink loop": {home: "/root", template: true, arrange: func(t *testing.T, _, rootfs string) {
+			if err := os.RemoveAll(filepath.Join(rootfs, "etc")); err != nil {
+				t.Fatal(err)
+			}
+			mustSymlink(t, "etc", filepath.Join(rootfs, "etc"))
+		}},
+		"a ~/.pki that is a file": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, _, rootfs string) {
+			mustWriteFile(t, filepath.Join(rootfs, "root/.pki"), "")
+		}},
+		"a database that cannot be read back": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, _, _ string) {
+			failWalkUnder(t, scratchRoot)
+		}},
+		"a database that is a file": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, _, rootfs string) {
+			mustMkdirAll(t, filepath.Join(rootfs, "root/.pki"))
+			mustWriteFile(t, filepath.Join(rootfs, "root/.pki/nssdb"), "")
+		}},
+		"a mount over the home": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, bundle, _ string) {
+			mountAt(t, bundle, "/root")
+		}},
+		"a mount inside the database": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, bundle, _ string) {
+			mountAt(t, bundle, "/root/.pki/nssdb/cache")
+		}},
+		"no scratch directory": {env: []string{"HOME=/root"}, home: "/root", template: true, arrange: func(t *testing.T, _, _ string) {
+			scratchRoot = "/dev/null/scratch"
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			useTempLog(t)
+			useFakeRsync(t)
+			if tc.template {
+				useNSSTemplate(t)
+			}
+			uid, gid := stepUser()
+			bundle, rootfs := newNSSBundle(t, tc.env, uid, gid, tc.home)
+			if tc.passwd != "" {
+				passwd := strings.NewReplacer("{uid}", itoa(uid), "{gid}", itoa(gid)).Replace(tc.passwd)
+				mustWriteFile(t, filepath.Join(rootfs, "etc/passwd"), passwd)
+			}
+			if tc.arrange != nil {
+				tc.arrange(t, bundle, rootfs)
+			}
+			before := listTree(t, rootfs)
+
+			in, err := inject(bundle, testCA)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertNoSlot(t, in)
+			for _, m := range loadMounts(t, bundle) {
+				if dest, _ := m["destination"].(string); m["type"] == "bind" && strings.Contains(dest, "pki") {
+					t.Fatalf("a mount was added at %s", dest)
+				}
+			}
+			// The anchors the same injection placed are not this test's subject.
+			after := listTree(t, rootfs)
+			for path := range after {
+				if !before[path] && strings.Contains(path, "pki/nssdb") {
+					t.Fatalf("%s was created", path)
+				}
+			}
+		})
+	}
+}
+
+func emptyTheTemplate(t *testing.T, _, _ string) {
+	t.Helper()
+	entries, err := os.ReadDir(nssTemplateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.Remove(filepath.Join(nssTemplateDir, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A directory in it is not a database file either.
+	mustMkdirAll(t, filepath.Join(nssTemplateDir, "subdir"))
+}
+
+func mountAt(t *testing.T, bundle, dest string) {
+	t.Helper()
+	path := filepath.Join(bundle, "config.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	config["mounts"] = []any{map[string]any{"destination": dest, "type": "tmpfs", "source": "tmpfs"}}
+	out, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, path, string(out))
+}
+
+func listTree(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	paths := map[string]bool{}
+	err := filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		paths[rel] = true
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func TestReadNSSTemplateReportsAFileItCannotRead(t *testing.T) {
+	skipIfRoot(t)
+	useNSSTemplate(t)
+	if err := os.Chmod(filepath.Join(nssTemplateDir, "cert9.db"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readNSSTemplate(); err == nil {
+		t.Fatal("expected an unreadable template to be refused")
+	}
+}
+
+// A new database is the home's, not a step user's who could not have made it.
+// Not as root, the home's owner is the test process, which owns whatever it
+// creates, so this run shows only that nothing went to the step user.
+func TestNSSDBSlotCreatesTheDatabaseForTheHomesOwner(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	stepUID, stepGID := 0, 0
+	if os.Geteuid() == 0 {
+		stepUID, stepGID = stepUser()
+	}
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/var/www"}, stepUID, stepGID, "/var/www")
+	homeUID, homeGID := os.Getuid(), os.Getgid()
+	if err := os.Chown(filepath.Join(rootfs, "var/www"), homeUID, homeGID); err != nil {
+		t.Fatal(err)
+	}
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirror := slotAt(t, in, bundle, "/var/www/.pki/nssdb")
+	for _, path := range []string{
+		mirror,
+		filepath.Join(mirror, "pkcs11.txt"),
+		filepath.Join(rootfs, "var/www/.pki"),
+		filepath.Join(rootfs, "var/www/.pki/nssdb"),
+	} {
+		if u, g, _ := mustOwner(t, path); u != homeUID || g != homeGID {
+			t.Fatalf("%s is %d:%d, want the home's %d:%d", path, u, g, homeUID, homeGID)
+		}
+	}
+}
+
+func TestNSSDBIsLeftAloneWhenTheDirectoriesCannotBeCreated(t *testing.T) {
+	skipIfRoot(t)
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	mustMakeReadOnly(t, filepath.Join(rootfs, "root"))
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoSlot(t, in)
+	assertNoMountAt(t, bundle, "/root/.pki/nssdb")
+}
+
+// failWalkUnder is for scratch directories, whose names a test cannot know.
+func failWalkUnder(t *testing.T, root string) {
+	t.Helper()
+	old := walkDir
+	walkDir = func(dir string, fn fs.WalkDirFunc) error {
+		if strings.HasPrefix(dir, root+"/") {
+			return errBrokenWalk
+		}
+		return old(dir, fn)
+	}
+	t.Cleanup(func() { walkDir = old })
+}
+
+func TestOwnDirsReportsADirectoryItCannotHandOver(t *testing.T) {
+	uid, gid := stepUser()
+	if err := ownDirs([]string{filepath.Join(t.TempDir(), "gone")}, uid, gid); err == nil {
+		t.Fatal("expected a missing directory to be reported")
+	}
+}
+
+func assertNoSlot(t *testing.T, in *injection) {
+	t.Helper()
+	for _, b := range in.binds {
+		if b.nssBase != "" {
+			t.Fatalf("a slot was added to the database at %s", b.containerDir)
+		}
+	}
+}
+
+func TestNSSDBIsLeftAloneWhenItsParentCannotBeRead(t *testing.T) {
+	skipIfRoot(t)
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	pki := filepath.Join(rootfs, "root/.pki")
+	mustMkdirAll(t, pki)
+	if err := os.Chmod(pki, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pki, 0o755) })
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoSlot(t, in)
+}
+
+type fakeInfo struct {
+	fs.FileInfo
+	mode     fs.FileMode
+	uid, gid uint32
+}
+
+func (f fakeInfo) Mode() fs.FileMode { return f.mode }
+func (f fakeInfo) Sys() any          { return &syscall.Stat_t{Uid: f.uid, Gid: f.gid} }
+func (f fakeInfo) ModTime() time.Time {
+	return time.Time{}
+}
+
+func TestWritableBy(t *testing.T) {
+	for name, tc := range map[string]struct {
+		info fakeInfo
+		uid  int
+		want bool
+	}{
+		"root":                        {fakeInfo{mode: 0o500, uid: 1}, 0, true},
+		"the owner":                   {fakeInfo{mode: 0o200, uid: 7}, 7, true},
+		"the owner, read-only":        {fakeInfo{mode: 0o577, uid: 7}, 7, false},
+		"the group":                   {fakeInfo{mode: 0o020, uid: 1, gid: 7}, 7, true},
+		"the group, read-only":        {fakeInfo{mode: 0o757, uid: 1, gid: 7}, 7, false},
+		"a supplementary group":       {fakeInfo{mode: 0o020, uid: 1, gid: 9}, 7, true},
+		"anyone else":                 {fakeInfo{mode: 0o002, uid: 1, gid: 1}, 7, true},
+		"anyone else, not writable":   {fakeInfo{mode: 0o775, uid: 1, gid: 1}, 7, false},
+		"the owner ignores its group": {fakeInfo{mode: 0o570, uid: 7, gid: 7}, 7, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := writableBy(tc.info, tc.uid, 7, []int{9}); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -1,46 +1,33 @@
+import { scanDnsLog } from "#core/lib/log/dns.ts";
 import { scanHaproxyLog } from "#core/lib/log/haproxy.ts";
-import { scanInspectDnsLog } from "#core/lib/log/inspect.ts";
-import { reduceTimeline } from "./aggregate.ts";
-import type { GenReportParameters, UniversalReportData } from "../types.ts";
+
+import type { GenReportParameters, UniversalReportData, ServiceHealth } from "../types.ts";
+import { assembleReportData } from "./aggregate.ts";
 
 /**
  * Build the report data from the proxy and resolver logs. Pure: the caller
- * fetches both logs, the parameters and the proxy's dropped-line count
- * (undefined where it could not be read).
+ * fetches both logs, the parameters and what the running services say of
+ * themselves.
  *
  * universal never terminates TLS, so its proxy events carry no method, URL or
  * status, only the host, port and bytes of each connection. The resolver log is
  * read because a name looked up but never connected to reaches no HAProxy line,
- * so a DNS-only refusal would otherwise leave no trace.
+ * so a DNS-only block would otherwise leave no trace.
  */
 export async function buildUniversalReportData(
   proxyLines: AsyncIterable<string> | Iterable<string>,
   dnsLines: AsyncIterable<string> | Iterable<string>,
   parameters: GenReportParameters,
-  droppedLogs: number | undefined,
+  health: ServiceHealth,
 ): Promise<UniversalReportData> {
   const isAudit = parameters.mode === "audit";
-  // Independent inputs (separate log streams, no data dependency), so read
-  // concurrently rather than paying their combined latency serially.
-  const [
-    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact, unparsed },
-    { events: dnsEvents, headIntact: dnsHeadIntact },
-  ] = await Promise.all([
+  // Independent inputs (separate log streams, no data dependency), so start
+  // both scans and let assembleReportData read them concurrently.
+  return assembleReportData(
+    "universal",
     scanHaproxyLog(proxyLines, isAudit),
-    scanInspectDnsLog(dnsLines, isAudit),
-  ]);
-
-  const timeline = [...proxyEvents, ...dnsEvents].sort((a, b) => a.time - b.time);
-
-  return {
-    engine: "universal",
+    scanDnsLog(dnsLines, isAudit),
     parameters,
-    ...reduceTimeline(timeline, parameters.knownBlockedRules),
-    // A decision line this cannot read, or one the proxy dropped, may well have
-    // been a refusal, and either log losing its beginning loses evidence the
-    // other cannot vouch for.
-    logLooksPlausible: proxyHeadIntact && dnsHeadIntact && unparsed === 0 && droppedLogs === 0,
-    startedAt,
-    timeline,
-  };
+    health,
+  );
 }

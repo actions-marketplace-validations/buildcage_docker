@@ -3,7 +3,7 @@ package main
 // JKS is what the JDK's own keytool writes, and what every distribution puts
 // the JVM's trusted certificates in. A trust store rebuild on a system that
 // carries a JRE copies the certificate into one of these, where it is the DER
-// among the container's own bytes and no PEM removal can reach it.
+// among the file's own bytes and no PEM removal can reach it.
 //
 //	magic(4)=feedfeed | version(4) | count(4)
 //	entry: tag(4) | alias(UTF) | creation time(8)
@@ -47,8 +47,8 @@ var maxKeystoreBytes int64 = 16 << 20
 // place and reports whether it rewrote anything. A JKS (feedfeed) is told apart
 // by its magic; a file that is one bare DER of the injected CA is emptied; a
 // PKCS#12 (a DER SEQUENCE) keystore comes next; anything else is tried as an EFI
-// signature database. A file that is none of them is left for the caller to
-// report; a keystore that cannot be rewritten safely is an error.
+// signature database. A file that is none of them, or a keystore that cannot be
+// rewritten safely, is left for the caller to report.
 func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 	f, err := openBundle(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -72,7 +72,8 @@ func removeFromBinaryStore(path string, ders [][]byte) (bool, error) {
 	switch {
 	case bytes.HasPrefix(content, keystoreMagic):
 		if rewritten, err = keystoreWithout(content, ders); err != nil {
-			return false, fmt.Errorf("%s: %w", path, err)
+			logf("%s: cannot rewrite this keystore: %v", path, err)
+			return false, nil
 		}
 	case holdsOnlyInjectedCert(content, ders):
 		// The whole file is the injected CA: leaving rewritten nil empties it,

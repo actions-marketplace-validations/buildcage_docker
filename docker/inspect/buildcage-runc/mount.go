@@ -37,6 +37,18 @@ const (
 
 var errTooLargeToMirror = errors.New("too large to mirror")
 
+// mirrorLimit bounds a directory prepare mirrors. The zero value checks
+// nothing, for the store directory, which findSystemStore already measured.
+type mirrorLimit struct {
+	bytes int64
+	files int
+}
+
+var (
+	customDirLimit = mirrorLimit{maxCustomDirBytes, maxCustomDirFiles}
+	storeDirLimit  = mirrorLimit{maxStoreDirBytes, maxStoreDirFiles}
+)
+
 // runRsync is the only place this file spawns a process, so tests can
 // replace it to exercise the decision logic without rsync installed.
 var runRsync = func(args []string) ([]byte, error) {
@@ -59,7 +71,7 @@ type dirBind struct {
 	containerDir string
 	scratchDir   string
 	bundleFiles  []string
-	custom       bool
+	limit        mirrorLimit
 	keystore     bool   // bundleFiles are JVM keystores, not PEM bundles
 	ca           []byte // kept so finish can find it again by content
 
@@ -70,6 +82,18 @@ type dirBind struct {
 	// by its path relative to scratchDir. The inject/strip round trip re-encodes
 	// a keystore, so one the step never changed is restored from these instead.
 	keystoreOriginals map[string][]byte
+
+	// halfWritten is set when a keystore in the mirror was left half-written
+	// (errKeystoreHalfWritten); inject then abandons the injection.
+	halfWritten error
+
+	// Set for Chromium's NSS database (nssdb.go): what was appended to the
+	// mirror's pkcs11.txt, whether the directory had one before, and the
+	// scratch directory holding both the mirror and the CA-only database
+	// bound beside it.
+	nssAppended []byte
+	nssHadTxt   bool
+	nssBase     string
 }
 
 // groupTargetsByBind groups the CA targets by the directory whose mirror carries
@@ -88,6 +112,32 @@ func groupTargetsByBind(targets map[string]bool, store systemStore) map[string][
 		groups[dir] = append(groups[dir], filepath.Base(target))
 	}
 	return groups
+}
+
+// mergeNestedGroups folds each group whose directory is under another group's
+// into the outermost one, with names relative to it, and returns which of the
+// original directories each merged one took in. Two nested binds cannot both be
+// made: the outer one conflicts with the mount the inner one adds, which would
+// leave the outer targets without the CA.
+func mergeNestedGroups(groups map[string][]string) (map[string][]string, map[string][]string) {
+	merged := make(map[string][]string, len(groups))
+	parts := make(map[string][]string, len(groups))
+	for dir, names := range groups {
+		outer := dir
+		for other := range groups {
+			if len(other) < len(outer) && withinDir(dir, other) {
+				outer = other
+			}
+		}
+		for _, name := range names {
+			if outer != dir {
+				name = filepath.Join(strings.TrimPrefix(dir, outer+"/"), name)
+			}
+			merged[outer] = append(merged[outer], name)
+		}
+		parts[outer] = append(parts[outer], dir)
+	}
+	return merged, parts
 }
 
 // bindDirsInOrder prepares the store first, then the rest sorted, so which of
@@ -131,9 +181,9 @@ func mirrorDir(src, dst string) error {
 }
 
 // writeBack mirrors scratchDir onto hostDir. The dry run is logged so a
-// write-back is auditable after the fact; the real failure signal is the
-// second rsync's own exit code; a partial transfer already makes rsync exit
-// non-zero, so this doesn't also diff the two runs' output against each other.
+// write-back is auditable after the fact. Failure is the second rsync's exit
+// code, which a partial transfer already makes non-zero, so the two runs'
+// output is not compared.
 func writeBack(scratchDir, hostDir string) error {
 	args := []string{"-aHAX", "--checksum", "--delete", "--numeric-ids", "--no-specials", "--no-devices", "--itemize-changes"}
 	src, dst := scratchDir+"/", hostDir+"/"
@@ -222,10 +272,10 @@ func hashFile(path string) ([32]byte, error) {
 	return sum, nil
 }
 
-// sameExceptMtime is what "unchanged" means to both callers below: everything
-// a step could have altered, apart from the mtime. The append/strip round
-// trip, and mirroring itself, move mtime on their own, so comparing it would
-// report a change where none was made.
+// sameExceptMtime is what "unchanged" means here: everything a step could have
+// altered, apart from the mtime. The append/strip round trip, and mirroring
+// itself, move mtime on their own, so comparing it would report a change where
+// none was made.
 func (e fileEntry) sameExceptMtime(other fileEntry) bool {
 	return e.path == other.path && e.mode == other.mode &&
 		e.uid == other.uid && e.gid == other.gid &&
@@ -264,9 +314,9 @@ func checkMirrorable(root string, maxBytes int64, maxFiles int) error {
 }
 
 // restoreUnchangedMtimes resets an untouched entry's mtime to what it was
-// before mirroring. Without this, rsync's own mtime-preserving write-back
-// would see a real difference (same content, different mtime) and copy the
-// file up even though the step never touched it.
+// before mirroring. --checksum keeps the write-back from rewriting a file
+// whose content is the same, but -a still carries the mtime the injection
+// round trip left on it over to the rootfs, for a file the step never touched.
 func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) error {
 	byPath := make(map[string]fileEntry, len(original))
 	for _, e := range original {
@@ -289,9 +339,8 @@ func restoreUnchangedMtimes(original, current []fileEntry, scratchDir string) er
 
 func (b *dirBind) prepare(ca []byte) error {
 	b.ca = ca
-	// The store directory was checked against its own limits when it was found.
-	if b.custom {
-		if err := checkMirrorable(b.hostDir, maxCustomDirBytes, maxCustomDirFiles); err != nil {
+	if b.limit != (mirrorLimit{}) {
+		if err := checkMirrorable(b.hostDir, b.limit.bytes, b.limit.files); err != nil {
 			return err
 		}
 	}
@@ -300,35 +349,48 @@ func (b *dirBind) prepare(ca []byte) error {
 		return fmt.Errorf("mirroring %s: %w", b.hostDir, err)
 	}
 
+	return b.injectIntoMirror(func() error {
+		for _, name := range b.bundleFiles {
+			target := filepath.Join(b.scratchDir, name)
+			if b.keystore {
+				// A keystore that cannot be injected into (an unusual format, or a
+				// PKCS#12 under a password of its own) leaves the step's JVM not
+				// trusting the CA rather than failing the build. One left
+				// half-written makes inject abandon the injection.
+				original, err := insertIntoKeystore(target, ca)
+				if errors.Is(err, errKeystoreHalfWritten) {
+					return fmt.Errorf("%s: %w", filepath.Join(b.containerDir, name), err)
+				}
+				if err != nil {
+					logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
+					continue
+				}
+				b.rememberKeystore(target, original)
+				continue
+			}
+			if err := appendCA(target, ca); err != nil {
+				if errors.Is(err, errNotRegular) {
+					logf("cannot inject the CA into %s: %v; leaving it untouched", name, err)
+					continue
+				}
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// injectIntoMirror runs inject on the mirror, recording its state before and
+// after as original and baseline for finish.
+func (b *dirBind) injectIntoMirror(inject func() error) error {
 	original, err := captureManifest(b.scratchDir)
 	if err != nil {
 		return err
 	}
 	b.original = original
-
-	for _, name := range b.bundleFiles {
-		target := filepath.Join(b.scratchDir, name)
-		if b.keystore {
-			// A keystore that cannot be injected into (an unusual format, or a
-			// PKCS#12 under a password of its own) leaves the step's JVM not
-			// trusting the CA rather than failing the build.
-			original, err := insertIntoKeystore(target, ca)
-			if err != nil {
-				logf("cannot inject the CA into keystore %s: %v; leaving it untouched", name, err)
-				continue
-			}
-			b.rememberKeystore(target, original)
-			continue
-		}
-		if err := appendCA(target, ca); err != nil {
-			if errors.Is(err, errNotRegular) {
-				logf("cannot inject the CA into %s: %v; leaving it untouched", name, err)
-				continue
-			}
-			return err
-		}
+	if err := inject(); err != nil {
+		return err
 	}
-
 	baseline, err := captureManifest(b.scratchDir)
 	if err != nil {
 		return err
@@ -341,8 +403,10 @@ func (b *dirBind) prepare(ca []byte) error {
 // only touches the real rootfs directory when the step actually changed it.
 //
 // The write-back is not atomic, so a failure leaves hostDir half-written.
-// That is only safe because the error fails the step, and BuildKit then
-// releases the mutable snapshot instead of committing it.
+// That is only safe because the error fails the step, and BuildKit keeps a
+// failed step's snapshot only for debugging, never as its layer. The exception
+// is raw LLB whose ValidExitCodes allows the exit code this wrapper ends with,
+// since BuildKit sees only that code.
 func (b *dirBind) finish() error {
 	current, err := captureManifest(b.scratchDir)
 	if err != nil {
@@ -358,12 +422,19 @@ func (b *dirBind) finish() error {
 		return err
 	}
 
+	if b.nssAppended != nil {
+		if err := removeNSSSlot(filepath.Join(b.scratchDir, "pkcs11.txt"), b.nssAppended, !b.nssHadTxt); err != nil {
+			return err
+		}
+	}
+
 	// The whole mirror, not only the files the CA was added to. With a store,
 	// the step's writes land here rather than in the overlay's upper
 	// directory, so a copy the step left beside the bundle is not in the layer
 	// for stripLayer to find: it only gets there when the write-back below
-	// copies it up.
-	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, caMarksOf(b.ca)); err != nil {
+	// copies it up. A copy it cannot strip goes back with the rest, for
+	// stripLayer to report once.
+	if _, err := sweepDir(b.scratchDir, b.scratchDir, b.ca, caMarksOf(b.ca)); err != nil && !errors.Is(err, errUnstrippableCA) {
 		return err
 	}
 
@@ -393,14 +464,17 @@ func (b *dirBind) finish() error {
 }
 
 // coverKeystore adds the CA to a keystore at rel inside this bind's already-
-// mirrored directory (a Debian JDK's cacerts symlinked into the CA store),
-// rather than binding it separately, which the store mount would shadow. The
-// baseline is re-captured so the gatekeeper counts the injection as part of the
-// mirror's post-injection state; the sweep at finish takes the CA back out of
-// this keystore the same as any other file the mirror carries.
+// mirrored directory. The baseline is re-captured so finish's unchanged check
+// counts the injection as part of the mirror's post-injection state; the sweep
+// at finish takes the CA back out of this keystore the same as any other file
+// the mirror carries.
 func (b *dirBind) coverKeystore(rel string, ca []byte) {
 	target := filepath.Join(b.scratchDir, rel)
 	original, err := insertIntoKeystore(target, ca)
+	if errors.Is(err, errKeystoreHalfWritten) {
+		b.halfWritten = fmt.Errorf("%s: %w", filepath.Join(b.containerDir, rel), err)
+		return
+	}
 	if err != nil {
 		logf("cannot inject the CA into keystore %s: %v; leaving it untouched", rel, err)
 		return
@@ -453,7 +527,16 @@ func entryFor(entries []fileEntry, rel string) (fileEntry, bool) {
 }
 
 func (b *dirBind) cleanup() {
-	if err := os.RemoveAll(b.scratchDir); err != nil {
-		logf("cannot remove %s: %v", b.scratchDir, err)
+	removeScratchDir(b.scratchDir)
+	if b.nssBase != "" {
+		removeScratchDir(b.nssBase)
+	}
+}
+
+// removeScratchDir only logs a failure: it leaves a directory on the builder,
+// which is no reason to fail the step.
+func removeScratchDir(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		logf("cannot remove %s: %v", dir, err)
 	}
 }

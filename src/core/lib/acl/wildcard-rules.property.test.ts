@@ -1,10 +1,7 @@
-/**
- * Property-based tests for core/lib/acl/wildcard-rules.ts.
- */
-import { describe, it, expect } from "vitest";
 import fc from "fast-check";
+import { describe, it, expect } from "vitest";
 
-import { convertRule, buildRules, parseAndValidateRules } from "./wildcard-rules.ts";
+import { convertRule, parseAndValidateRules } from "./wildcard-rules.ts";
 
 describe("convertRule: properties", () => {
   it("exact pattern round-trips: regex matches original and rejects subdomain prefix", () => {
@@ -19,11 +16,11 @@ describe("convertRule: properties", () => {
     fc.assert(
       fc.property(simplePattern, (pattern) => {
         const regex = new RegExp(convertRule(pattern));
-        expect(regex.test(pattern), "regex must match original pattern").toBeTruthy();
+        expect(regex.test(pattern), "regex must match original pattern").toBe(true);
         expect(
-          !regex.test(`sub.${pattern}`),
+          regex.test(`sub.${pattern}`),
           "regex must not match with extra subdomain prefix",
-        ).toBeTruthy();
+        ).toBe(false);
       }),
     );
   });
@@ -65,7 +62,7 @@ describe("convertRule: properties", () => {
   });
 });
 
-describe("buildRules: properties", () => {
+describe("parseAndValidateRules: whitespace", () => {
   it("N valid rules joined by any whitespace always return an array of length N", () => {
     const validRule = fc
       .tuple(
@@ -78,7 +75,7 @@ describe("buildRules: properties", () => {
 
     fc.assert(
       fc.property(fc.array(validRule, { minLength: 0, maxLength: 5 }), whitespace, (rules, sep) => {
-        const result = buildRules(rules.join(sep));
+        const result = parseAndValidateRules(rules.join(sep));
         expect(result.length).toBe(rules.length);
       }),
     );
@@ -86,7 +83,7 @@ describe("buildRules: properties", () => {
 });
 
 describe("parseAndValidateRules: properties", () => {
-  it("returns the same tokens buildRules derives its length from, unconverted", () => {
+  it("returns the tokens as written, unconverted", () => {
     const validRule = fc
       .tuple(
         fc.stringMatching(/^[a-z][a-z0-9]{0,8}\.[a-z]{2,4}$/),
@@ -98,18 +95,7 @@ describe("parseAndValidateRules: properties", () => {
       fc.property(fc.array(validRule, { minLength: 0, maxLength: 5 }), (rules) => {
         const input = rules.join(" ");
         expect(parseAndValidateRules(input)).toStrictEqual(rules);
-        expect(parseAndValidateRules(input).length).toBe(buildRules(input).length);
       }),
     );
-  });
-
-  it("returns an empty array for empty/undefined input", () => {
-    expect(parseAndValidateRules(undefined)).toStrictEqual([]);
-    expect(parseAndValidateRules("")).toStrictEqual([]);
-  });
-
-  it("throws on invalid syntax, matching buildRules' own validation", () => {
-    expect(() => parseAndValidateRules("no-port-specified")).toThrow();
-    expect(() => buildRules("no-port-specified")).toThrow();
   });
 });

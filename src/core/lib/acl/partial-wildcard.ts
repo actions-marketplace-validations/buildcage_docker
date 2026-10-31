@@ -1,14 +1,12 @@
 /**
- * Domain pattern compiler for the `inspect` engine, which allows a wildcard
- * inside a label: `abc*.amazonaws.com`.
+ * Domain and path pattern compiler, which allows a wildcard inside a label:
+ * `abc*.amazonaws.com`.
  *
- * The shared compiler in wildcard-rules.ts rejects that, requiring a label
- * containing `*` to be exactly `*` or `**`. For `universal` that is only
- * a restriction on how a rule can be phrased. For `inspect` it would be a
- * hazard, because the resolver's scope is generated from these same patterns:
- * a rule unable to say "only names beginning with abc" forces the author to
- * write `*.amazonaws.com` instead, widening what is allowed to resolve and
- * therefore what can leak through a DNS query alone.
+ * wildcard-rules.ts rejects that, requiring a label containing `*` to be
+ * exactly `*` or `**`. Setup checks every host rule against that grammar
+ * (see parseRulesOrThrow), so through the action only a URL rule reaches this
+ * one with a wildcard inside a label. Rules handed to the image directly, as a
+ * local run does, skip that check.
  *
  * The wildcard vocabulary is otherwise unchanged, and keeps the same meaning
  * wherever it appears in a label:
@@ -16,9 +14,6 @@
  *   `**`: one or more characters, dots included
  *   `*` : one or more characters, dots excluded
  *   `?` : a single character, dots excluded
- *
- * Kept separate from wildcard-rules.ts rather than added to it, so widening
- * this grammar cannot change what the `universal` engine accepts.
  */
 
 /** Characters that must be escaped to appear literally in a regex. */
@@ -119,6 +114,21 @@ export function pathToRegexPartial(path: string): string {
 }
 
 /**
+ * A port written as a decimal from 1 to 65535, or `*`. With a leading zero a
+ * rule would differ by engine: inspect's `dst_port` reads `0443` as 443, while
+ * universal matches the rule as text against `443` and never matches.
+ *
+ * @throws {Error} if the port is anything else
+ */
+export function checkPort(port: string, rule: string): void {
+  if (port === "*" || (/^[1-9]\d{0,4}$/.test(port) && Number(port) <= 65535)) return;
+  throw new Error(
+    `Invalid port in rule "${rule}": "${port}". Write a decimal from 1 to 65535 without a ` +
+      `leading zero (443, not 0443), or "*" for any port`,
+  );
+}
+
+/**
  * Convert a `<domain>:<port|*>` pattern to a regex string, without anchors.
  *
  * Mirrors wildcardToRegex's shape so callers can split the result on the last
@@ -136,19 +146,37 @@ export function wildcardToRegexPartial(pattern: string): string {
   return `${domainToRegexPartial(domain)}:${port === "*" ? "\\d+" : port}`;
 }
 
-/** True if `regex` carries a `|` outside every group and character class. */
-function hasTopLevelAlternation(regex: string): boolean {
-  let depth = 0;
+/**
+ * Each index of `regex` other than the character after a backslash, with
+ * whether it sits inside a character class: a class's own `[` is outside it,
+ * its `]` inside.
+ *
+ * Classes are read as JavaScript reads them, `[]` being an empty one.
+ * checkClasses refuses the syntax PCRE2 and RE2 read otherwise, so once it has
+ * passed, the three agree on where every class ends.
+ */
+function* regexChars(regex: string): Generator<[number, boolean]> {
   let inClass = false;
   for (let i = 0; i < regex.length; i++) {
     const c = regex[i];
+    yield [i, inClass];
     if (c === "\\") {
       i++;
     } else if (inClass) {
       if (c === "]") inClass = false;
     } else if (c === "[") {
       inClass = true;
-    } else if (c === "(") {
+    }
+  }
+}
+
+/** True if `regex` carries a `|` outside every group and character class. */
+function hasTopLevelAlternation(regex: string): boolean {
+  let depth = 0;
+  for (const [i, inClass] of regexChars(regex)) {
+    if (inClass) continue;
+    const c = regex[i];
+    if (c === "(") {
       depth++;
     } else if (c === ")") {
       depth--;
@@ -157,6 +185,23 @@ function hasTopLevelAlternation(regex: string): boolean {
     }
   }
   return false;
+}
+
+/** A named group's opening, capturing its name. */
+const NAMED_GROUP = /^\(\?<(?![=!])([^>]*)>/;
+
+/**
+ * How many capturing groups `regex` opens: `(` with no `?` after it, or a
+ * named group.
+ */
+function capturingGroups(regex: string): number {
+  let count = 0;
+  for (const [i, inClass] of regexChars(regex)) {
+    if (inClass) continue;
+    const rest = regex.slice(i);
+    if (/^\((?!\?)/.test(rest) || NAMED_GROUP.test(rest)) count++;
+  }
+  return count;
 }
 
 /**
@@ -177,38 +222,170 @@ const COREFILE_UNSAFE = /['`]|\{[$%]/;
 /**
  * Lookaround and backreferences, which RE2 lacks: a host half also goes into
  * the resolver's allowlist, where they would stop the resolver from starting.
+ * checkEscapes has already refused a named one (`\k<n>`).
  */
-const RE2_UNSUPPORTED = /^(?:\(\?<?[=!]|\\[1-9]|\\k<)/;
+const RE2_UNSUPPORTED = /^(?:\(\?<?[=!]|\\[1-9])/;
 
 function checkResolverRegexSyntax(text: string, label: string, rule: string): void {
-  let inClass = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (!inClass) {
-      const unsupported = RE2_UNSUPPORTED.exec(text.slice(i));
-      if (unsupported) {
-        throw new Error(
-          `Invalid regex in rule "${rule}": the ${label} "${text}" uses "${unsupported[0]}". ` +
-            `Lookaround and backreferences are not supported in a host pattern, which the ` +
-            `resolver matches with RE2`,
-        );
-      }
+  for (const [i, inClass] of regexChars(text)) {
+    if (inClass) continue;
+    const unsupported = RE2_UNSUPPORTED.exec(text.slice(i));
+    if (unsupported) {
+      throw new Error(
+        `Invalid regex in rule "${rule}": the ${label} "${text}" uses "${unsupported[0]}". ` +
+          `Lookaround and backreferences are not supported in a host pattern, which the ` +
+          `resolver matches with RE2`,
+      );
     }
-    if (c === "\\") {
-      i++;
-    } else if (inClass) {
-      if (c === "]") inClass = false;
-    } else if (c === "[") {
-      inClass = true;
+  }
+}
+
+/**
+ * What PCRE2 (the proxy) reads as a POSIX class, `[:a:]`, or collating element,
+ * `[.a.]` and `[=a=]`. It ends at the first `:]`, `.]` or `=]` matching the
+ * opening, unless a bare `]` or a second opening such as `[:` comes first;
+ * only `\]` and `\\` are skipped over.
+ */
+const POSIX_BRACKET = /^\[([:.=])(?:\\(?:[\\\]]|(?![\\\]]))|\[(?!\1)|[^\]\\[])*?\1\]/;
+
+/**
+ * Class syntax JavaScript (these checks) reads differently from PCRE2 and
+ * RE2. JavaScript ends an empty class at a `]` right after `[` or `[^`, where
+ * the other two read a literal, and ends a class at the `]` of a POSIX class
+ * inside it, where they end the POSIX class alone. Either way a `|` these
+ * checks see inside a group can sit at the top level for the proxy. A POSIX
+ * class outside a class stops the proxy from starting instead.
+ */
+function checkClasses(text: string, label: string, rule: string): void {
+  for (const [i, inClass] of regexChars(text)) {
+    if (text[i] !== "[") continue;
+    const rest = text.slice(i);
+    const clash = POSIX_BRACKET.exec(rest) ?? (inClass ? null : /^\[\^?\]/.exec(rest));
+    if (clash) {
+      throw new Error(
+        `Invalid regex in rule "${rule}": the ${label} "${text}" has the character class ` +
+          `syntax "${clash[0]}", which the proxy's PCRE2 reads differently from setup. Escape a ` +
+          `"]" inside a class ("\\]"), and spell a POSIX class as a range ("[a-z]")`,
+      );
     }
+  }
+}
+
+/**
+ * Letter and digit escapes that JavaScript (these checks) and PCRE2 (the
+ * proxy) read alike. Others can hide a top-level `|`: PCRE2 reads `\Q[\E` as
+ * a literal `[` and `\c[` as one character, where JavaScript sees a class
+ * opening. A backreference is one digit, since the two read `\12` by
+ * different rules.
+ */
+const PORTABLE_ESCAPE = /^(?:[dDwWsSbBnrtf]|[1-9](?!\d))/;
+
+/**
+ * The escapes PORTABLE_ESCAPE lets through that still stop the proxy from
+ * starting. JavaScript reads `[\B]` as a `B` and a reference to a group that
+ * is not there as an octal escape; PCRE2 refuses both. A URL rule's halves are
+ * compiled separately, so the path half cannot refer to a group in the host
+ * half.
+ */
+function checkPortableEscape(
+  text: string,
+  rest: string,
+  inClass: boolean,
+  groups: number,
+  label: string,
+  rule: string,
+): void {
+  if (inClass && rest[0] === "B") {
+    throw new Error(
+      `Invalid regex in rule "${rule}": the ${label} "${text}" uses "\\B" in a character ` +
+        `class, which the proxy's PCRE2 refuses`,
+    );
+  }
+  if (!inClass && Number(rest[0]) > groups) {
+    throw new Error(
+      `Invalid regex in rule "${rule}": the ${label} "${text}" uses "\\${rest[0]}" but has ` +
+        `${groups} capturing group${groups === 1 ? "" : "s"}`,
+    );
+  }
+}
+
+function checkEscapes(text: string, label: string, rule: string): void {
+  const groups = capturingGroups(text);
+  for (const [i, inClass] of regexChars(text)) {
+    if (text[i] !== "\\") continue;
+    const rest = text.slice(i + 1);
+    if (PORTABLE_ESCAPE.test(rest)) {
+      checkPortableEscape(text, rest, inClass, groups, label, rule);
+      continue;
+    }
+    const escape = /^(?:\d+|[A-Za-z])/.exec(rest);
+    if (escape) {
+      throw new Error(
+        `Invalid regex in rule "${rule}": the ${label} "${text}" uses "\\${escape[0]}". The ` +
+          `proxy's PCRE2 reads it differently from setup, so a backslash may precede only ` +
+          `punctuation, one of \\d \\D \\w \\W \\s \\S \\b \\B \\n \\r \\t \\f, or a single ` +
+          `backreference digit`,
+      );
+    }
+  }
+}
+
+/**
+ * Group syntax Node (setup) accepts and QuickJS-ng (the config generator
+ * inside the proxy image) refuses. Any `(?` other than `(?:`, a lookaround or
+ * a named group is refused, a flag modifier such as `(?i:` among them, and so
+ * is one group name used in two alternatives.
+ */
+function checkGroups(text: string, label: string, rule: string): void {
+  const names = new Set<string>();
+  for (const [i, inClass] of regexChars(text)) {
+    if (inClass) continue;
+    const rest = text.slice(i);
+    const opening = /^\(\?(?![:=!<])[^:)]*:?/.exec(rest);
+    if (opening) {
+      throw new Error(
+        `Invalid regex in rule "${rule}": the ${label} "${text}" uses "${opening[0]}", which the ` +
+          `proxy's QuickJS refuses. A host matches in any case already; in a path, spell each ` +
+          `case as a class, as in "[Aa]"`,
+      );
+    }
+    const name = NAMED_GROUP.exec(rest)?.[1];
+    if (name === undefined) continue;
+    if (names.has(name)) {
+      throw new Error(
+        `Invalid regex in rule "${rule}": the ${label} "${text}" uses the group name ` +
+          `"${name}" twice, which the proxy's QuickJS refuses`,
+      );
+    }
+    names.add(name);
+  }
+}
+
+/**
+ * A quantifier as JavaScript and RE2 read one. PCRE2 also reads `{,3}` and
+ * `{ 1,3}` as quantifiers, where the other two match the text literally.
+ */
+const QUANTIFIER = /^\{\d+(?:,\d*)?\}/;
+
+function checkBraces(text: string, label: string, rule: string): void {
+  for (const [i, inClass] of regexChars(text)) {
+    if (inClass || text[i] !== "{" || QUANTIFIER.test(text.slice(i))) continue;
+    throw new Error(
+      `Invalid regex in rule "${rule}": the ${label} "${text}" has a "{" that does not open a ` +
+        `quantifier such as {2} or {1,3}. The proxy's PCRE2 reads some such braces, "{,3}" ` +
+        `among them, as a quantifier where setup reads text; write a literal brace as "\\{"`,
+    );
   }
 }
 
 /**
  * Check part of a `~` rule against what the rule syntax can represent.
  *
- * @throws {Error} if the text carries a top-level `|`, or a host half holds
- *   a character no hostname can, or text the resolver's config cannot quote
+ * @throws {Error} if the text holds class syntax checkClasses refuses, uses an
+ *   escape outside PORTABLE_ESCAPE or one checkPortableEscape refuses, holds
+ *   group syntax checkGroups refuses, a `{` checkBraces refuses, carries a
+ *   top-level `|`, or a host half holds a character no hostname can or text
+ *   the resolver's config cannot quote
  */
 export function checkRawRegexHalf(
   text: string,
@@ -216,6 +393,10 @@ export function checkRawRegexHalf(
   rule: string,
   hostHalf: boolean,
 ): void {
+  checkClasses(text, label, rule);
+  checkEscapes(text, label, rule);
+  checkGroups(text, label, rule);
+  checkBraces(text, label, rule);
   if (hostHalf) checkResolverRegexSyntax(text, label, rule);
   if (hasTopLevelAlternation(text)) {
     throw new Error(
@@ -250,11 +431,11 @@ export function endsAnchored(regex: string): boolean {
 /**
  * Anchor a `~` rule's host half at both ends.
  *
- * Both engines match a `~` rule as a search rather than a full match
- * (HAProxy's `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443`
- * would also admit `evil-example.com:4430`. A URL rule's author cannot write
- * the anchors themselves: the host half's `^` goes to the scheme and its `$`
- * to the path, and a host rule is treated the same way.
+ * A `~` rule is matched as a search rather than a full match (HAProxy's
+ * `-m reg`, CEL's `matches`), so an unanchored `~example\.com:443` would also
+ * admit `evil-example.com:4430`. A URL rule's author cannot write the anchors
+ * themselves: the host half's `^` goes to the scheme and its `$` to the path,
+ * and a host rule is treated the same way.
  *
  * Concatenation suffices because checkRawRegexHalf has already refused a
  * top-level `|`, the one construct it would bind to only half of.
@@ -270,29 +451,20 @@ export function anchorRawRegex(regex: string): string {
  * in the whole fragment, keeps a port group's own `(` out of the host half
  * so both halves stay balanced regexes on their own.
  *
- * A `:` that is escaped, inside a character class, or part of a group's own
- * syntax (`(?:`, `(?i:`) is not a port separator, so `(?:a|b)\.com:443`
- * splits at its last colon.
+ * A `:` that is escaped, inside a character class, or the one in `(?:` is not
+ * a port separator, so `(?:a|b)\.com:443` splits at its last colon.
  *
  * @returns the index, or -1 when the fragment names no port
  */
 function portPatternStart(hostPlusPort: string): number {
-  let inClass = false;
-  for (let i = 0; i < hostPlusPort.length; i++) {
+  let bodyStart = 0;
+  for (const [i, inClass] of regexChars(hostPlusPort)) {
+    if (inClass || i < bodyStart) continue;
     const c = hostPlusPort[i];
-    if (c === "\\") {
-      i++;
-    } else if (inClass) {
-      if (c === "]") inClass = false;
-    } else if (c === "[") {
-      inClass = true;
-    } else if (c === ":") {
-      return i;
-    } else if (c === "(") {
+    if (c === ":") return i;
+    if (c === "(") {
       if (hostPlusPort[i + 1] === ":") return i;
-      // Past the group's own syntax up to its body: `(?:`, `(?i:`, `(?<name>`.
-      const syntax = /^\(\?[A-Za-z-]*:?/.exec(hostPlusPort.slice(i));
-      if (syntax) i += syntax[0].length - 1;
+      if (hostPlusPort.startsWith("(?:", i)) bodyStart = i + 3;
     }
   }
   return -1;
@@ -319,9 +491,9 @@ export function splitDomainFromPortPattern(hostPlusPort: string): {
 /**
  * Extract the host-only fragment from a `~` host rule's raw regex, for the
  * resolver's allowlist: a DNS query carries no port, so whatever names a port
- * is dropped here regardless of its shape. Enforcement uses the raw regex
- * directly instead (see haproxy-rules.ts), matched as one expression against
- * the connection, so this function exists only for coredns-config.ts.
+ * is dropped here regardless of its shape. Enforcement matches the raw regex
+ * as one expression against the connection (see haproxy-rules.ts); every
+ * other caller uses this function only to validate the rule.
  *
  * @throws {Error} if the regex is invalid, it carries a top-level `|`, it
  *   names no port at all (a port is always required), or the host half does

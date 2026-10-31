@@ -1,11 +1,15 @@
-# renovate: datasource=github-releases depName=containernetworking/plugins
+# renovate: datasource=github-release-attachments depName=containernetworking/plugins
 ARG CNI_VERSION=v1.9.1
+# renovate: datasource=github-release-attachments depName=containernetworking/plugins digestVersion=v1.9.1
 ARG CNI_SHA256_AMD64=b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+# renovate: datasource=github-release-attachments depName=containernetworking/plugins digestVersion=v1.9.1
 ARG CNI_SHA256_ARM64=56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec
 
-# renovate: datasource=github-releases depName=coredns/coredns
-ARG COREDNS_VERSION=1.14.7
+# renovate: datasource=github-release-attachments depName=coredns/coredns
+ARG COREDNS_VERSION=v1.14.7
+# renovate: datasource=github-release-attachments depName=coredns/coredns digestVersion=v1.14.7
 ARG COREDNS_SHA256_AMD64=9a09356438c6d9591cb80011a2a7a52f87fc3a113f6690e41f243f98b98faac9
+# renovate: datasource=github-release-attachments depName=coredns/coredns digestVersion=v1.14.7
 ARG COREDNS_SHA256_ARM64=bf26782d19b5340e3e6cb50f1ed6df72f58e4a30932c79d167f0f0a8b1e92e16
 
 # The BuildKit base is a release behind and carries HAProxy 3.2, whose resolver
@@ -14,14 +18,14 @@ ARG COREDNS_SHA256_ARM64=bf26782d19b5340e3e6cb50f1ed6df72f58e4a30932c79d167f0f0a
 ARG HAPROXY_ALPINE_BRANCH=3.24
 ARG HAPROXY_BRANCH=3.4
 
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS deps
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS deps
 ARG CNI_VERSION
 ARG CNI_SHA256_AMD64
 ARG CNI_SHA256_ARM64
 ARG COREDNS_VERSION
 ARG COREDNS_SHA256_AMD64
 ARG COREDNS_SHA256_ARM64
-RUN apk add --no-cache curl util-linux-misc && \
+RUN apk add --no-cache curl && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     mkdir -p /opt/cni/bin && \
     CNI_SHA=$([ "$ARCH" = "amd64" ] && echo "$CNI_SHA256_AMD64" || echo "$CNI_SHA256_ARM64") && \
@@ -30,7 +34,7 @@ RUN apk add --no-cache curl util-linux-misc && \
     echo "${CNI_SHA}  /tmp/cni.tgz" | sha256sum -c && \
     tar -C /opt/cni/bin -xz -f /tmp/cni.tgz ./bridge ./host-local ./loopback && \
     COREDNS_SHA=$([ "$ARCH" = "amd64" ] && echo "$COREDNS_SHA256_AMD64" || echo "$COREDNS_SHA256_ARM64") && \
-    curl -fsSL "https://github.com/coredns/coredns/releases/download/v${COREDNS_VERSION}/coredns_${COREDNS_VERSION}_linux_${ARCH}.tgz" \
+    curl -fsSL "https://github.com/coredns/coredns/releases/download/${COREDNS_VERSION}/coredns_${COREDNS_VERSION#v}_linux_${ARCH}.tgz" \
       -o /tmp/coredns.tgz && \
     echo "${COREDNS_SHA}  /tmp/coredns.tgz" | sha256sum -c && \
     tar -C /usr/local/bin -xz -f /tmp/coredns.tgz coredns
@@ -38,13 +42,16 @@ RUN apk add --no-cache curl util-linux-misc && \
 # Build the runc wrapper (statically linked). --platform=$BUILDPLATFORM keeps
 # the Go toolchain on the build host's own architecture; GOOS/GOARCH then
 # cross-compile for the target.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS runc-wrapper-build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS runc-wrapper-build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
 COPY docker/inspect/buildcage-runc/ ./
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -trimpath -ldflags="-s -w" -o /out/buildcage-runc .
+# The license files of what it links, for /opt/buildcage/licenses/.
+COPY docker/collect-go-licenses.sh /usr/local/bin/
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" collect-go-licenses.sh /out/licenses/buildcage-runc
 
 # Bundle the Docker-image scripts (rolldown; see rolldown.scripts.config.js):
 # the QuickJS config generator and report-action.node.ts. Architecture-
@@ -57,23 +64,30 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts
 COPY rolldown.scripts.config.js ./
 COPY src/core/ ./src/core/
+COPY src/report/ ./src/report/
 COPY docker/inspect/scripts/ ./docker/inspect/scripts/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm run build:scripts
 
 # Final image
-FROM moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
+FROM moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c
 
 LABEL org.opencontainers.image.title="buildcage (inspect proxy engine)" \
       org.opencontainers.image.description="Secure Docker build environment enforcing on method, URL and path" \
-      org.opencontainers.image.licenses="MIT AND Apache-2.0 AND GPL-2.0-or-later AND ISC" \
+      org.opencontainers.image.licenses="MIT AND Apache-2.0 AND GPL-1.0-only AND GPL-1.0-or-later AND GPL-2.0-only AND GPL-2.0-or-later AND (GPL-2.0-or-later WITH OpenSSL-Exception) AND GPL-3.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND MPL-2.0 AND curl AND ISC AND BSD-1-Clause AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC AND 0BSD AND Zlib AND X11 AND SSH-OpenSSH AND blessing" \
       org.opencontainers.image.source="https://github.com/buildcage/docker" \
       io.github.buildcage.report-source="true"
-# report finds this container by this label; must match src/core/lib/docker/report-source.ts.
+# report finds this container by this label; must match src/report/report-source.ts.
 
+# apk add leaves an installed package alone, so without this the CA bundle
+# stays as old as the base image and keeps trusting roots since withdrawn.
+RUN apk add --no-cache --upgrade ca-certificates-bundle
+
+# nss-tools provides certutil for init-cfg's NSS database.
 RUN apk add --no-cache \
       s6-overlay \
       openssl \
+      nss-tools \
       iptables \
       curl \
       quickjs-ng \
@@ -107,9 +121,6 @@ ENV S6_KILL_GRACETIME=500
 
 COPY --from=deps /opt/cni/bin /opt/cni/bin
 COPY --from=deps /usr/local/bin/coredns /usr/local/bin/coredns
-# For s6-rc.d/haproxy/run. The binary alone needs only musl; the package
-# would pull in ~6MB.
-COPY --from=deps /bin/pipesz /usr/bin/pipesz
 
 # CoreDNS answers queries the build controls, so it must not run as root.
 # setcap keeps :53 bindable once it has dropped.
@@ -123,17 +134,27 @@ COPY --from=runc-wrapper-build /out/buildcage-runc /opt/buildcage/bin/buildcage-
 RUN mkdir -p /etc/buildkit /etc/coredns /etc/haproxy /var/log/haproxy \
       /var/log/coredns /var/log/buildcage /run/buildcage
 COPY docker/inspect/files/buildkitd.toml /etc/buildkit/buildkitd.toml
-COPY docker/inspect/files/cni.conflist   /etc/buildkit/cni.conflist
+COPY docker/common/files/cni.conflist    /etc/buildkit/cni.conflist
 
 # Writes haproxy.cfg and the Corefile at startup, both from one rule set in a single run.
-COPY --from=scripts-build /build/dist/qjs/docker/inspect/scripts/gen-configs.js /opt/buildcage/scripts/gen-configs.js
+COPY --from=scripts-build /build/dist/qjs/src/core/scripts/gen-configs-inspect.js /opt/buildcage/scripts/gen-configs.js
 
 # Never run inside the image: the report action `docker cp`s it out and runs
 # it on the runner (see report-action.node.ts).
 COPY --from=scripts-build /build/dist/report-action/docker/inspect/scripts/report-action.js /opt/buildcage/scripts/report-action.js
 
+COPY LICENSE /opt/buildcage/LICENSE
 COPY docker/inspect/files/THIRD_PARTY_LICENSES /opt/buildcage/THIRD_PARTY_LICENSES
+COPY licenses/GPL-1.0.txt licenses/GPL-2.0.txt licenses/GPL-3.0.txt licenses/LGPL-2.1.txt licenses/MPL-2.0.txt licenses/Apache-2.0.txt \
+     licenses/curl.txt licenses/QuickJS-ng.txt THIRD_PARTY_LICENSES_NPM /opt/buildcage/licenses/
+COPY licenses/s6-overlay/ /opt/buildcage/licenses/s6-overlay/
+COPY licenses/alpine/ /opt/buildcage/licenses/alpine/
+COPY licenses/alpine-packages.txt /opt/buildcage/licenses/
+COPY --from=runc-wrapper-build /out/licenses/ /opt/buildcage/licenses/
 
+# The shared services, then this engine's own files on top.
+COPY docker/common/files/s6-rc.d/     /etc/s6-overlay/s6-rc.d/
+COPY docker/common/files/s6-scripts/  /etc/s6-overlay/scripts/
 COPY docker/inspect/files/s6-rc.d/    /etc/s6-overlay/s6-rc.d/
 COPY docker/inspect/files/s6-scripts/ /etc/s6-overlay/scripts/
 
@@ -141,8 +162,12 @@ COPY docker/inspect/files/s6-scripts/ /etc/s6-overlay/scripts/
 # store contains, so the proxy has to be told to trust it when it verifies the
 # origin. The marker exists only in an image built with this arg set, so a
 # released proxy has no way to be told the same thing: the check in
-# init-inspect-cfg finds nothing to act on. Never set for a real build.
+# init-cfg finds nothing to act on. Never set for a real build.
 ARG BUILDCAGE_TEST_HOOKS=""
 RUN if [ -n "$BUILDCAGE_TEST_HOOKS" ]; then touch /opt/buildcage/.test-hooks; fi
+
+# Last, so that it sees every package the image ends up with.
+RUN --mount=type=bind,source=docker/check-alpine-licenses.sh,target=/tmp/check-alpine-licenses.sh \
+    sh /tmp/check-alpine-licenses.sh /opt/buildcage/licenses/alpine-packages.txt /opt/buildcage/licenses
 
 ENTRYPOINT ["/init"]

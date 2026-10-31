@@ -8,7 +8,7 @@ source "$(dirname "$0")/helpers.sh"
 # not trust the injected CA, so the shared assertions below only confirm both
 # bootstrap requests reached HAProxy and were logged. The last request is the
 # one the two modes disagree about: it asks for a path no rule covers, which
-# restrict refuses with a 403 and audit lets through to the origin.
+# restrict blocks with a 403 and audit lets through to the origin.
 
 MODE="${1:-}"
 case "$MODE" in
@@ -34,39 +34,39 @@ fi
 echo ""
 
 echo "[apt over HTTPS] the fixture reached on the CA the wrapper injected:"
-if grep -qE "^buildcage [0-9]+ https GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+ sni=\S+ host=allowed\.example\.com /public/debian" <<< "$LOGS"; then
+if grep -qE "^buildcage [0-9]+ https GET [0-9-]+ [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+ fcerr=\S+ sni=\S+ host=allowed\.example\.com /public/debian" <<< "$LOGS"; then
   pass "reached the fixture over TLS"
 else
   fail "no HTTPS request to the fixture was recorded"
 fi
 echo ""
 
-# /private/** is outside allowed_url_rules (see compose.test-inspect.yaml),
+# /private/** is outside allowed-url-rules (see fixture-rules-inspect.sh),
 # and the fixture answers any path with 200, so the status recorded here is
 # the proxy's decision and nothing else.
 OUTSIDE_REQUEST="host=allowed\.example\.com /private/debian"
 # The status sits ahead of the host and the target on the line, so the two
 # halves are matched as one pattern rather than as a prefix.
-outside() { printf '%s' "^buildcage [0-9]+ https GET $1 [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+ sni=\S+ $OUTSIDE_REQUEST"; }
+outside() { printf '%s' "^buildcage [0-9]+ https GET $1 [0-9]+ ts=\S* reason=\S+ tlserr=\S+ dst=\S+ fcerr=\S+ sni=\S+ $OUTSIDE_REQUEST"; }
 echo "[apt outside the rules] the request $MODE should have produced:"
 if [ "$MODE" = "restrict" ]; then
   if grep -qE "$(outside 403)" <<< "$LOGS"; then
-    pass "refused with 403, so apt never reached the origin"
+    pass "blocked with 403, so apt never reached the origin"
   else
-    fail "the out-of-rules request was not refused"
+    fail "the out-of-rules request was not blocked"
     grep -E "$OUTSIDE_REQUEST" <<< "$LOGS" || echo "    (no matching log line at all)"
   fi
 else
   if grep -qE "$(outside 200)" <<< "$LOGS"; then
-    pass "recorded and allowed through to the origin, as audit refuses nothing"
+    pass "recorded and allowed through to the origin, as audit blocks nothing"
   else
     fail "the out-of-rules request did not reach the origin"
     grep -E "$OUTSIDE_REQUEST" <<< "$LOGS" || echo "    (no matching log line at all)"
   fi
   if grep -qE "^buildcage [0-9]+ https? [A-Z]+ 403 " <<< "$LOGS"; then
-    fail "something was refused with 403, which audit must never do"
+    fail "something was blocked with 403, which audit must never do"
   else
-    pass "nothing was refused anywhere in this build"
+    pass "nothing was blocked anywhere in this build"
   fi
 fi
 

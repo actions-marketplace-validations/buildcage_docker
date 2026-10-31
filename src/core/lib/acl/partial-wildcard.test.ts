@@ -16,7 +16,7 @@ function matches(pattern: string, name: string): boolean {
 
 // ---------------------------------------------------------------------------
 // The point of this compiler: a wildcard may sit among literal text in a
-// label. The shared compiler rejects that, forcing an author to widen the
+// label. wildcard-rules.ts rejects that, forcing an author to widen the
 // pattern to a whole label, which widens the resolver's scope with it.
 // ---------------------------------------------------------------------------
 describe("wildcard inside a label", () => {
@@ -39,13 +39,13 @@ describe("wildcard inside a label", () => {
     expect(matches("a*z.example.com", "abcy.example.com")).toBe(false);
   });
 
-  it("requires at least one character, matching the shared `*`", () => {
+  it("requires at least one character, matching wildcard-rules.ts's `*`", () => {
     expect(matches("abc*.example.com", "abc.example.com")).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Every wildcard the shared compiler accepts keeps the same meaning here.
+// Every wildcard that wildcard-rules.ts accepts keeps the same meaning here.
 // ---------------------------------------------------------------------------
 describe("unchanged vocabulary", () => {
   it("* alone is one label", () => {
@@ -173,7 +173,6 @@ describe("checkRawRegexHalf: resolver regex syntax", () => {
       "(?<=a)b\\.com",
       "(?<!a)b\\.com",
       "(a)\\1\\.com",
-      "(?<n>a)\\k<n>\\.com",
     ]) {
       expect(() => check(text, true)).toThrow(/RE2/);
     }
@@ -207,6 +206,58 @@ describe("checkRawRegexHalf", () => {
     expect(() => check("a\\.com|b\\.com:443", false)).toThrow(/top-level "\|"/);
   });
 
+  it("refuses an escape PCRE2 may read differently from JavaScript", () => {
+    for (const text of [
+      "x\\.com:443\\Q[\\E|:443]?",
+      "x\\.com:443\\c[|:443]?",
+      "x\\x5b\\.com:443",
+      "x\\K\\.com:443",
+      "(?<n>a)\\k<n>\\.com:443",
+      "/(a)\\12",
+      "/a\\0",
+    ]) {
+      expect(() => check(text, false)).toThrow(/uses "\\([A-Za-z]|\d+)"/);
+    }
+  });
+
+  it("keeps the escapes PCRE2 and JavaScript read alike, and any escaped punctuation", () => {
+    for (const text of [
+      "\\d+\\.com:443",
+      "a\\s?\\b\\-b\\.com:443",
+      "a\\\\Q\\.com:443",
+      "/(a)\\1",
+    ]) {
+      expect(() => check(text, false)).not.toThrow();
+    }
+  });
+
+  it("refuses a flag modifier, which QuickJS cannot compile", () => {
+    for (const text of [
+      "^(?i:api)\\.com:443",
+      "^(?-i:api)\\.com:443",
+      "/(?i-m:x)",
+      "a\\\\(?i:x)",
+    ]) {
+      expect(() => check(text, false)).toThrow(/uses "\(\?[a-z-]+:", which the proxy's QuickJS/);
+    }
+  });
+
+  it("refuses a group name used twice, which QuickJS cannot compile", () => {
+    expect(() => check("^((?<a>x)|(?<a>y))\\.com:443", false)).toThrow(/group name "a" twice/);
+  });
+
+  it("keeps the group syntax QuickJS compiles", () => {
+    for (const text of [
+      "(?:a|b)\\.com:443",
+      "((?<a>x)|(?<b>y))\\.com:443",
+      "(?=a)(?!b)(?<=c)(?<!d)\\.com:443",
+      "[(?i:]\\.com:443",
+      "\\(?i:443",
+    ]) {
+      expect(() => check(text, false)).not.toThrow();
+    }
+  });
+
   it("leaves an alternation inside a group or a character class alone", () => {
     expect(() => check("a\\.com:(443|8443)", false)).not.toThrow();
     expect(() => check("a\\.com:[4|8]443", false)).not.toThrow();
@@ -237,8 +288,8 @@ describe("checkRawRegexHalf", () => {
     // are Corefile environment substitution.
     expect(() => check("a'b\\.com", true)).toThrow(/cannot quote/);
     expect(() => check("a`b\\.com", true)).toThrow(/cannot quote/);
-    expect(() => check("a{$HOME}\\.com", true)).toThrow(/cannot quote/);
-    expect(() => check("a{%HOME%}\\.com", true)).toThrow(/cannot quote/);
+    expect(() => check("a\\{$HOME}\\.com", true)).toThrow(/cannot quote/);
+    expect(() => check("a\\{%HOME%}\\.com", true)).toThrow(/cannot quote/);
   });
 
   it("keeps a quantifier brace, which is not substitution", () => {
@@ -247,6 +298,70 @@ describe("checkRawRegexHalf", () => {
 
   it("looks for those characters in the host half only", () => {
     expect(() => check("/a'b", false)).not.toThrow();
+  });
+
+  it("refuses a class PCRE2 would end somewhere other than setup does", () => {
+    // Setup closes `[]` at once and so finds the "|" inside a group; PCRE2
+    // reads that `]` as a literal and the "|" at the top level.
+    for (const text of ["[](]a|.*[])]?:443", "[^](]a|.*[])]?:443", "[[:alpha:]]+\\.com:443"]) {
+      expect(() => check(text, false)).toThrow(/character class/);
+    }
+    expect(() => check("[[.a.]]\\.com:443", false)).toThrow(/class syntax "\[\.a\.\]"/);
+    expect(() => check("[[=a=]]\\.com:443", false)).toThrow(/class syntax "\[=a=\]"/);
+  });
+
+  it("refuses a POSIX class outside a class, which PCRE2 refuses to compile", () => {
+    for (const text of ["[:a:]\\.com:443", "[.a.]\\.com:443", "[:a\\]:]\\.com:443"]) {
+      expect(() => check(text, false)).toThrow(/character class/);
+    }
+  });
+
+  it("keeps a bracket PCRE2 does not take for a POSIX class", () => {
+    for (const text of [
+      "[^.]+\\.com:443",
+      "[.-]\\.com:443",
+      "[a[:]\\.com:443",
+      "[:a]:\\d+",
+      "[:[:]\\.com:443",
+    ]) {
+      expect(() => check(text, false)).not.toThrow();
+    }
+  });
+
+  it("keeps an escaped bracket in a class, and a literal `[` that opens nothing", () => {
+    for (const text of [
+      "[\\]a]\\.com:443",
+      "[\\[:]\\.com:443",
+      "[a[]\\.com:443",
+      "a\\[:\\.com:443",
+    ]) {
+      expect(() => check(text, false)).not.toThrow();
+    }
+  });
+
+  it("refuses a backreference to a group the text does not have", () => {
+    expect(() => check("/a\\1", false)).toThrow(/uses "\\1" but has 0 capturing groups/);
+    expect(() => check("/(a)(?:b)\\2", false)).toThrow(/but has 1 capturing group$/);
+    expect(() => check("/(?<n>a)(b)\\2", false)).not.toThrow();
+    expect(() => check("/(?<=a)(b)\\1", false)).not.toThrow();
+  });
+
+  it("reads a digit escape in a class as the octal PCRE2 and JavaScript take it for", () => {
+    expect(() => check("/[\\1]", false)).not.toThrow();
+  });
+
+  it("refuses a `{` that opens no quantifier, which PCRE2 may read as one", () => {
+    for (const text of ["a{,3}\\.com:443", "/a{ 1,3}", "/a{1, 3}", "/a{1}{", "/{x}"]) {
+      expect(() => check(text, false)).toThrow(/"\{" that does not open a quantifier/);
+    }
+    for (const text of ["a{2}\\.com:443", "/a{1,}", "/a{1,3}?", "/a\\{,3}", "/[{]", "/a}"]) {
+      expect(() => check(text, false)).not.toThrow();
+    }
+  });
+
+  it("refuses `\\B` in a class, which PCRE2 does not accept", () => {
+    expect(() => check("/[\\B]", false)).toThrow(/"\\B" in a character class/);
+    expect(() => check("/[\\b]\\B", false)).not.toThrow();
   });
 });
 
@@ -324,10 +439,6 @@ describe("splitDomainFromPortPattern", () => {
     expect(splitDomainFromPortPattern("(?:a|b)\\.com:443")).toStrictEqual({
       domain: "(?:a|b)\\.com",
       portPattern: ":443",
-    });
-    expect(splitDomainFromPortPattern("(?i:a)\\.com(:443)?")).toStrictEqual({
-      domain: "(?i:a)\\.com",
-      portPattern: "(:443)?",
     });
     expect(splitDomainFromPortPattern("(?<n>a)\\.com:443")).toStrictEqual({
       domain: "(?<n>a)\\.com",

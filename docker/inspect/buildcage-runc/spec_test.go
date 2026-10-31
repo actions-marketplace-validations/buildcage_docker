@@ -87,6 +87,20 @@ func TestLoadSpecRefusesABundleItCannotRead(t *testing.T) {
 	}
 }
 
+// Nothing requires root.path to be clean, and a trailing separator would reach
+// every path computed from the rootfs.
+func TestLoadSpecCleansAnAbsoluteRootPath(t *testing.T) {
+	bundle := newSpecBundle(t, `{"root": {"path": "/run/bundle/rootfs/"}}`)
+
+	s, err := loadSpec(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "/run/bundle/rootfs"; s.rootfs != want {
+		t.Errorf("rootfs = %q, want %q", s.rootfs, want)
+	}
+}
+
 // process.env is a JSON array, so nothing stops it holding something that is
 // not a string. Such an entry is skipped rather than taken as an empty name.
 func TestLoadSpecSkipsEnvEntriesThatAreNotStrings(t *testing.T) {
@@ -167,5 +181,65 @@ func TestSetEnvLeavesTheSpecAloneWithNothingToAdd(t *testing.T) {
 				t.Errorf("the spec changed:\n got %s\nwant %s", got, before)
 			}
 		})
+	}
+}
+
+func TestProcessCwd(t *testing.T) {
+	cases := map[string]struct {
+		process map[string]any
+		want    string
+	}{
+		"no cwd":   {map[string]any{}, "/"},
+		"relative": {map[string]any{"cwd": "app"}, "/"},
+		"absolute": {map[string]any{"cwd": "/app"}, "/app"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &spec{raw: map[string]any{"process": c.process}}
+			if got := s.processCwd(); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestProcessUser(t *testing.T) {
+	for name, tc := range map[string]struct {
+		process  map[string]any
+		uid, gid int
+	}{
+		"numbers":      {map[string]any{"user": map[string]any{"uid": 1000, "gid": 100}}, 1000, 100},
+		"no user":      {map[string]any{}, 0, 0},
+		"not a number": {map[string]any{"user": map[string]any{"uid": 1.5, "gid": "x"}}, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bundle, _ := newBundleNoStore(t, nil)
+			setSpecField(t, bundle, "process", func(proc map[string]any) {
+				for k, v := range tc.process {
+					proc[k] = v
+				}
+			})
+			s, err := loadSpec(bundle)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if uid, gid := s.processUser(); uid != tc.uid || gid != tc.gid {
+				t.Fatalf("got %d:%d, want %d:%d", uid, gid, tc.uid, tc.gid)
+			}
+		})
+	}
+}
+
+func TestProcessGroups(t *testing.T) {
+	bundle, _ := newBundleNoStore(t, nil)
+	setSpecField(t, bundle, "process", func(proc map[string]any) {
+		proc["user"] = map[string]any{"uid": 1, "gid": 2, "additionalGids": []any{3, 4}}
+	})
+	s, err := loadSpec(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.processGroups(); len(got) != 2 || got[0] != 3 || got[1] != 4 {
+		t.Fatalf("got %v, want [3 4]", got)
 	}
 }

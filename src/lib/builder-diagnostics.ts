@@ -1,15 +1,16 @@
 import { execFileSync } from "node:child_process";
 
 import { capturedStderr, describeDockerFailure } from "#core/lib/actions/docker-error.ts";
+import { withLogGroup } from "#core/lib/actions/log.ts";
 import { buildComposeLogsArgs } from "#core/lib/docker/args.ts";
 import type { RunDocker } from "#core/lib/docker/client.ts";
-import { withLogGroup } from "#core/lib/actions/log.ts";
 import {
   buildDockerInspectStateArgs,
   parseContainerState,
   describeContainerStartFailure,
   type ContainerState,
 } from "#core/lib/docker/health.ts";
+
 import { SetupError } from "./errors.ts";
 
 /** Lines of container log printed when the builder fails to come up. */
@@ -42,7 +43,7 @@ const printDockerViaExec = (args: string[], env: NodeJS.ProcessEnv): void => {
 /* v8 ignore stop */
 
 export interface BuilderStartErrorOptions {
-  composeFile: string;
+  composeFiles: readonly string[];
   projectName: string;
   builderName: string;
   composeEnv: NodeJS.ProcessEnv;
@@ -52,7 +53,7 @@ export interface BuilderStartErrorOptions {
  *  ask, the failure predates it and is Docker's own. */
 export function builderStartError(
   e: unknown,
-  { composeFile, projectName, builderName, composeEnv }: BuilderStartErrorOptions,
+  { composeFiles, projectName, builderName, composeEnv }: BuilderStartErrorOptions,
   deps: BuilderDiagnosticsDeps = {},
 ): SetupError {
   const state = readBuilderState(builderName, composeEnv, deps);
@@ -63,7 +64,7 @@ export function builderStartError(
     );
   }
 
-  printBuilderLog({ composeFile, projectName, composeEnv }, deps);
+  printBuilderLog({ composeFiles, projectName, composeEnv }, deps);
   return new SetupError(
     describeContainerStartFailure(state, { role: "builder", containerName: builderName }),
     "BUILDER_NOT_READY",
@@ -94,12 +95,12 @@ function reportInspectFailure(e: unknown): void {
 
 /** Best effort: the message that follows still stands without the log. */
 function printBuilderLog(
-  { composeFile, projectName, composeEnv }: Omit<BuilderStartErrorOptions, "builderName">,
+  { composeFiles, projectName, composeEnv }: Omit<BuilderStartErrorOptions, "builderName">,
   { printDocker = printDockerViaExec }: BuilderDiagnosticsDeps,
 ): void {
   withLogGroup("buildcage: Builder container log", () => {
     try {
-      printDocker(buildComposeLogsArgs({ composeFile, projectName, tail: LOG_TAIL }), composeEnv);
+      printDocker(buildComposeLogsArgs({ composeFiles, projectName, tail: LOG_TAIL }), composeEnv);
     } catch {
       console.log("The builder container's log could not be read.");
     }

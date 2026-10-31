@@ -1,25 +1,23 @@
 ## Outbound Traffic Report
 
+> [!CAUTION]
+> 2 blocked · 1 failed · 1 not acted on
+
+### 🚫 Blocked / ⚠️ Failed Hosts
+
+| Host | Rule | Reason | Count |
+| --- | --- | --- | ---: |
+| `bad.example.com:443` | HTTPS | 🚫 https-not-allowed | 2 |
+| `a.example.com:443` | HTTPS | ⚠️ origin-aborted | 1 |
+
+<sub>*Note: no rule blocked the ⚠️ rows; the connection itself did not complete, so no rule can change the outcome and none of them fails the step.*</sub>
+
 ### ✅ Allowed Hosts
 
 | Host | Rule | Count |
 | --- | --- | ---: |
-| a.example.com:443 | HTTPS | 3 |
-| b.example.com:80 | HTTP | 1 |
-
-### 🚫 Blocked Hosts
-
-| Host | Rule | Reason | Count |
-| --- | --- | --- | ---: |
-| bad.example.com:443 | HTTPS | https-not-allowed | 2 |
-
-### ⚠️ Failed Connections
-
-| Host | Rule | Reason | Count |
-| --- | --- | --- | ---: |
-| a.example.com:443 | HTTPS | origin-aborted | 1 |
-
-<sub>*Note: no rule refused these; the connection itself did not complete, so no rule can change the outcome and none of them fails the step.*</sub>
+| `a.example.com:443` | HTTPS | 3 |
+| `b.example.com:80` | HTTP | 1 |
 
 <details>
 <summary>💬 Communication details</summary>
@@ -34,6 +32,6 @@
 
 </details>
 
-*Reported by [buildcage/docker](https://github.com/buildcage/docker)*
+*Reported by [owner/repo](https://github.com/owner/repo)*
 
 <hr>

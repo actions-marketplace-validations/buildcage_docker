@@ -7,34 +7,46 @@ and links here for the details.
 ## Contents
 
 - [Setup action inputs](#setup-action-inputs)
+- [Setup action outputs](#setup-action-outputs)
+- [Config file](#config-file)
 - [Operation modes](#operation-modes)
 - [Rule syntax](#rule-syntax)
 - [Report action inputs](#report-action-inputs)
+- [Report details](#report-details)
 - [Blocked service names](#blocked-service-names)
 - [Requests that never arrived whole](#requests-that-never-arrived-whole)
 - [Connections that failed](#connections-that-failed)
+- [Hidden query parameters](#hidden-query-parameters)
 - [Traffic artifact](#traffic-artifact)
 - [CA trust variables](#ca-trust-variables)
 
 ## Setup action inputs
 
-`buildcage/docker` starts the builder. Every input is optional.
+`buildcage/docker` starts the builder. Every input is optional. Each one also takes its name spelled
+with underscores (`proxy_mode` for `proxy-mode`), as earlier versions named it. When a workflow sets
+both spellings, a rule input takes the lines of both, and any other input takes the hyphenated
+value, warning when the two differ.
 
-| Input          | Default     | Description                                                           |
-| -------------- | ----------- | --------------------------------------------------------------------- |
-| `builder_name` | `buildcage` | Name of the builder container. The Buildx `endpoint` has to match it. |
-| `proxy_mode`   | `restrict`  | `audit` or `restrict`. See [Operation modes](#operation-modes).       |
-| `proxy_engine` | `inspect`   | `inspect` or `universal`. See [Engines](../README.md#engines).        |
+| Input                | Default     | Description                                                                                                                                                                                 |
+| -------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config-file`        | empty       | A YAML file, relative to the workspace, that sets the other inputs. See [Config file](#config-file).                                                                                        |
+| `builder-name`       | `buildcage` | Name of the builder container: at least two letters, digits, `_`, `.` or `-`, starting with a letter or digit. The Buildx `endpoint` has to match it; see [outputs](#setup-action-outputs). |
+| `proxy-mode`         | `restrict`  | `audit` or `restrict`. See [Operation modes](#operation-modes).                                                                                                                             |
+| `proxy-engine`       | `inspect`   | `inspect` or `universal`. See [Engines](../README.md#engines).                                                                                                                              |
+| `fail-on-ca-residue` | `true`      | `inspect` only. `false` turns a copy of the CA or its NSS slot left in the image into a warning. See [CA residue](#ca-residue).                                                             |
+
+`fail-on-ca-residue` takes `true` or `false`. Any other value fails the step before the builder
+starts.
 
 ```yaml
-- uses: buildcage/docker@e97cf73f1ca5094c62968f6e8617bde0948deb3d # v4.0.0
+- uses: buildcage/docker@ef2b79a3baaddc6a69c1b10a2c473a134ece2eca # v4.4.0
   with:
-    builder_name: buildcage
-    proxy_mode: restrict
-    proxy_engine: inspect
+    builder-name: buildcage
+    proxy-mode: restrict
+    proxy-engine: inspect
 ```
 
-On a self-hosted runner that runs several jobs at once, give each job its own `builder_name`. The
+On a self-hosted runner that runs several jobs at once, give each job its own `builder-name`. The
 name is what identifies the builder's containers, so two concurrent jobs sharing it tear down each
 other's builder. The report action needs the same name. A GitHub-hosted runner gets a VM per job, so
 the default is fine there.
@@ -46,33 +58,107 @@ rule in any input matches. Which ones apply depends on the engine.
 
 | Input                 | `inspect` | `universal` | What one rule matches                                                                                                      |
 | --------------------- | :-------: | :---------: | -------------------------------------------------------------------------------------------------------------------------- |
-| `allowed_url_rules`   |    ✅     |      -      | A method and a URL: `GET https://registry.npmjs.org/**`                                                                    |
-| `allowed_https_rules` |    ✅     |     ✅      | A host and port reached over HTTPS: `registry.npmjs.org:443`                                                               |
-| `allowed_http_rules`  |    ✅     |     ✅      | A host and port reached over plain HTTP: `deb.debian.org:80`                                                               |
-| `allowed_ip_rules`    |    ✅     |     ✅      | An address and port, for connections made without DNS: `192.168.1.1:443`                                                   |
-| `allowed_tls_rules`   |    ✅     |      -      | A TLS destination to pass through undecrypted, judged on SNI: `db.example.com:5432`                                        |
-| `known_blocked_rules` |    ✅     |     ✅      | A host, or (on `inspect`) a method and URL, expected to be blocked, so it doesn't fail the [report](#report-action-inputs) |
+| `allowed-url-rules`   |    ✅     |      -      | A method and a URL: `GET https://registry.npmjs.org/**`                                                                    |
+| `allowed-https-rules` |    ✅     |     ✅      | A host and port reached over HTTPS: `registry.npmjs.org:443`                                                               |
+| `allowed-http-rules`  |    ✅     |     ✅      | A host and port reached over plain HTTP: `deb.debian.org:80`                                                               |
+| `allowed-ip-rules`    |    ✅     |     ✅      | An address and port, for connections made without DNS: `192.168.1.1:443`                                                   |
+| `allowed-tls-rules`   |    ✅     |      -      | A TLS destination to pass through undecrypted, judged on SNI: `db.example.com:5432`                                        |
+| `known-blocked-rules` |    ✅     |     ✅      | A host, or (on `inspect`) a method and URL, expected to be blocked, so it doesn't fail the [report](#report-action-inputs) |
 
-Under `inspect`, `allowed_https_rules` and `allowed_http_rules` still work and are kept for
-compatibility, but `allowed_url_rules` covers them: a host rule is the same as a URL rule with any
+Under `inspect`, `allowed-https-rules` and `allowed-http-rules` still work and are kept for
+compatibility, but `allowed-url-rules` covers them: a host rule is the same as a URL rule with any
 method and any path.
 
 Setting a rule the engine can't act on is caught before the build starts: `restrict` fails, since a
 rule that looks like it protects the build but cannot be enforced is worse than none, and `audit`
 warns and ignores it.
 
+Each of these inputs can hold about 128 KiB of rules, the most Linux passes in one environment
+variable, counted without comments and blank lines and with the `:*` a `known-blocked-rules` rule
+without a port gets. A larger one fails setup before the builder starts; write fewer, broader
+rules, such as [wildcards](#wildcards).
+
+## Setup action outputs
+
+| Output         | Description                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `builder-name` | Name of the builder container, whether the workflow, `config-file` or the default set it |
+
+The same value is also set as `builder_name`.
+
+A workflow shared across repositories cannot always know the name in advance, since `config-file`
+may set it. Take the Buildx `endpoint` from the output instead:
+
+```yaml
+- id: buildcage
+  uses: buildcage/docker@<sha>
+  with:
+    config-file: app/buildcage.yml
+- uses: docker/setup-buildx-action@<sha>
+  with:
+    driver: remote
+    endpoint: docker-container://${{ steps.buildcage.outputs.builder-name }}
+```
+
+## Config file
+
+`config-file` names a YAML file in the repository that sets the inputs of the setup and report
+actions, so the policy can sit beside the Dockerfile whose `RUN` steps it governs:
+
+```yaml
+# app/buildcage.yml
+proxy-engine: inspect
+allowed-url-rules: |
+  GET https://registry.npmjs.org/**
+known-blocked-rules: |
+  telemetry.example.com
+```
+
+```yaml
+- uses: actions/checkout@<sha>
+- uses: buildcage/docker@<sha>
+  with:
+    config-file: app/buildcage.yml
+# ... the build ...
+- uses: buildcage/docker/report@<sha>
+  if: always()
+  with:
+    config-file: app/buildcage.yml
+```
+
+- Each key is an input name of either action, in either spelling, and each value is written as it
+  would be under `with:`. A key that is neither action's input, a list or a nested mapping fails the
+  step, and so does an input set under both spellings, unless a merge key brings in one of them: the
+  file's own key overrides it.
+- Give the same file to the report action, which reads `builder-name`, `fail-on-blocked` and the
+  traffic artifact inputs from it when it runs. Leave the file as it is until then, and keep it out
+  of the way of a build's `--output type=local` export.
+- An input the workflow sets wins over the file. The rule inputs are the exception: the file's
+  rules are added to the workflow's.
+- The path is relative to `$GITHUB_WORKSPACE` and must stay inside it, through symlinks too. The
+  repository has to be checked out by an earlier step.
+- `config-file` fails the step on `pull_request_target`, and on `workflow_run` triggered by a pull
+  request event: the workspace there can hold the pull request's own code, which could rewrite the
+  file. Set the inputs in the workflow on those events.
+- On any other event the file is read as the workflow checked it out, so whoever can write that
+  copy sets its rules. A workflow that checks out a pull request's code on `issue_comment`, for
+  example, takes the rules from the pull request.
+
+The rules belong to the builder, not to a Dockerfile: several builds on one builder share them. Give
+a Dockerfile that needs its own policy its own `builder-name` and file.
+
 ## Operation modes
 
-| `proxy_mode` | What it does                                                      | When to use it                                             |
+| `proxy-mode` | What it does                                                      | When to use it                                             |
 | ------------ | ----------------------------------------------------------------- | ---------------------------------------------------------- |
 | `audit`      | Logs every destination the build reaches and blocks nothing       | First setup, adding a dependency, investigating a failure  |
 | `restrict`   | Allows only what the rules match, blocks and logs everything else | Everyday builds, CI/CD pipelines, security-critical builds |
 
 `audit` allows what the active engine can classify. A connection it cannot classify, such as an HTTP
-request carrying no `Host` header, is still refused, on each engine's own terms.
+request carrying no `Host` header, is still blocked, on each engine's own terms.
 
-Because `audit` enforces nothing, the `allowed_*_rules` have no effect in it; you write them when
-you move to `restrict`. Any other `proxy_mode` value, a differently cased one included, fails the
+Because `audit` enforces nothing, the `allowed-*-rules` have no effect in it; you write them when
+you move to `restrict`. Any other `proxy-mode` value, a differently cased one included, fails the
 setup.
 
 `audit` is not a passive observer under `inspect`: TLS is terminated in both modes, and what `audit`
@@ -84,20 +170,22 @@ destination named, which is why it is worth running `audit` first.
 
 ## Rule syntax
 
-`allowed_url_rules` and `allowed_tls_rules` need `proxy_engine: inspect`. The host rules work with
-either engine.
+`allowed-url-rules` and `allowed-tls-rules` need `proxy-engine: inspect`. The host rules work with
+every engine.
 
-### URL rules: `allowed_url_rules`
+<a id="url-rules-allowed_url_rules"></a>
+
+### URL rules: `allowed-url-rules`
 
 A rule is a method list, a space, then a URL pattern. Because a rule contains a space, this input is
 newline-separated. The method is required, so a rule always states what it permits. A `#` at the
 start of a line, or after whitespace, begins a comment that runs to the end of the line, and a blank
-line is ignored, which helps once the list gets long. A `#` with no space before it is not a
+line is ignored, so a long list can be split into groups. A `#` with no space before it is not a
 comment: since `#` never legitimately appears in a rule (it is part of no host or URL, and a
 fragment never travels with a request), it is reported as a mistake rather than silently trimmed.
 
 ```yaml
-allowed_url_rules: |
+allowed-url-rules: |
   # apt
   GET http://deb.debian.org/**
   GET http://security.debian.org/**
@@ -118,11 +206,11 @@ allowed_url_rules: |
 ```
 
 Methods are separated by `|` or `,`, and `*` means any method. The port may be left out when it is
-the scheme's default, and a pattern with no path allows any path on that host. A `#` fragment is
-refused: it never travels with a request, so a rule carrying one could only match nothing. So is a
-query string (a `?` followed by text holding `=` or `&`), since a rule matches the path alone and
-the query is never compared, and a user name before an `@` in the host, which no request's Host
-carries.
+the scheme's default, and a pattern with no path allows any path on that host. A pattern may not
+carry a `#` fragment, which never travels with a request, so a rule carrying one could only match
+nothing; a query string (a `?` followed by text holding `=` or `&`), since a rule matches the path
+alone and the query is never compared; or a user name before an `@` in the host, which no request's
+`Host` carries.
 
 | Pattern | In a domain                                       | In a path                     |
 | ------- | ------------------------------------------------- | ----------------------------- |
@@ -135,7 +223,7 @@ In a URL rule a wildcard may sit among literal text, inside a domain label or a 
 rules don't allow that:
 
 ```yaml
-allowed_url_rules: |
+allowed-url-rules: |
   GET https://abc*.amazonaws.com/**
   GET https://example.com/pkg-*/**
 ```
@@ -146,25 +234,28 @@ pattern that doesn't widen more than intended.
 
 A rule may name an address rather than a name. Nothing is loosened by that: the rules still match
 against the `Host` header and still decide, and an address reached this way stays inspected, so
-method and path rules apply to it. Over HTTPS the origin's certificate has to be valid for the
-address, which needs an IP SAN, so in practice an address is a plaintext or a passthrough
-destination.
+method and path rules apply to it. Only plaintext `http` gets through, though. A client connecting
+to an address sends no SNI, so the proxy answers with a default certificate valid for no name, and
+the proxy's own check of the origin's certificate never accepts an IP SAN either. Pass TLS to an
+address through with `allowed-ip-rules` instead.
 
-### Host rules: `allowed_https_rules`, `allowed_http_rules`, `allowed_ip_rules`, `known_blocked_rules`
+<a id="host-rules-allowed_https_rules-allowed_http_rules-allowed_ip_rules-known_blocked_rules"></a>
 
-`allowed_https_rules`, `allowed_http_rules` and `allowed_ip_rules` share one syntax; rules are
+### Host rules: `allowed-https-rules`, `allowed-http-rules`, `allowed-ip-rules`, `known-blocked-rules`
+
+`allowed-https-rules`, `allowed-http-rules` and `allowed-ip-rules` share one syntax; rules are
 separated by whitespace, so one per line reads best. A host rule is equivalent to a URL rule with any
-method and any path. `known_blocked_rules` extends this syntax and is newline-separated, since a line
-there can also be a URL rule; see [Blocked rules](#blocked-rules-known_blocked_rules).
+method and any path. `known-blocked-rules` extends this syntax and is newline-separated, since a line
+there can also be a URL rule; see [Blocked rules](#blocked-rules-known-blocked-rules).
 
 ```yaml
-allowed_https_rules: |
+allowed-https-rules: |
   registry.npmjs.org:443
   repo.maven.apache.org:443
   *.internal.example.com:443
   registry.internal.example.com:8443
 
-allowed_http_rules: |
+allowed-http-rules: |
   deb.debian.org:80
   security.debian.org:80
 ```
@@ -178,20 +269,28 @@ allowed_http_rules: |
 | `?`     | A single character excluding dots                           | `exampl?.com` matches `example.com`, `examplx.com`                       |
 
 A label that contains `*` has to be exactly `*` or `**`. `abc*.example.com` is rejected here; only
-[`allowed_url_rules`](#url-rules-allowed_url_rules) takes a wildcard in the middle of a label.
+[`allowed-url-rules`](#url-rules-allowed-url-rules) takes a wildcard in the middle of a label.
 
 Besides the wildcards, a label holds letters, digits, `-` and `_`, and nothing else. Write an
 internationalized name in its punycode form (`xn--mnchen-3ya.de`, not `münchen.de`), the form a
 connection carries. A leading, trailing or doubled dot is refused.
 
+A `Host` header ending in a dot (`example.com.`) matches as the name without it. An SNI may not end
+in one (RFC 6066), so where a rule is judged on the SNI (`allowed-tls-rules`, `allowed-https-rules`
+under `universal`, and [`sni-not-allowed`](#the-ones-buildcage-blocked)), only a rule whose `**` can
+take in the dot (`example.**` or `**`, not `example.com.**`), or a `~` rule written to allow the
+dot, matches such a name.
+
 `**` alone matches an address too: under `**:443`, a request that reaches the proxy through a name
 with `Host: 10.0.0.5` goes to that private address (see
 [A name may not resolve inward](./security.md#a-name-may-not-resolve-inward)). A connection straight
-to an address goes by `allowed_ip_rules` only.
+to an address goes by `allowed-ip-rules` only.
 
 #### Ports
 
-A port is required on every rule.
+A port is required on every rule. It is a decimal from 1 to 65535 without a leading zero (`443`,
+not `0443`), or `*` for any port. A URL rule may leave its port out, and takes the same form when
+it names one. A `~` rule's port is part of its regex and is not checked.
 
 | Rule                 | Matches                                                       |
 | -------------------- | ------------------------------------------------------------- |
@@ -199,27 +298,29 @@ A port is required on every rule.
 | `*.example.com:8443` | Any single-level subdomain of `example.com` on port 8443 only |
 | `example.com:*`      | `example.com` on any port                                     |
 
-`known_blocked_rules` is the exception: a host rule there that names no port is read as `:*`. It is
+`known-blocked-rules` is the exception: a host rule there that names no port is read as `:*`. It is
 matched against rows of the report rather than against connections, and a row for a name the
-resolver refused has no port at all, nothing having been connected to. `telemetry.example.com` and
+resolver blocked has no port at all, nothing having been connected to. `telemetry.example.com` and
 `telemetry.example.com:*` are the same rule.
 
-### Blocked rules: `known_blocked_rules`
+<a id="blocked-rules-known_blocked_rules"></a>
 
-`known_blocked_rules` lists traffic that is expected to be blocked, so a build isn't failed over a
-refusal you already know about (see [Report action inputs](#report-action-inputs)). It does not
-allow anything: the traffic stays blocked. That is the point for a telemetry endpoint you want
-refused but not treated as an error, where allowing it would let the request through.
+### Blocked rules: `known-blocked-rules`
+
+`known-blocked-rules` lists traffic that is expected to be blocked, so a build isn't failed over a
+block you already know about (see [Report action inputs](#report-action-inputs)). It does not
+allow anything: the traffic stays blocked. Use it for a telemetry endpoint you want blocked without
+failing the step, where allowing it would let the request through.
 
 Unlike the allow inputs it is newline-separated, one rule per line, because a line can be either
 form:
 
-- a **host rule** (`host:port`, the syntax above), which works on either engine; and
-- a **URL rule** (a method and a URL, the [`allowed_url_rules`](#url-rules-allowed_url_rules)
-  syntax), which needs `proxy_engine: inspect`, the only engine that sees a method or a path.
+- a **host rule** (`host:port`, the syntax above), which works on every engine; and
+- a **URL rule** (a method and a URL, the [`allowed-url-rules`](#url-rules-allowed-url-rules)
+  syntax), which needs `proxy-engine: inspect`, the only engine that sees a method or a path.
 
 ```yaml
-known_blocked_rules: |
+known-blocked-rules: |
   # host rules: acknowledge every port on a name, or a specific one
   telemetry.example.com
   *.metrics.example.com:443
@@ -231,82 +332,87 @@ known_blocked_rules: |
 
 A URL rule marks only requests that carry the method and path it names, so it acknowledges one
 endpoint on a host while any other blocked request to the same host still fails the step. A
-host-level refusal — a name the resolver refused, or a connection blocked before any request was
-read — carries no method or path, so it is matched by a host rule, never a URL rule. Port handling
+host-level block (a name the resolver blocked, or a connection blocked before any request was
+read) carries no method or path, so it is matched by a host rule, never a URL rule. Port handling
 follows each form: a host rule with no port reads as `:*`, a URL rule with no port as the scheme's
 default (`443`/`80`), exactly as in the allow inputs.
 
 Because a URL rule matches nothing on an engine that never sees a method or a path, a URL line under
-`proxy_engine: universal` is refused in `restrict` mode and warned about in `audit`, the same split
-`allowed_url_rules` gets. A host line works on every engine.
+`proxy-engine: universal` is refused in `restrict` mode and warned about in `audit`, the same split
+`allowed-url-rules` gets. A host line works on every engine.
 
 > **Migrating from v3.** `known_blocked_rules` was whitespace-separated, so several host rules could
 > share a line. It is now newline-separated: put each rule on its own line.
 
-### IP addresses: `allowed_ip_rules`
+<a id="ip-addresses-allowed_ip_rules"></a>
+
+### IP addresses: `allowed-ip-rules`
 
 Connections made straight to an address never go through DNS, so they are allowed separately from
-any domain. IPv4 only, and what a rule may hold depends on the engine:
-
-| Engine      | A rule can be                                               | It cannot be       |
-| ----------- | ----------------------------------------------------------- | ------------------ |
-| `inspect`   | An address, a CIDR block (`10.0.0.0/8:443`), or a `~` regex | A wildcard pattern |
-| `universal` | An address, a wildcard, or a `~` regex                      | A CIDR block       |
+any domain. IPv4 only, in decimal without leading zeros (`10.0.0.1`, not `010.0.0.1`, which HAProxy
+reads as octal) and with a prefix length of 0 to 32; setup refuses anything else. A rule can be an
+address, a CIDR block, a wildcard or a `~` regex, the same on every engine:
 
 ```yaml
-# inspect
-allowed_ip_rules: |
+allowed-ip-rules: |
   192.168.1.10:443
   10.0.0.0/8:443
-  ~^172\.16\.\d+\.\d+:5432$
-
-# universal
-allowed_ip_rules: |
-  192.168.1.10:443
   192.168.1.*:443
+  ~^172\.16\.\d+\.\d+:5432$
 ```
 
 A rule is matched against the address the connection goes to, never a name the connection carries,
-so a rule naming a host is refused at setup, and so is a form the engine cannot match (a wildcard
-on `inspect`, a CIDR block on `universal`): `restrict` fails and `audit` warns. A range that covers
-the proxy's own address, which every name resolves to inside the cage, still leaves a connection
-made through a name to the domain rules. Either way the connection is tunnelled without
-inspection: once an `ip:port` pair is allowed, any TCP-based protocol can use that path. Prefer a
-domain rule where the destination has a stable name.
+so a rule naming a host is refused at setup. A `~` rule is not checked for this: write it against
+the address and port as digits, since one that names a host matches nothing. A range that covers the
+proxy's own address, which every name resolves to inside the cage, still leaves a connection made
+through a name to the domain rules. A connection an IP rule allows is tunneled without inspection:
+once an `ip:port` pair is allowed, any TCP-based protocol can use that path. The proxy connects
+upstream as soon as the connection arrives, without waiting for the client to send anything, so a
+protocol where the server speaks first (SMTP, MySQL) works too. The connection goes to the address
+the client connected to, whatever name it carries (under `inspect`, even one an `allowed-tls-rules`
+entry names), and the report lists it under the `IP` rule type. Prefer a domain rule where the
+destination has a stable name.
 
-### TLS passthrough: `allowed_tls_rules`
+A connection passed through this way or by `allowed-tls-rules`, any allowed HTTPS connection under
+`universal`, and an upgraded WebSocket are closed after an hour with nothing sent either way, so an
+idle ssh session or pooled database connection stays open until then.
 
-For TLS traffic that isn't HTTPS, and for HTTPS that must not be decrypted. The SNI and port are
-checked and the connection passes through undecrypted, so the build validates the origin's own
-certificate:
+<a id="tls-passthrough-allowed_tls_rules"></a>
+
+### TLS passthrough: `allowed-tls-rules`
+
+Use this for TLS traffic that isn't HTTPS, and for HTTPS that must not be decrypted, such as gRPC:
+`inspect` answers no ALPN, so a client that requires HTTP/2 fails. The SNI and port are checked and
+the connection passes through undecrypted, so the build validates the origin's own certificate:
 
 ```yaml
-allowed_tls_rules: |
+allowed-tls-rules: |
   db.example.com:5432
   repo.maven.apache.org:443
 ```
 
 A host rule input is split on whitespace, so a rule per line and a group of rules on one line both
-work. Comments follow the same rule as [`allowed_url_rules`](#url-rules-allowed_url_rules): a `#` at
+work. Comments follow the same rule as [`allowed-url-rules`](#url-rules-allowed-url-rules): a `#` at
 the start of a line, or after whitespace, runs to the end of the line, and a `#` with no space
 before it is reported as a mistake rather than silently trimmed, since `#` is part of no host. The
 second rule above is the shape to use for a JVM build whose keystore Buildcage cannot inject into
-(one sealed with a password other than the JDK default); a JVM already
-in the base image otherwise trusts the injected CA without a passthrough.
+(one sealed with a password other than the JDK default); a JVM already in the base image otherwise
+trusts the injected CA without a passthrough.
 
 ### Regular expressions
 
 Prefix a rule with `~` to use a regular expression. A host rule's pattern is matched against
 `domain:port` as one expression, so the port is part of the pattern and can be a regex itself. It
-cannot be left out: either engine refuses a `~` host rule with no `:` in it, since what the pattern
-is matched against always carries the port.
+cannot be left out, except in `known-blocked-rules`, which reads a `~` rule with no port as any
+port: every other input refuses a `~` host rule with no `:` in it, since what the pattern is matched
+against always carries the port.
 
 | Rule                              | Effect                                                     |
 | --------------------------------- | ---------------------------------------------------------- |
 | `~^example\.com:443$`             | Matches `example.com` on port 443 only                     |
 | `~^example\.com:\d+$`             | Matches `example.com` on any port                          |
 | `~^.*\.example\.com:(443\|8443)$` | Matches any subdomain of `example.com` on port 443 or 8443 |
-| `~^192\.168\.1\.\d+:80$`          | Matches a range of IP addresses (in `allowed_ip_rules`)    |
+| `~^192\.168\.1\.\d+:80$`          | Matches a range of IP addresses (in `allowed-ip-rules`)    |
 
 `^` and `$` are added where they are missing, so a pattern always covers the whole `domain:port`. An
 IPv6 address is refused here as everywhere else in the rule syntax. A host name matches in any case,
@@ -317,17 +423,29 @@ The host part of a pattern also decides which names the build's resolver answers
 the resolver matches it with RE2. Lookaround (`(?=`, `(?!`, `(?<=`, `(?<!`) and backreferences are
 therefore refused there, in a URL rule's host half as well.
 
-Setup checks a pattern with JavaScript's regular expressions, but the proxy runs it with PCRE2.
-Syntax only JavaScript accepts, such as `\u0041` or `[\d-z]`, passes setup and then stops the proxy
-from starting.
+Setup checks a pattern with JavaScript's regular expressions, but the proxy runs it with PCRE2. A
+backslash may precede punctuation, as in `\.`, one of `\d \D \w \W \s \S \b \B \n \r \t \f`, or a
+single-digit backreference such as `\1`, all of which the two read alike. Any other letter or digit
+after a backslash is refused. So are a backreference to a group the pattern lacks (in a URL rule,
+one outside its own half), `\B` inside a character class, a `]` right after `[` or `[^`, and a
+POSIX class such as `[:alpha:]`, each of which PCRE2 either reads differently or refuses. Escape
+the bracket (`[\]a]`) or write a range (`[a-z]`) instead. A `{` must open a quantifier such as
+`{2}` or `{1,3}`, since PCRE2 reads `{,3}` and `{ 1,3}` as quantifiers where JavaScript and RE2 read
+text; write a literal brace as `\{`. Other syntax only JavaScript accepts,
+such as `[\d-z]`, passes setup and then stops the proxy from starting.
 
-In `allowed_url_rules` a `~` expression covers the URL, and is split at the first `/` after `://`:
+The proxy image generates its configuration with QuickJS, which refuses two group forms Node
+accepts: a flag modifier such as `(?i:`, and one group name used in two alternatives. Setup refuses
+both. A host needs no `(?i:`, since it matches in any case; in a path, spell each case as a class,
+as in `[Aa]`.
+
+In `allowed-url-rules` a `~` expression covers the URL, and is split at the first `/` after `://`:
 everything before that `/` is matched against the host, everything from it onward against the path.
 The scheme before `://` must be written `https`, `http` or `https?`, the last covering both; any
 other spelling is refused, since the scheme decides which listener the rule is enforced on.
 
 ```yaml
-allowed_url_rules: |
+allowed-url-rules: |
   # host half: example\.com   path half: /pub/.*$
   GET ~^https://example\.com/pub/.*$
 
@@ -340,20 +458,21 @@ allowed_url_rules: |
 ```
 
 Leave the port out and the rule matches the scheme's default port only, 443 for `https` and 80 for
-`http`; there is no implicit any-port, so write `example\.com:.*` to allow more.
+`http`; there is no implicit any-port, so write `example\.com:\d+` to allow more. An SNI or `Host`
+with anything but letters, digits, `.`, `_` and `-` in it never reaches a rule, even in `audit`
+(see [security.md](security.md#the-proxy-chooses-the-destination-not-the-build)).
 
 A top-level `|` is not supported in either a host rule or a URL rule. The anchors would bind to one
 branch each, and a URL rule's two halves are compiled separately, so a choice spanning them has no
-meaning.
-Keep the `|` inside a group, or write one rule per alternative:
+meaning. Keep the `|` inside a group, or write one rule per alternative:
 
 ```yaml
 # not supported
-allowed_url_rules: |
+allowed-url-rules: |
   GET ~^https://a\.example\.com/x$|^https://b\.example\.com/y$
 
 # supported
-allowed_url_rules: |
+allowed-url-rules: |
   GET ~^https://(a|b)\.example\.com/x$
   GET ~^https://a\.example\.com/x$
   GET ~^https://b\.example\.com/y$
@@ -365,40 +484,61 @@ refused with an error naming what to write instead.
 ## Report action inputs
 
 `buildcage/docker/report` reads the builder's communication log, writes the Job Summary, and
-optionally fails the job when blocked connections are found. Every input is optional.
+optionally fails the job when blocked connections are found. Every input is optional. Like the setup
+action's inputs, each also takes its name spelled with underscores.
 
-| Input                             | Default     | Description                                                                                     |
-| --------------------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
-| `builder_name`                    | `buildcage` | Name of the builder container                                                                   |
-| `fail_on_blocked`                 | `true`      | Fail the step if blocked connections are detected (restrict mode only; ignored in audit mode)   |
-| `upload_traffic_artifact`         | `false`     | Upload the observed traffic as a JSON artifact named `buildcage-traffic`; both engines write it |
-| `traffic_artifact_retention_days` | empty       | How long to keep that artifact, in days; empty uses the repository's own default                |
+| Input                             | Default     | Description                                                                                        |
+| --------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `config-file`                     | empty       | The file given to the setup action. See [Config file](#config-file).                               |
+| `builder-name`                    | `buildcage` | Name of the builder container, as given to the setup action                                        |
+| `fail-on-blocked`                 | `true`      | Fail the step if blocked connections are detected (restrict mode only; ignored in audit mode)      |
+| `upload-traffic-artifact`         | `false`     | Upload the observed traffic as a JSON artifact named `buildcage-traffic`                           |
+| `traffic-artifact-retention-days` | empty       | How long to keep that artifact, as a whole number of days; empty uses the repository's own default |
+
+`fail-on-blocked` and `upload-traffic-artifact` take `true` or `false`. Any other value, or a
+retention that is not a whole number above zero, fails the step before the report is written.
 
 In restrict mode the step fails when blocked connections are detected, and the workflow fails with
-it.
-In audit mode, blocked connections (protocol errors, for instance) are reported but never fail the
-step.
+it. In audit mode, blocked connections (protocol errors, for instance) are reported but never fail
+the step.
 
-When every blocked connection matches a `known_blocked_rules` rule, the step no longer fails even
-with `fail_on_blocked: true`, and a `::notice::` is emitted instead of `::error::`; any unmatched
+A report that is not a full record of the build fails the step the same way, whatever survived: a
+log that doesn't begin where the build did, carries a line the report cannot read or lost lines the
+proxy could not write, or a proxy or resolver that restarted during the build, since a connection
+still open when the proxy stopped never gets its line. In audit mode, or with
+`fail-on-blocked: false`, it is a notice instead. A proxy or resolver that does not answer the
+report, because it stopped during the build and stayed down or hung, fails the step in both modes
+whatever `fail-on-blocked` says: requests and lookups made while it was down failed rather than
+going around it, but nothing recorded them.
+
+When every blocked connection matches a `known-blocked-rules` rule, the step does not fail, even
+with `fail-on-blocked: true`, and a `::notice::` is emitted instead of `::error::`; any unmatched
 blocked connection still fails the step. Matching is per request, so a row that counts several
-requests to one host is Expected only when a rule accounts for every one of them: a URL rule that
-names one endpoint leaves the host's other blocked requests to fail the step. Once
-`known_blocked_rules` is set, the Blocked Hosts table gains an **Expected** column (✅) on the
-matched rows.
+requests to one host counts as expected only when a rule accounts for every one of them: a URL rule
+that names one endpoint leaves the host's other blocked requests to fail the step. The matched rows
+go under **Known Blocked Hosts**, collapsed below the allowed hosts, instead of Blocked Hosts.
 
-Under `inspect` the matched rows are also folded into one row per rule, named after
-the rule and counting the hosts behind it (`*.example.com:* (12 hosts)`), below the rows nothing
-matched. A rule covering noisy traffic then costs the table one line however many hosts it names,
-which matters most when the noise puts its payload in the name itself and every request brings a new
-long hostname. The individual hosts stay in **Communication details**, so `universal`, whose report
-has no such section, folds nothing.
+## Report details
+
+An alert under the report's title counts what needs a look: requests blocked, connections that
+failed and requests nothing acted on. It is a CAUTION when a request was blocked unexpectedly or the
+report is incomplete and a WARNING otherwise. With nothing to count, or only requests blocked as
+expected, there is no alert. Whatever was blocked unexpectedly is listed first with the reason,
+marked 🚫, in one table with any connection that failed, marked ⚠️, under **Blocked Hosts**,
+**Failed Hosts** or both, whichever it holds.
+
+The rows `known-blocked-rules` matched are folded into one row per rule, named after the rule and
+counting the hosts behind it (`*.example.com:* (12 hosts)`). A rule covering noisy traffic then
+costs the table one line however many hosts it names, which matters most when the noise puts its
+payload in the name itself and every request brings a new long hostname. The individual hosts stay
+in **Communication details**.
 
 A name the build looked up and never connected to gets a row of its own, with `DNS` as the rule kind
-and no port (folded like any other row when a `known_blocked_rules` rule matches it). Under
+and no port (folded like any other row when a `known-blocked-rules` rule matches it). Under
 `inspect` that is the only trace of a name the build reached for and did not use, which is how a
-rule wider than the build needs shows up. A name that was connected to has no such row: the request
-is already there.
+rule wider than the build needs shows up. A name that was connected to has no such row: the
+connection is already there. A name whose every connection ended before a request keeps that row,
+since the [ones nobody decided](#the-ones-nobody-decided) reach no table.
 
 ## Blocked service names
 
@@ -411,26 +551,28 @@ what changes is only whether the row fails the step.
 1. **Allow the host the name belongs to** (`cluster0.x.mongodb.net`). The lookup is then reported as
    `discovery` instead and leaves the table, and the build may connect to that host. This is the
    useful one whenever the build was trying to reach the service.
-2. **List the service name in `known_blocked_rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
-   The row is marked Expected, folded under that rule, and stops failing the step. Nothing else
-   changes, and the host stays unreachable.
+2. **List the service name in `known-blocked-rules`** (`_mongodb._tcp.cluster0.x.mongodb.net:*`).
+   The row moves to Known Blocked Hosts, folded under that rule, and stops failing the step. Nothing
+   else changes, and the host stays unreachable.
 
-Naming the service name in an `allowed_*` rule also clears the row, but it is the misleading option:
+Naming the service name in an `allowed-*` rule also clears the row, but it is the misleading option:
 it reads as permission to reach something that nothing can connect to, and the record still does not
 resolve.
 
 ## Requests that never arrived whole
 
-Under `inspect`, a connection can end before a whole request has arrived. What the report does with
-one turns on who ended it: a client that walks away decided nothing, while bytes Buildcage refused to
-read as a request are a refusal like any other.
+A connection can end before a whole request has arrived. What the report does with one turns on who
+ended it: a client that walks away decided nothing, while bytes Buildcage would not read as a
+request are blocked like any other.
 
-Whichever it was, the host is the name from the handshake's SNI. Without one, the address the
-connection was sent to stands in, and the row's rule type reads `IP`: an address the build wrote out
-itself is one only `allowed_ip_rules` could have passed through. The exception is Buildcage's own
-address, where every name-based connection lands because the resolver answers each name with it.
-That address names nothing, so the host reads `(unknown)`. The address is recorded either way, in
-the `destination` field of the [traffic artifact](#traffic-artifact).
+Under `universal`, only a plaintext connection made through a name gets this far, and nothing names
+it before its request does, so its host reads `(unknown)`. Under `inspect`, the host is the name
+from the handshake's SNI. Without one, the address the connection was sent to stands in, and the
+row's rule type reads `IP`: an address the build wrote out itself is one only `allowed-ip-rules`
+could have passed through. The exception is Buildcage's own address, where every name-based
+connection lands because the resolver answers each name with it. That address names nothing, so the
+host reads `(unknown)`. The address is recorded either way, in the `destination` field of the
+[traffic artifact](#traffic-artifact).
 
 A row carries no method or URL where no request line ever parsed. `missing-host-header` is the
 exception: that one did parse, so it keeps the method and the path it asked for. Its URL is built
@@ -440,91 +582,134 @@ with the port where it is not the scheme's default.
 ### The ones nobody decided
 
 A connection the client ended before it sent a whole request reached no rule and no origin, so it is
-in neither host table. **Communication details** shows it with ⚠️ and how it ended:
+in neither host table. **Communication details** shows it with ⚠️ and how it ended. Under `inspect`,
+one sent straight to an address is the exception, blocked as
+[`ip-not-allowed`](#the-ones-buildcage-blocked) instead, or as `sni-not-allowed` where its SNI names
+a host no rule allows.
 
 ```
 ⚠️ 00:09.123: HTTPS untrusted-ca.example.com:443 -> client-aborted
+⚠️ 00:10.250: HTTPS untrusted-ca.example.com:443 -> client-tls-failed
 ⚠️ 00:11.407: HTTPS untrusted-ca.example.com:443 -> client-timeout
 ```
 
-| Reason           | What happened                                                                   |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `client-aborted` | the client finished the TLS handshake and then closed without sending a request |
-| `client-timeout` | it held the connection open instead, until the timeout expired                  |
+| Reason              | What happened                                                                           |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `client-aborted`    | the client closed without sending a request, after the TLS handshake if there was one   |
+| `client-tls-failed` | the TLS handshake with the client failed (`inspect` only)                               |
+| `client-timeout`    | the client held the connection open without sending a request until the timeout expired |
 
 The commonest cause is a container with no `ca-certificates`: the client cannot verify the
 certificate the `inspect` engine signs with, so every HTTPS request to that host ends at the
-handshake before a request arrives. The build's own output says so first, as a certificate
-verification error; installing `ca-certificates`, or otherwise letting the client trust the CA, is
-what lets the requests through. An `allowed_https_rules` entry changes nothing, the host having
-resolved and been dialled already.
+handshake, as `client-tls-failed`, or as `client-aborted` from a client that closes just after it.
+The build's own output says so first, as a certificate verification error; installing
+`ca-certificates`, or otherwise letting the client trust the CA, is what lets the requests through.
+An `allowed-https-rules` entry changes nothing: the host has already resolved and been dialed.
 
-A close like this is shown only where its host completed no other connection. Where the same host
-also completed one, the close is a keepalive pool cleaning up after its work rather than a failure,
-so it is left out of Communication details as noise. The raw [traffic artifact](#traffic-artifact)
-keeps every one either way. Neither kind fails the step, not even with `fail_on_blocked: true`: no
-rule refused it, so `known_blocked_rules` has nothing to match, and nothing reached an origin. A
-`::warning::` annotation gives the count of those shown.
+A `client-aborted` or `client-timeout` is shown only where its host completed no other connection.
+Where the same host also completed one, the close is a keepalive pool cleaning up after its work
+rather than a failure, so it is left out of Communication details as noise. A `client-tls-failed` is
+always shown, since another client reaching the host says nothing of whether this one trusts the CA.
+The raw [traffic artifact](#traffic-artifact) keeps every one either way. None of them fails the
+step, not even with `fail-on-blocked: true`: no rule blocked them, so `known-blocked-rules` has
+nothing to match, and nothing reached an origin. A `::warning::` annotation gives the count of those
+shown.
 
-### The ones Buildcage refused
+A protocol where the server speaks first (SMTP, MySQL, FTP) ends here too once it reaches the
+plain-HTTP stage: the client waits for a greeting and the proxy waits for a request, so no rule is
+ever reached. Every such connection through a name gets there, and is ⚠️ rather than 🚫 even where
+nothing allows the destination, so it does not fail the step. With no TLS handshake it never matches
+`allowed-tls-rules`; connecting to the address under an `allowed-ip-rules` entry is what passes it
+through.
 
-These are refusals: they are in **🚫 Blocked Hosts**, counted in the blocked-connections annotation,
-and they fail the step under `fail_on_blocked: true` like any other refused connection.
+### The ones Buildcage blocked
+
+Buildcage blocked these: they are 🚫 rows in **Blocked Hosts**, counted in the blocked-connections
+annotation, and they fail the step under `fail-on-blocked: true` like any other blocked connection.
 
 ```
 🚫 00:14.002: GET http://10.0.0.9/pkg.tgz?token=*** -> missing-host-header
 🚫 00:15.880: HTTP (unknown):5432 -> bad-request
 🚫 00:16.204: TCP 10.0.0.9:5432 -> bad-request
+🚫 00:17.031: TCP 203.0.113.9:8443 -> ip-not-allowed
 ```
 
-| Reason                | What happened                                                          |
-| --------------------- | ---------------------------------------------------------------------- |
-| `bad-request`         | the build sent bytes that could not be read as an HTTP request at all  |
-| `missing-host-header` | a request parsed, and carried no `Host` for a rule to match or resolve |
+| Reason                | What happened                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `bad-request`         | the build sent bytes that could not be read as an HTTP request at all                                       |
+| `missing-host-header` | a request parsed, and carried no `Host` for a rule to match or resolve                                      |
+| `ip-not-allowed`      | a connection straight to an address no `allowed-ip-rules` entry covers ended before its request (`inspect`) |
+| `sni-not-allowed`     | the same, with an SNI naming a host no rule allows (`inspect`, `restrict` only)                             |
 
-`bad-request` is most often a protocol that is not HTTP at all, a database or `git://` connection to
-a port no `allowed_ip_rules` or `allowed_tls_rules` entry covers: anything that is not a TLS
-handshake is handed to the plain-HTTP stage, which reads it as a request and refuses it. Both are
-refused in `audit` mode too, as the same check is under `universal`, since a request naming no host
-has nothing to connect to whatever the rules say.
+`bad-request` is most often a protocol that is not HTTP at all and where the client speaks first,
+such as PostgreSQL or `git://`, on a port no `allowed-ip-rules` or `allowed-tls-rules` entry
+covers: anything that is not a TLS handshake is handed to the plain-HTTP stage, which reads it as a
+request and blocks it. `bad-request` and `missing-host-header` are blocked in `audit` mode too, as
+the same check is under `universal`, since a request naming no host has nothing to connect to,
+whatever the rules say.
+
+`ip-not-allowed` is a connection to an address such as `203.0.113.9:8443` that ended before its
+request: a client that does not trust the CA, or one waiting for the server to speak first. A client
+sends no SNI to an address, so the certificate the proxy answers with matches no name, and nothing
+that checks it gets further, in `audit` too. `universal` in `restrict` blocks the same connection
+on arrival. A close on an address and port that also had a request read is a keepalive close and
+stays out of the report. Plain HTTP sent to an address with a `Host` naming some other host is the
+exception: the log records where that request went, not the address, so its keepalive close is
+counted here.
 
 What clears one is a rule, though not a host rule. For traffic that is not HTTP, add the port to
-`allowed_ip_rules` or the name to `allowed_tls_rules`, and the connection is passed through
-undecrypted instead of being read as a request. `known_blocked_rules` can mark a row whose host is a
+`allowed-ip-rules` or the name to `allowed-tls-rules`, and the connection is passed through
+undecrypted instead of being read as a request. `known-blocked-rules` can mark a row whose host is a
 name from the SNI or an address; a row reading `(unknown)` names nothing a rule can be written
 against, so the passthrough rule is the only way to clear that one.
 
+`sni-not-allowed` is the same kind of connection carrying an SNI. The name is judged as the
+resolver judges one looked up through DNS, against the host of every rule but `allowed-ip-rules`,
+on any port; the one difference is that a trailing dot is kept. Through DNS, the same attempt is
+blocked as `dns-not-allowed`. A name the rules allow stays one nobody decided, as it does through
+DNS: usually a client that does not trust the CA, pointed at an address by `/etc/hosts` or
+`curl --resolve`. `audit` blocks no name, so it blocks no SNI. A rule allowing the host clears one,
+as does a `known-blocked-rules` entry.
+
+Under `universal`, a connection through a name that is not a TLS handshake is also read as HTTP. ssh
+or `git://` to a name is blocked as `bad-request`, in `audit` too, and a client waiting for the
+server to speak first (SMTP, FTP) ends as one nobody decided. No rule on the name clears either:
+`universal` has no `allowed-tls-rules`, so the build has to connect to the address, under an
+`allowed-ip-rules` entry.
+
 ## Connections that failed
 
-A request no rule refused can still come to nothing: the origin answers nothing usable, breaks off
-mid-transfer, or its name resolves nowhere. The report tables those apart from what the rules did
-refuse, under **⚠️ Failed Connections**. Under `inspect`, **Communication details** shows each with
-⚠️ too:
+A request no rule blocked can still come to nothing: the origin answers nothing usable, breaks off
+mid-transfer, or its name resolves nowhere. The report lists them as ⚠️ rows in the table of blocked
+hosts, headed **Blocked / Failed Hosts** when it holds both and **Failed Hosts** when it holds only
+them. They follow the blocked rows and stay in that table, as `known-blocked-rules` never matches
+a failure. **Communication details** shows each with ⚠️ too:
 
 ```
 ⚠️ 00:12.004: GET https://registry.npmjs.org/big.tgz -> origin-aborted
 ⚠️ 00:13.771: GET https://mirror.example.com/index -> origin-no-response
 ```
 
-| Reason               | What happened                                                         |
-| -------------------- | --------------------------------------------------------------------- |
-| `origin-no-response` | the connection was made, and no usable response headers came back     |
-| `origin-aborted`     | the response started and the transfer was cut short                   |
-| `dns-failed`         | the name resolved nowhere upstream, no rule having refused it         |
-| `origin-unreachable` | a connection carrying no certificate of Buildcage's could not be made |
+| Reason               | What happened                                                                  |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `origin-no-response` | the connection was made, and no usable response headers came back              |
+| `origin-aborted`     | the response started and the transfer was cut short                            |
+| `dns-failed`         | the name resolved nowhere upstream, no rule having blocked it                  |
+| `origin-unreachable` | a connection on which Buildcage checks no origin certificate could not be made |
 
 What the first two have in common is a connection that completed, which is where the origin's
 certificate was checked: whatever went wrong afterwards went wrong with an origin Buildcage had
 authenticated. `dns-failed` never reached a connection, and neither a plaintext request nor a
-passthrough has a certificate of Buildcage's behind it: the first is carried as it was sent, the
+passthrough has an origin certificate Buildcage checked: the first is carried as it was sent, the
 second is relayed for the build to judge rather than decrypted.
 
 `universal` writes its decision before the connection is made and never sees what became of it, so
 `dns-failed` is the only one of the four it can report. `audit` reports them the same way, though
-nothing there was allowed by a rule either: what the table says is that the rules are not what
-stopped these.
+no rule allowed anything there either: the table says only that the rules did not stop these. The
+rules `audit` suggests for `restrict` include these hosts too, since the next run will ask for them
+again.
 
-**A connection Buildcage never completed is not here.** It is a refusal, it is in Blocked Hosts, and
+**A connection Buildcage never completed is not here.** It is blocked, it is in Blocked Hosts, and
 it does fail the step:
 
 | Reason                  | What happened                                                            |
@@ -535,29 +720,54 @@ it does fail the step:
 `origin-untrusted` is the plain case: a forged certificate, an expired one, or an origin speaking no
 TLS at all. `origin-connect-failed` is the one that looks like an outage and cannot be shown to be
 one. HAProxy retries a failed connection, and the TLS error it reports belongs to the last attempt
-alone, so an impostor whose certificate is refused on one attempt leaves no trace once a later
+alone, so an impostor blocked for its certificate on one attempt leaves no trace once a later
 attempt fails at TCP. The report does not claim to tell that from an origin that is simply down: a
 connection it never completed is one whose origin it never authenticated. See
 [Attempts to get around it](./security.md#attempts-to-get-around-it).
 
-A host that is flaky rather than hostile is cleared the way any expected refusal is, by listing it
-in `known_blocked_rules`.
+A host that is flaky rather than hostile is cleared the way any expected block is, by listing it
+in `known-blocked-rules`.
 
-None of the four fails the step, not even with `fail_on_blocked: true`, and a `::notice::` gives the
-count. No rule refused them, so no rule can clear them either: `known_blocked_rules` has nothing to
-match, and an `allowed_*` entry changes nothing. What clears one is the origin coming back, or the
+None of the four fails the step, not even with `fail-on-blocked: true`, and a `::notice::` gives the
+count. No rule blocked them, so no rule can clear them either: `known-blocked-rules` has nothing to
+match, and an `allowed-*` entry changes nothing. What clears one is the origin coming back, or the
 build reaching for something that is up.
 
 A blocked `DNS` row for the same name means something else entirely: that one is Buildcage's own
 resolver saying no rule allows the name, and it does fail the step.
 
+## Hidden query parameters
+
+**Communication details** and the job log replace the value of a query parameter named
+`access_key`, `access_token`, `api_key`, `api_token`, `auth`, `authorization`, `auth_token`,
+`client_secret`, `code`, `credential`, `credentials`, `id_token`, `jwt`, `key`, `passwd`,
+`password`, `pat`, `private_token`, `pwd`, `refresh_token`, `secret`, `session`, `session_token`,
+`sig`, `signature`, `subscription-key`, `token`, `x-amz-security-token`, `x-amz-signature`,
+`x-api-key` or `x-goog-signature`. The name is matched ignoring case, `-`, `_`, `.` and any trailing
+`[...]`, so `api_key`, `api-key`, `api.key`, `apiKey`, `APIKEY` and `api_key[0][]` are one name.
+What the brackets hold is not looked at, so `user[password]` keeps its value. A parameter starts
+after `&`, `;` or any `?`, so one in a URL carried inside another's value is replaced too. The
+replaced value runs to the next `&`, so a `;` or `?` inside a secret does not leave the rest of it
+showing:
+
+```
+✅ 00:04.212: GET https://cdn.example.com/x.tar.gz?X-Amz-Signature=***&X-Amz-Expires=3600 -> 200 (4.1MB)
+🚫 00:05.003: POST https://evil.example.com/?d=BASE64PAYLOAD -> not-allowed
+```
+
+The [traffic artifact](#traffic-artifact) keeps every value as it was sent.
+[Credentials in a URL](./security.md#credentials-in-a-url) explains why the summary hides these
+and what it still shows.
+
 ## Traffic artifact
 
-`upload_traffic_artifact: true` uploads the report's timeline as a `traffic.json` inside an artifact
-named `buildcage-traffic` (`buildcage-traffic-<builder_name>` when the builder is not the default
+`upload-traffic-artifact: true` uploads the report's timeline as a `traffic.json` inside an artifact
+named `buildcage-traffic` (`buildcage-traffic-<builder-name>` when the builder is not the default
 one). It carries every name lookup, including the ones the summary folds into the request that
 followed them, and service-discovery lookups with the record type that was asked for. `universal`
-never sees a method or a URL, so this input only does anything under `inspect`.
+sees neither the request nor where a name resolved, so under it `method`, `url`, `status` and
+`destination` are absent and the rows are name lookups and a connection-level view (host, port and
+bytes).
 
 | Field         | Always | Notes                                                                                    |
 | ------------- | ------ | ---------------------------------------------------------------------------------------- |
@@ -567,17 +777,21 @@ never sees a method or a URL, so this input only does anything under `inspect`.
 | `protocol`    | yes    | `https`, `http`, `tls`, `tcp`, `dns`                                                     |
 | `host`        | yes    | the name asked for, the address when there was none, or `(unknown)`                      |
 | `port`        |        | absent for `dns`, which connects to nothing                                              |
-| `queryType`   |        | the record asked for; `discovery` rows and refused service names                         |
+| `queryType`   |        | the record asked for; `discovery` rows and blocked service names                         |
 | `method`      |        | `http` and `https`, and `tcp` for a request with no `Host` sent to an address            |
 | `url`         |        | as `method`; verbatim, unlike the summary's                                              |
 | `status`      |        | only when something answered                                                             |
-| `bytes`       |        | absent for a refusal and for `dns`                                                       |
+| `bytes`       |        | absent for a blocked request and for `dns`                                               |
 | `reason`      |        | only when `action` is `block`, `incomplete` or `failed`                                  |
-| `destination` |        | the address it actually resolved to; absent for `dns`                                    |
+| `destination` |        | the address it actually resolved to; `inspect` only, and absent for `dns`                |
 
-A field is absent because it does not apply, never because it was zero: a refusal has no status
-because nothing answered, and a passthrough none because nothing was decrypted. Filter on `action`.
-The artifact is uploaded even when the build fails, since a failing run is when it is most wanted.
+A `dns` row's `host` is the name as the resolver logged it: lowercased, with escapes such as `\ `
+and `\DDD` kept.
+
+A field is absent because it does not apply, never because it was zero: a blocked request has no
+status because nothing answered, and a passthrough none because nothing was decrypted. Filter on
+`action`. The artifact is uploaded even when the build fails, since a failing run is when it is most
+wanted.
 
 ```json
 [
@@ -622,13 +836,13 @@ Job Summary is the exception: it replaces credential query parameters, see
 
 ## CA trust variables
 
-`proxy_engine: inspect` terminates TLS and re-signs it with a CA generated for the build, so the
-build has to trust that CA. The CA is valid for two days from when the proxy starts and carries a
-random `serialNumber` in its subject, so no two runs share one. The wrapper around runc sets these
-variables as each `RUN` step starts. If a variable is already set, by the base image or by the
-Dockerfile, Buildcage appends the CA to whatever file it already points at rather than redirecting
-the variable elsewhere. Otherwise, where it points depends on whether the step has a system CA
-store:
+`proxy-engine: inspect` terminates TLS and re-signs it with a CA generated for each builder
+container, so the build has to trust that CA. The CA is valid for two days from when it is generated
+and carries a random `serialNumber` in its subject, so no two runs share one. The wrapper around
+runc sets these variables as each `RUN` step starts. If a variable is already set, by the base image
+or by the Dockerfile, Buildcage appends the CA to whatever file it already points at rather than
+redirecting the variable elsewhere, reading a relative path from the step's `WORKDIR`. Otherwise,
+where it points depends on whether the step has a system CA store:
 
 | Variable              | Read by                                                                   | If unset, with a store                           | If unset, with no store     |
 | --------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------- |
@@ -638,7 +852,118 @@ store:
 | `REQUESTS_CA_BUNDLE`  | Python `requests`                                                         | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
 | `PIP_CERT`            | pip                                                                       | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
 | `SSL_CERT_FILE`       | OpenSSL, and anything reading it (Go, Ruby, Rust's `rustls-native-certs`) | Replaces the bundle: pointed at the system store | proxy-CA-only fallback file |
+| `GIT_SSL_CAINFO`      | git                                                                       | Left unset                                       | Left unset                  |
+| `npm_config_cafile`   | npm, in any case (`NPM_CONFIG_CAFILE`)                                    | Left unset                                       | Left unset                  |
+| `AWS_CA_BUNDLE`       | AWS CLI and SDKs                                                          | Left unset                                       | Left unset                  |
+| `CARGO_HTTP_CAINFO`   | Cargo                                                                     | Left unset                                       | Left unset                  |
+| `BUNDLE_SSL_CA_CERT`  | Bundler, when it names a file rather than a directory                     | Left unset                                       | Left unset                  |
+
+The file holding only this CA is bound read-only at `/dev/buildcage-ca.pem`, on the `/dev` tmpfs
+runc gives every container, so it never reaches a layer. A step that already mounts something at
+that path gets none of the variables that would point there.
+
+For the step, the CA is also placed in the distribution's own anchor directory, so a step that
+installs `ca-certificates` partway through keeps trusting it once `update-ca-certificates` has
+rebuilt the bundle from scratch. On SUSE, GnuTLS reads the certificate directory
+`/var/lib/ca-certificates/pem` instead of the bundle. When the image has it, the CA is added there
+for the step and taken back out before the layer is committed.
 
 Neither the CA nor these variables are left in the image layers, and injection happens at exec time,
 so it cannot affect a cache key. [Limitations](../README.md#limitations) covers what this can't
-reach, and what a step can't do to its CA store while it is mounted.
+reach.
+
+### JVM keystores
+
+A JVM reads none of these variables, only its own keystore. The CA is added, for the step, to
+`$JAVA_HOME/lib/security/cacerts` and to that of the first `java` on `PATH`, in whichever shape it
+ships (JKS or PKCS#12), and taken back out before the layer is committed. A keystore sealed with a
+password other than the JDK default is not rewritten, so that JDK does not trust the CA. Any other
+JDK, one further along `PATH` or one the step itself downloads, keeps its keystore as it is. If
+writing the CA into the wrapper's copy of a keystore fails partway, the step does not run; the
+image's keystore is left as it was.
+
+### Chromium
+
+Chromium reads none of these, only its compiled-in root store and the NSS database in `$HOME`.
+Every Chromium version reads `~/.pki/nssdb` when it exists, and M146 and later read
+`~/.local/share/pki/nssdb` when it does not, so the database is the first of those that exists, or a
+new `~/.pki/nssdb`, owned by the home's owner, when neither does. Its directory is mirrored for the
+step, the way a CA store is, and the mirror's `pkcs11.txt` gains a second, read-only softoken slot
+on a database holding only this CA, bound at `/dev/buildcage-nssdb`. NSS loads every module
+`pkcs11.txt` names, so Chromium trusts the CA through that slot while the step's own certificates,
+keys and writes stay in its own database. After the step, the slot's bytes are taken back out of
+`pkcs11.txt` and whatever the step changed is written back. The slot is also cut out of every other
+`pkcs11.txt` in the layer, such as one in a copy of the home, and one left holding nothing else is
+removed. A `pkcs11.txt` that is a symlink has the slot cut out of the file it leads to, when the
+step wrote that file too. A file that still names `/dev/buildcage-nssdb` afterwards, or is over
+1 MiB and so is not read, counts as CA residue. A database the step's user cannot write takes no
+slot, and the step warns that Chromium will not trust the proxy there. `HOME` comes from the step's
+environment, or from the image's `/etc/passwd` when that is empty, as runc does, and is read once as
+the step starts: a `HOME` the step changes, or another user it switches to, gets no slot. A `USER`
+instruction is followed, as long as no `ENV HOME` pins the home.
+
+Under someone else's home, such as `www-data`'s `/var/www`, the new database is not the step user's
+to write, so Chromium does not open it and does not trust the CA. Root's database used after `USER`
+takes no slot for the same reason. The database Chromium fills stays in the image like any other
+file in the home.
+
+A step that changes the CA's own trust in the database (`certutil -M`), or exports it and imports it
+back, copies the CA into the step's database, which fails the build as a copy the wrapper cannot
+take out. The database's directory is a mount point while the step runs, created if the home has no
+database, so the step cannot remove it (`rm -rf ~/.pki`), clone into the home, or remove the home's
+dotfiles (`rm -rf ~/.[!.]*`).
+
+### Mounted directories
+
+Each directory holding a bundle the CA is added to (the CA store's, and each one a CA variable
+points into) is copied, the CA goes into the copy, and the copy is mounted over the directory while
+the step runs. When one such directory is inside another, only the outer one is mounted. Removing
+or renaming a mounted directory fails, while what is inside it behaves normally, and what the step
+writes there is copied back when it ends.
+
+The same goes for the directory holding the keystore of a JDK at `$JAVA_HOME` or behind the first
+`java` on `PATH`, unless it is inside the CA store's mount. A JDK with a keystore of its own has its
+`lib/security` mounted, so a step cannot remove that JDK while it is on `PATH` or `JAVA_HOME`. A
+distribution JDK links to a shared keystore: Debian's is inside `/etc/ssl/certs` and adds no mount
+point, while on RHEL, Fedora and their derivatives `/etc/pki/ca-trust/extracted/java` is one.
+
+A custom CA path whose directory holds more than 20 MiB or 512 files has injection skipped for that
+variable only, the same as when no CA bundle is found at all. A system CA bundle whose directory
+holds more than 64 MiB or 4,096 files, or is the container root, is treated as no bundle at all.
+
+### CA residue
+
+Before a step's layer is committed, the wrapper reads the layer back, whatever the step exited
+with, and takes the CA certificate, and the anchor, out of:
+
+- every text file carrying it as PEM
+- every JKS or PKCS#12 trust store carrying it. A PKCS#12 one is opened with no password or
+  `changeit` and resealed in its own format, so an older JDK that wrote it can still read it.
+- each bare DER file a trust store splits the bundle into (Mono's `cert-sync` writes one per
+  certificate)
+- the EFI signature database RHEL's `update-ca-trust` writes
+
+Two things fail the build by default, pointing at `fail-on-ca-residue`:
+
+- a copy of the CA the wrapper finds in the step's layer but cannot take out: one in a JKS keystore
+  sealed with a password other than `changeit` or in a key's own chain, one inside any other binary
+  or an uncompressed archive, the PEM re-wrapped (escaped into JSON, indented in YAML, on one line
+  or in lines of 48 characters or more), a certificate the proxy issued (saved from a server
+  trust-on-first-use), or a PKCS#12 trust store holding such a certificate that opens with no
+  password or `changeit` (see [Limitations](../README.md#limitations))
+- a `pkcs11.txt` in the step's layer that still names the CA's slot, or is too large to read (see
+  [CA trust variables](#ca-trust-variables))
+
+With `fail-on-ca-residue: false` both only warn, and the copy or the slot stays in the image. Whatever
+the setting, a step whose layer the wrapper cannot read back does not run, nor does one where adding
+the CA to the wrapper's copy of a JVM keystore failed partway, and an error reading the layer back
+or restoring it fails the build.
+
+A copy the wrapper cannot read is never found, so it stays in the image whatever the setting: one in
+a compressed archive, hex-dumped, re-wrapped outside a PEM block in shorter lines, in a keystore
+encrypted under another password, or in a PKCS#12 naming more than a million key-derivation
+iterations. These are not failed on, since dependencies ship encrypted test keystores and failing
+on them would break builds that never touched the CA.
+
+The CA is valid for two days and unique to the run, so a copy left in an image trusts only a proxy
+that no longer exists. It still shows the image was built behind Buildcage.

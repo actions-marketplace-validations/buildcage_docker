@@ -1,7 +1,14 @@
-import { HOST_IS_ADDRESS, type CompiledRule } from "./haproxy-rules.ts";
-import { escapeForHaproxy, HOST_ONLY, hostMatcher, pathMatcher } from "./haproxy-matchers.ts";
-import { deniesEverything, ruleBlock } from "./haproxy-rule-block.ts";
+import { PROXY_SUBNET } from "../log/proxy-address.ts";
 import { internalDstAcl, type InternalDstOptions } from "./haproxy-internal-dst.ts";
+import {
+  escapeForHaproxy,
+  HOST_ONLY,
+  HOSTNAME_CHARSET,
+  hostMatcher,
+  pathMatcher,
+} from "./haproxy-matchers.ts";
+import { deniesEverything, ruleBlock } from "./haproxy-rule-block.ts";
+import { HOST_IS_ADDRESS, type CompiledRule } from "./haproxy-rules.ts";
 
 /** One inspected frontend; the pair differs only in these. */
 export interface InspectStageSpec {
@@ -18,14 +25,67 @@ export interface InspectStageSpec {
 /** What both frontends share. */
 export interface InspectStageContext extends InternalDstOptions {
   mode: "restrict" | "audit";
-  hasResolver: boolean;
+  /** The detect frontend's port, bound on every address the proxy holds. */
+  listenPort: number;
+  extension?: InspectStageExtension;
 }
 
-/** The SNI field, for the stage that terminates TLS. It names the host of a
+/**
+ * Rules an action adds to both inspected frontends, for a check of its own on
+ * top of the URL rules. In `restrict` its request rules block by setting
+ * txn.reason and denying; in `audit` they set txn.would_block to the reason
+ * `restrict` would have logged, which the log carries as `wb=`.
+ */
+export interface InspectStageExtension {
+  /** Run before a request's name resolves: in `restrict` once the URL rules
+   *  have allowed it, in `audit`, which applies none, on every request. */
+  requestRules(mode: "restrict" | "audit"): string[];
+  /** Run on the TLS stage alone, whose origin certificate was checked. */
+  responseRules(): string[];
+  /** Lines the `global` section takes, such as a buffer the rules ask for. */
+  global?: string[];
+  logFields?: InspectLogFields;
+}
+
+/**
+ * Values an extension logs with each request, which the log parser reads back
+ * as one object named `name` on the event. Each field names the txn variable
+ * holding its value. A field whose variable is unset is left out, and so is
+ * the whole object when none is set.
+ */
+export interface InspectLogFields {
+  name: string;
+  /** Field name to variable, such as `{ key: "txn.aws_log_key" }`. */
+  fields: Record<string, string>;
+}
+
+// What log/inspect.ts reads as an object or field name, and a variable name
+// HAProxy takes without quoting.
+const LOG_FIELD_NAME = /^[a-z][A-Za-z0-9]*$/;
+const LOG_FIELD_VAR = /^txn\.[a-z0-9_]+$/;
+
+/** One `<name>.<field>=<value>` token per field, folded to the SNI's charset. */
+function logFieldTokens({ name, fields }: InspectLogFields): string {
+  if (!LOG_FIELD_NAME.test(name)) throw new Error(`invalid log field object: ${name}`);
+  const entries = Object.entries(fields);
+  for (const [field, variable] of entries) {
+    if (!LOG_FIELD_NAME.test(field) || !LOG_FIELD_VAR.test(variable)) {
+      throw new Error(`invalid log field: ${name}.${field} from ${variable}`);
+    }
+  }
+  return entries
+    .map(([field, variable]) => ` ${name}.${field}=%[var(${variable}),regsub([^A-Za-z0-9._-],_,g)]`)
+    .join("");
+}
+
+/** The fields of the stage that terminates TLS. fcerr names a failed client
+ *  handshake (`SSL_HANDSHAKE` and the like). The SNI names the host of a
  *  connection that ended before its request, where `%HM` and the logged Host
- *  are both empty. Client-controlled, hence the detect frontend's charset. */
-function sniField(scheme: "https" | "http"): string {
-  return scheme === "https" ? " sni=%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]" : "";
+ *  are both empty; client-controlled, hence the detect frontend's charset. */
+function clientTlsFields(scheme: "https" | "http"): string {
+  return scheme === "https"
+    ? " fcerr=%[fc_err_name] sni=%[ssl_fc_sni,regsub([^A-Za-z0-9._-],_,g)]"
+    : "";
 }
 
 function addressRules(rules: CompiledRule[]): CompiledRule[] {
@@ -41,8 +101,10 @@ function addressRules(rules: CompiledRule[]): CompiledRule[] {
  * Exempt an internal destination only where a rule naming that address as its
  * host matches the whole request, so `**:80` cannot open 169.254.169.254.
  * Matched here, not in the rule block: audit has none but still guards.
+ * PROXY_SUBNET and the listener port are never exempt: a rule naming the
+ * proxy's own listener, on any of its addresses, would loop it into itself.
  */
-function internalGuard(rules: CompiledRule[]): string[] {
+function internalGuard(rules: CompiledRule[], listenPort: number): string[] {
   const named = addressRules(rules);
   if (named.length === 0) {
     return [
@@ -67,12 +129,25 @@ function internalGuard(rules: CompiledRule[]): string[] {
   }
   lines.push(
     "    acl named_address var(txn.named_address) -m bool",
-    "    http-request set-var(txn.reason) str(internal-address) if dst_internal !named_address",
-    "    http-request deny deny_status 403 if dst_internal !named_address",
+    `    acl dst_proxy_self var(txn.dst) -m ip ${PROXY_SUBNET}`,
+    `    acl dst_proxy_self dst_port ${listenPort}`,
+    "    http-request set-var(txn.reason) str(internal-address) if dst_internal !named_address or dst_internal dst_proxy_self",
+    "    http-request deny deny_status 403 if dst_internal !named_address or dst_internal dst_proxy_self",
     "",
   );
   return lines;
 }
+
+/** Plaintext stage only: the TLS handshake passing through detect keeps
+ *  detect's clock behind this frontend's. */
+const PLAIN_REQUEST_TIMEOUTS = [
+  "    # detect's client timeout runs from the connection, this frontend's from",
+  "    # the hand-off after detect's 5s inspect-delay. Ending a silent client's",
+  "    # wait here first logs it as a timeout rather than a close. The",
+  "    # keep-alive wait stays at the client timeout.",
+  "    timeout http-request 20s",
+  "    timeout http-keep-alive 30s",
+];
 
 /**
  * A frontend that terminates the connection, normalizes the request, lets the
@@ -82,12 +157,19 @@ export function inspectStage(
   { name, port, bindExtra, scheme, rules, backend }: InspectStageSpec,
   ctx: InspectStageContext,
 ): string[] {
-  const { mode, hasResolver } = ctx;
+  const { mode, extension } = ctx;
+  // Folded to one token like the SNI, whatever the extension wrote.
+  const extensionField = extension
+    ? " wb=%[var(txn.would_block),regsub([^A-Za-z0-9._-],_,g)]" +
+      (extension.logFields ? logFieldTokens(extension.logFields) : "")
+    : "";
+  const logFormat = `"buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] tlserr=%[ssl_bc_err] dst=%[dst]:%[dst_port]${extensionField}${clientTlsFields(scheme)} host=%[var(txn.host_log)] %[var(txn.pathq)]"`;
   const l: string[] = [];
   l.push(
     `frontend ${name}`,
     `    bind 127.0.0.1:${port} accept-proxy${bindExtra}`,
     "    mode http",
+    ...(scheme === "http" ? PLAIN_REQUEST_TIMEOUTS : []),
     // Host is attacker-controlled too, but keeps its own ":port" (unlike
     // SNI), so it can't be reduced to a hostname charset. Single-quoted as
     // a whole so the word parser leaves the embedded " alone for regsub's
@@ -111,7 +193,7 @@ export function inspectStage(
     "    # A request with no Host names nothing: the rules match on it, the",
     "    # origin is resolved from it, and the log's URL is built from it. Named",
     "    # here rather than left to the log's own empty fields, which a Host the",
-    "    # client chose can imitate. Refused in `audit` too, as the same check",
+    "    # client chose can imitate. Blocked in `audit` too, as the same check",
     "    # in the universal engine is: there is nothing to connect to either way.",
     "    # Ahead of the path denies below, so that a request carrying neither a",
     "    # Host nor a legal path is named by the one the report can act on: the",
@@ -125,10 +207,15 @@ export function inspectStage(
     "    # every value while a fetch takes the last, so reading the header twice",
     "    # could judge one value and connect to another.",
     `    http-request set-var(txn.host) req.hdr(host),lower,${HOST_ONLY}`,
+    "    # A `:` left in the name could let a `~` rule's port pattern match it.",
+    "    # Blocked in `audit` too.",
+    `    acl host_is_name var(txn.host) -m reg ${HOSTNAME_CHARSET}`,
+    "    http-request set-var(txn.reason) str(invalid-host) if !host_is_name",
+    "    http-request deny deny_status 400 if !host_is_name",
     "",
     "    # `%2f` and `%5c` survive decoding (both reserved) yet an origin may",
     "    # read `..%2f` / `..%5c` as a segment, and a raw backslash is not a",
-    "    # valid path char at all. None is stripped, so each is refused. A lone",
+    "    # valid path char at all. None is stripped, so each is blocked. A lone",
     "    # encoded separator stays legal (e.g. npm's `/@scope%2fpackage`).",
     "    # `;` (or `%3b`) ends a segment too: Tomcat and Jetty drop what follows",
     "    # as a path parameter, so they read `..;/` as `../`.",
@@ -136,8 +223,8 @@ export function inspectStage(
     "    http-request deny deny_status 403 if { path -m reg -i (^|/|%2f|%5c)\\.\\.($|/|;|%2f|%5c|%3b) }",
     "    http-request deny deny_status 403 if { path -m sub \\\\ }",
     "",
-    // %ts tells a refusal from an origin's own 403 or 503, reason says which
-    // refusal, and tlserr carries haproxy's own error from the handshake with
+    // %ts tells a block from an origin's own 403 or 503, reason says which
+    // block, and tlserr carries haproxy's own error from the handshake with
     // the origin (see log/inspect.ts's reasonFor). All three sit ahead of the
     // target, the one field that could cut the line.
     // host and target are two fields rather than one URL: pathq is empty for
@@ -145,7 +232,10 @@ export function inspectStage(
     // a CONNECT's authority), the log-format prints an empty sample as `-`,
     // and log/inspect.ts would read the joined-up
     // `https://registry.npmjs.org-` as a host no rule can be written for.
-    `    log-format "buildcage %[date(0,ms)] ${scheme} %HM %ST %B ts=%ts reason=%[var(txn.reason)] tlserr=%[ssl_bc_err] dst=%[dst]:%[dst_port]${sniField(scheme)} host=%[var(txn.host_log)] %[var(txn.pathq)]"`,
+    `    log-format ${logFormat}`,
+    // A failed client handshake otherwise logs only HAProxy's own line. Sharing
+    // the format leaves the parser one https line to read.
+    ...(scheme === "https" ? [`    error-log-format ${logFormat}`] : []),
     "",
   );
   // The rules decide first, on the request alone (host, path, method): none
@@ -156,7 +246,14 @@ export function inspectStage(
   l.push(...ruleBlock(rules, mode, scheme));
   // Skipped entirely when the block above denies unconditionally: HAProxy
   // would never reach these rules, and warns that they are NOOP.
-  if (hasResolver && !deniesEverything(rules, mode)) {
+  if (!deniesEverything(rules, mode)) {
+    // After the rules, so a request they block keeps their reason, and ahead
+    // of the resolve, so one the extension blocks triggers no DNS query.
+    // Response rules run in their own phase; where they sit here is moot.
+    if (extension) {
+      l.push(...extension.requestRules(mode));
+      if (scheme === "https") l.push(...extension.responseRules());
+    }
     l.push(
       "    # Connect to the address this proxy resolves the Host to, discarding",
       "    # the client's address, so a forged Host or doctored /etc/hosts cannot",
@@ -174,14 +271,14 @@ export function inspectStage(
       "    http-request deny deny_status 502 unless { var(txn.dst) -m found }",
       "",
       "    # Set before the internal-destination check below, not after: %[dst] in",
-      "    # the log-format is this, and a refusal must show the address that",
+      "    # the log-format is this, and a blocked request must show the address that",
       "    # tripped it, not whatever the client's own (fake, unresolved) address",
       "    # was: CoreDNS never hands out a real one; see coredns-config.ts.",
       "    http-request set-dst var(txn.dst)",
       "",
       "    # A resolved destination may not be internal; see INTERNAL_RANGES.",
       ...internalDstAcl("dst_internal", ctx),
-      ...internalGuard(rules),
+      ...internalGuard(rules, ctx.listenPort),
     );
   }
   l.push(`    default_backend ${backend}`, "");

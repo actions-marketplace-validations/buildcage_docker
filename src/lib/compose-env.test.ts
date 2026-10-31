@@ -9,6 +9,7 @@ function options(overrides: Partial<ComposeEnvOptions> = {}): ComposeEnvOptions 
     builderName: "buildcage",
     proxyMode: "restrict",
     proxyEngine: "universal",
+    failOnCaResidue: true,
     imageRef: "ghcr.io/buildcage/docker@sha256:feedface",
     httpsRules: [],
     httpRules: [],
@@ -27,6 +28,7 @@ describe("buildComposeEnv", () => {
         builderName: "second",
         proxyMode: "audit",
         proxyEngine: "inspect",
+        failOnCaResidue: false,
         httpsRules: ["registry.npmjs.org:443", "*.githubusercontent.com:443"],
         httpRules: ["deb.debian.org:80"],
         ipRules: ["10.0.0.0/8"],
@@ -42,6 +44,7 @@ describe("buildComposeEnv", () => {
       BUILDER_NAME: "second",
       PROXY_MODE: "audit",
       PROXY_ENGINE: "inspect",
+      FAIL_ON_CA_RESIDUE: "false",
       ALLOWED_HTTPS_RULES: "registry.npmjs.org:443\n*.githubusercontent.com:443",
       ALLOWED_HTTP_RULES: "deb.debian.org:80",
       ALLOWED_IP_RULES: "10.0.0.0/8",
@@ -49,7 +52,6 @@ describe("buildComposeEnv", () => {
       ALLOWED_TLS_RULES: "*.example.com:443",
       KNOWN_BLOCKED_RULES: "telemetry.example.com:443",
       BUILDCAGE_IMAGE_REF: "ghcr.io/buildcage/docker@sha256:feedface",
-      EXTERNAL_RESOLVER: "",
       HOST_ADDRESSES: "10.0.0.4 172.17.0.1",
     });
   });
@@ -63,14 +65,6 @@ describe("buildComposeEnv", () => {
 
     expect(env.PATH).toBe("/usr/bin");
     expect(env.DOCKER_HOST).toBe("unix:///x.sock");
-  });
-
-  // A resolver left to the step environment would be a previous step's choice,
-  // not the action's.
-  it("pins EXTERNAL_RESOLVER rather than inheriting it", () => {
-    const env = buildComposeEnv(options(), { EXTERNAL_RESOLVER: "8.8.8.8" }, () => []);
-
-    expect(env.EXTERNAL_RESOLVER).toBe("");
   });
 
   // A URL rule contains a space, unlike the others, so no rule list can be

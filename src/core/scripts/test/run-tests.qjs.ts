@@ -5,8 +5,8 @@
  *
  * Usage: qjs --std -m run-tests.qjs.js <dir> [<dir> ...]
  */
-import * as std from "qjs:std";
 import * as os from "qjs:os";
+import * as std from "qjs:std";
 
 const dirs = scriptArgs.slice(1);
 if (dirs.length === 0) {

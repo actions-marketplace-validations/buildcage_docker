@@ -10,19 +10,21 @@
  * static imports before their own body runs.
  */
 import "./qjs-event-polyfill.ts";
-import * as chai from "chai";
 import { JestChaiExpect } from "@vitest/expect";
+import * as chai from "chai";
 
 const isNode = typeof (globalThis as { process?: unknown }).process !== "undefined";
 
-/** Deliberately narrow subset of vitest's real `expect()` chain: only the
- *  matchers this codebase's tests actually use. */
+/** Deliberately narrow subset of vitest's real `expect()` chain. */
 interface ExpectMatchers {
   toBe(expected: unknown): void;
   toStrictEqual(expected: unknown): void;
   toBeTruthy(): void;
   toThrow(pattern?: RegExp | string): void;
   toMatch(pattern: RegExp | string): void;
+  toContain(item: unknown): void;
+  toBeGreaterThan(n: number): void;
+  toBeLessThan(n: number): void;
   toSatisfy(predicate: (value: unknown) => boolean): void;
   not: ExpectMatchers;
   rejects: AsyncExpectMatchers;
@@ -35,6 +37,9 @@ interface AsyncExpectMatchers {
   toBeTruthy(): Promise<void>;
   toThrow(pattern?: RegExp | string): Promise<void>;
   toMatch(pattern: RegExp | string): Promise<void>;
+  toContain(item: unknown): Promise<void>;
+  toBeGreaterThan(n: number): Promise<void>;
+  toBeLessThan(n: number): Promise<void>;
   toSatisfy(predicate: (value: unknown) => boolean): Promise<void>;
 }
 type Expect = (actual: unknown) => ExpectMatchers;

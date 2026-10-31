@@ -141,11 +141,24 @@ describe("convertUrlRule regex escape hatch", () => {
     expect(() => convertUrlRule("GET ~^a|https://b\\.com/y$")).toThrow(/expression/);
   });
 
+  it("refuses an escape that could hide a top-level alternation, in either half", () => {
+    expect(() => convertUrlRule("GET ~https://x\\.com(:443)?\\Q[\\E|.*]?/.*")).toThrow(
+      /uses "\\Q"/,
+    );
+    expect(() => convertUrlRule("GET ~https://x\\.com/a\\Q[\\E|.*]")).toThrow(/uses "\\Q"/);
+  });
+
   // The group keeps the "|" off the top level of the whole expression, so only
   // the per-half check sees it.
   it("rejects a group straddling the cut, whose halves are no longer a host and a path", () => {
     expect(() => convertUrlRule("GET ~^https://(a\\.com/x|b\\.com/y)$")).toThrow(/path half/);
     expect(() => convertUrlRule("GET ~^https://(a\\.com/x)$")).toThrow(/does not compile/);
+  });
+
+  it("rejects a backreference from the path half to a group in the host half", () => {
+    expect(() => convertUrlRule("GET ~^https://(a)\\.com/\\1$")).toThrow(
+      /path half .* but has 0 capturing groups/,
+    );
   });
 
   it("rejects an IPv6 authority, whose colons are not the port separator", () => {
@@ -198,7 +211,7 @@ describe("convertUrlRule regex escape hatch", () => {
 
   it("keeps the host half's own port pattern for enforcement, but drops it for the resolver", () => {
     // hostRegex (matched against the connection, with and without a port;
-    // see haproxy-config.ts) keeps whatever the user wrote; authorityRegex
+    // see haproxy-rule-block.ts) keeps whatever the user wrote; authorityRegex
     // (the resolver's allowlist, which has no notion of a port) never does.
     const r = convertUrlRule("GET ~^https://a\\.com:8443/x$");
     expect(r.hostRegex).toBe("^a\\.com:8443$");

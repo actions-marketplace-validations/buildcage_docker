@@ -1,7 +1,6 @@
 /**
- * Turns what an `audit` run observed into `allowed_url_rules` for a `restrict`
- * run, the engine's reason for existing: which URLs `npm install` reaches
- * cannot be known in advance.
+ * Turns what an `audit` run observed into `allowed-url-rules` for a `restrict`
+ * run, since which URLs `npm install` reaches cannot be known in advance.
  *
  * A generated rule must never permit more than was observed:
  *
@@ -11,19 +10,25 @@
  * - A path keeps its longest unchanging prefix; only what varied becomes
  *   `**`, and a single observed path stays exact.
  *
- * A host reached at many unrelated paths therefore collapses to `/**`, the
- * honest answer, since clustering would invent permissions nobody observed. The
- * rule still constrains the method, which no host-level rule can.
+ * A host reached at many unrelated paths therefore collapses to `/**`:
+ * clustering would invent permissions nobody observed. The rule still
+ * constrains the method, which no host-level rule can.
  *
- * The method, the `Host` header and the path are the build's to choose, so a
- * request whose method, host or path a rule would read as a pattern is left
- * out of the rules and listed beside them instead.
+ * The method, the `Host` header and the path are the build's or step's to
+ * choose, so a request whose method, host or path a rule would read as a
+ * pattern is left out of the rules and listed beside them instead.
  */
 
-import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
-import { restrictExampleBlock, usesLine } from "./restrict-example.ts";
-import { markdownTable } from "./markdown-table.ts";
 import { DEFAULT_PORT, splitHostPort } from "#core/lib/log/authority.ts";
+import type { TrafficEvent } from "#core/lib/log/traffic-event.ts";
+
+import { codeCell, markdownTable } from "./markdown-table.ts";
+import {
+  exampleStepHead,
+  exampleStepTail,
+  restrictExampleBlock,
+  type ExampleStepOptions,
+} from "./restrict-example.ts";
 
 /** Conventional ordering, so a rule reads the way a person would write it. */
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
@@ -76,7 +81,7 @@ function parseRequest(request: TrafficEvent): ParsedRequest | LeftOutRequest | n
   if (part) return { method: request.method, url: `${scheme}://${authority}${path}`, part };
 
   // The port the request was sent to, which is what a rule's port is matched
-  // against. The one in the `Host` header is the build's to write.
+  // against. The one in the `Host` header is the build's or step's to write.
   const port = String(request.port);
   // Drop a port the scheme already implies, so the common case reads plainly.
   const origin =
@@ -88,7 +93,9 @@ function parseRequest(request: TrafficEvent): ParsedRequest | LeftOutRequest | n
 /** The segments every path shares, from the left. */
 function commonPrefixSegments(paths: string[]): string[] {
   // Two or more: pathPatternsFor has already answered the shorter cases.
-  const split = paths.map((p) => p.split("/").filter((s) => s !== ""));
+  // Empty segments stay, since the rules tell `//x` from `/x`; slice(1) drops
+  // only the one split() puts before the leading `/`.
+  const split = paths.map((p) => p.split("/").slice(1));
   let prefix = split[0];
   for (const segments of split.slice(1)) {
     let i = 0;
@@ -102,7 +109,7 @@ function commonPrefixSegments(paths: string[]): string[] {
  * The path patterns covering one group of observed paths.
  *
  * Usually one. A second is needed when the shared prefix is itself one of the
- * observed paths: `/express/**` does not match `/express`, so a build that
+ * observed paths: `/express/**` does not match `/express`, so a build or step that
  * fetched both a package's metadata and its tarball needs both spelled out.
  */
 export function pathPatternsFor(paths: Iterable<string>): string[] {
@@ -153,10 +160,10 @@ function partitionRequests(requests: TrafficEvent[]): {
 } {
   const writable: ParsedRequest[] = [];
   const leftOut = new Map<string, LeftOutRequest>();
-  // Only what the build actually reached: a refused request is not a rule to
+  // Only what the build or step actually reached: a blocked request is not a rule to
   // reproduce, and a passthrough or a name lookup has no URL to write one from.
   // One that failed at the origin is kept: the rules did permit it and the
-  // build will ask again, so leaving it out would write an allowlist that
+  // build or step will ask again, so leaving it out would write an allowlist that
   // breaks the next run.
   for (const request of requests) {
     if (request.action === "block") continue;
@@ -200,8 +207,8 @@ function ruleLinesFrom(requests: ParsedRequest[]): string[] {
     .map(({ origin, pattern, methods }) => `${sortMethods(methods).join("|")} ${origin}${pattern}`);
 }
 
-/** Enough to show what was left out, and few enough that a build sending
- *  thousands can't crowd the rest of the summary out. */
+/** Enough to show what was left out, few enough that thousands of such
+ *  requests can't crowd out the rest of the summary. */
 const LEFT_OUT_LIMIT = 20;
 
 /** The requests left out of the rules, as a table under the snippet. */
@@ -212,8 +219,8 @@ function leftOutSection(leftOut: LeftOutRequest[]): string {
     "and so permit more than was sent.\n\n";
   md += markdownTable(
     [
-      { key: "method", title: "Method" },
-      { key: "url", title: "URL" },
+      { key: "method", title: "Method", cell: codeCell },
+      { key: "url", title: "URL", cell: codeCell },
       { key: "part", title: "Read as a pattern" },
     ],
     shown.map((r) => ({ ...r })),
@@ -225,14 +232,10 @@ function leftOutSection(leftOut: LeftOutRequest[]): string {
   return md;
 }
 
-export interface BuildInspectRestrictExampleOptions {
-  /** Version to annotate the `uses:` line with, if known, as `# 3.1.4`. */
-  actionVersion?: string;
-  /** Not derived from `requests`: a passthrough is never decrypted, so there
-   *  is nothing in the traffic to build these from. They are the same values
-   *  the audit run was configured with, echoed back as-is,
-   *  since they apply unchanged under `restrict` (only enforcement
-   *  differs). */
+export interface BuildInspectRestrictExampleOptions extends ExampleStepOptions {
+  /** The audit run's own values, echoed back: a passthrough is never
+   *  decrypted, so the traffic holds nothing to build them from, and they
+   *  apply unchanged under `restrict`. */
   allowedIpRules?: string[];
   allowedTlsRules?: string[];
 }
@@ -247,11 +250,7 @@ export function buildInspectRestrictExample(
   requests: TrafficEvent[] | null | undefined,
   actionRepo: string,
   actionRef?: string,
-  {
-    actionVersion,
-    allowedIpRules = [],
-    allowedTlsRules = [],
-  }: BuildInspectRestrictExampleOptions = {},
+  { allowedIpRules = [], allowedTlsRules = [], ...step }: BuildInspectRestrictExampleOptions = {},
 ): string {
   const { writable, leftOut } = partitionRequests(requests ?? []);
   const lines = ruleLinesFrom(writable);
@@ -264,24 +263,23 @@ export function buildInspectRestrictExample(
     return "";
   }
 
-  let yaml = "- name: Start Buildcage\n";
-  yaml += usesLine(actionRepo, actionRef, actionVersion);
-  yaml += "  with:\n";
-  yaml += "    proxy_mode: restrict\n";
+  let yaml = exampleStepHead(actionRepo, actionRef, step);
+  yaml += "    proxy-mode: restrict\n";
   // A literal block, not a folded one: a URL rule contains a space, so the
   // rules are separated by newlines and folding would join them into one.
   if (lines.length > 0) {
-    yaml += "    allowed_url_rules: |\n";
+    yaml += "    allowed-url-rules: |\n";
     for (const line of lines) yaml += `      ${line}\n`;
   }
   if (allowedTlsRules.length > 0) {
-    yaml += "    allowed_tls_rules: |\n";
+    yaml += "    allowed-tls-rules: |\n";
     for (const rule of allowedTlsRules) yaml += `      ${rule}\n`;
   }
   if (allowedIpRules.length > 0) {
-    yaml += "    allowed_ip_rules: |\n";
+    yaml += "    allowed-ip-rules: |\n";
     for (const rule of allowedIpRules) yaml += `      ${rule}\n`;
   }
+  yaml += exampleStepTail(step);
 
   return restrictExampleBlock(yaml, {
     appendix: leftOut.length > 0 ? leftOutSection(leftOut) : undefined,

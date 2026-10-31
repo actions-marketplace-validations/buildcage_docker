@@ -12,18 +12,17 @@ jobs:
       contents: read
 
     steps:
-      # universal reads the SNI without decrypting, so a JVM build like this
-      # one (Maven trusts only its own cacerts store) needs no injected CA.
-      # audit records every destination; "Switch to restrict mode" in the
-      # report returns them as allowed_https_rules.
+      # universal reads the SNI without decrypting, so the build needs no
+      # injected CA. audit records every destination, and the report's "Switch
+      # to restrict mode" section lists them as allowed-https-rules.
       - name: Start Buildcage builder
-        uses: buildcage/docker@e97cf73f1ca5094c62968f6e8617bde0948deb3d # v4.0.0
+        uses: buildcage/docker@ef2b79a3baaddc6a69c1b10a2c473a134ece2eca # v4.4.0
         with:
-          proxy_mode: audit
-          proxy_engine: universal
+          proxy-mode: audit
+          proxy-engine: universal
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: remote
           endpoint: docker-container://buildcage
@@ -35,12 +34,10 @@ jobs:
           FROM maven:3-eclipse-temurin-21-alpine
           WORKDIR /app
           RUN mvn -B dependency:get -Dartifact=org.apache.commons:commons-lang3:3.17.0
-          # Unneeded by the build; leave it out of the rules you paste back in.
-          RUN wget -q -O /dev/null --timeout=5 https://example.com/ || true
           EOF
 
       - name: Build test image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: /tmp/build-context
           push: false
@@ -48,4 +45,4 @@ jobs:
 
       - name: Show proxy report
         if: always()
-        uses: buildcage/docker/report@e97cf73f1ca5094c62968f6e8617bde0948deb3d # v4.0.0
+        uses: buildcage/docker/report@ef2b79a3baaddc6a69c1b10a2c473a134ece2eca # v4.4.0

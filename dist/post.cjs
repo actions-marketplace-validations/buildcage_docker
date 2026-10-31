@@ -10,7 +10,7 @@ var __create = Object.create, __defProp = Object.defineProperty, __getOwnPropDes
 	enumerable: !0
 }) : target, mod));
 //#endregion
-let node_child_process = require("node:child_process"), node_path = require("node:path"), node_url = require("node:url"), node_crypto = require("node:crypto"), os = require("os");
+let node_child_process = require("node:child_process"), node_fs = require("node:fs"), node_url = require("node:url"), os = require("os");
 os = __toESM(os, 1);
 let fs = require("fs");
 fs = __toESM(fs, 1);
@@ -18,27 +18,9 @@ let path = require("path");
 path = __toESM(path, 1);
 let events = require("events");
 events = __toESM(events, 1);
-let child_process = require("child_process");
+let node_crypto = require("node:crypto"), child_process = require("child_process");
 child_process = __toESM(child_process, 1), require("timers");
-//#region src/core/lib/docker/args.ts
-function buildComposeDownArgs({ composeFile, projectName }) {
-	return [
-		"compose",
-		"-f",
-		composeFile,
-		"-p",
-		projectName,
-		"down"
-	];
-}
-//#endregion
-//#region src/core/lib/docker/compose-project-name.ts
-function deriveProjectName(containerName) {
-	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
-}
-function resolveProjectName(builderName, composeProjectNameOverride) {
-	return composeProjectNameOverride || deriveProjectName(builderName);
-}
+let node_path = require("node:path");
 //#endregion
 //#region node_modules/.pnpm/@actions+core@3.0.1/node_modules/@actions/core/lib/summary.js
 var __awaiter$6 = function(thisArg, _arguments, P, generator) {
@@ -185,19 +167,162 @@ function getInput(name, options) {
 	if (options && options.required && !val) throw Error(`Input required and not supplied: ${name}`);
 	return options && options.trimWhitespace === !1 ? val : val.trim();
 }
-//#endregion
-//#region src/lib/inputs.ts
-function readBuilderName(getInput$2 = getInput) {
-	return getInput$2("builder_name") || "buildcage";
+function info(message) {
+	process.stdout.write(message + os.EOL);
+}
+function getState(name) {
+	return process.env[`STATE_${name}`] || "";
 }
 //#endregion
-//#region src/lib/post-cleanup.ts
-function planPostCleanup(composeFile, projectNameOverride, env, getInput) {
-	let builderName = readBuilderName(getInput);
+//#region src/core/lib/errors.ts
+var ActionError = class extends Error {
+	code;
+	constructor(message, code) {
+		super(message), this.name = new.target.name, this.code = code;
+	}
+};
+function errorMessage(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+//#endregion
+//#region src/core/lib/actions/annotation.ts
+function escapeData(message) {
+	return message.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+function createAnnotation(enabled) {
+	return enabled ? {
+		notice(message) {
+			console.log(`::notice::${escapeData(message)}`);
+		},
+		warning(message) {
+			console.log(`::warning::${escapeData(message)}`);
+		},
+		error(message) {
+			console.log(`::error::${escapeData(message)}`);
+		}
+	} : {
+		notice() {},
+		warning() {},
+		error() {}
+	};
+}
+const annotate = createAnnotation(!0);
+//#endregion
+//#region src/core/lib/actions/fatal.ts
+function exitOnFatalError(context) {
+	return (err) => {
+		err instanceof ActionError ? annotate.error(err.message) : annotate.error(`Unexpected error in ${context}: ${errorMessage(err)}`), process.exit(1);
+	};
+}
+//#endregion
+//#region src/core/lib/actions/input-names.ts
+function inputEnvName(name) {
+	return `INPUT_${name.replace(/ /g, "_").toUpperCase()}`;
+}
+function legacyInputName(name) {
+	return name.replaceAll("-", "_");
+}
+function normalizeInputNames(env, names, lists = []) {
+	let warnings = [];
+	for (let name of names) {
+		let legacy = legacyInputName(name);
+		if (legacy === name) continue;
+		let legacyEnvName = inputEnvName(legacy), value = env[legacyEnvName] ?? "";
+		if (delete env[legacyEnvName], !value.trim()) continue;
+		let envName = inputEnvName(name), current = env[envName] ?? "";
+		current.trim() ? lists.includes(name) ? env[envName] = `${current}\n${value}` : current.trim() !== value.trim() && warnings.push(`Ignored ${legacy}, as ${name} is also set.`) : env[envName] = value;
+	}
+	return warnings;
+}
+//#endregion
+//#region src/core/lib/actions/inputs.ts
+var InvalidInputError = class extends ActionError {
+	constructor(message, code) {
+		super(message, code);
+	}
+};
+//#endregion
+//#region src/report/report-source.ts
+const BUILDER_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]+$/;
+function resolveBuilderName(value) {
+	if (value === "") return "buildcage";
+	if (!BUILDER_NAME_PATTERN.test(value)) throw new InvalidInputError(`Invalid builder-name: ${JSON.stringify(value)}. Must start with a letter or digit and have at least two characters, using only letters, digits, '_', '.' and '-'.`, "INVALID_BUILDER_NAME");
+	return value;
+}
+const LIST_INPUTS = [
+	"allowed-https-rules",
+	"allowed-http-rules",
+	"allowed-ip-rules",
+	"allowed-url-rules",
+	"allowed-tls-rules",
+	"known-blocked-rules"
+], CONFIG_FILE_INPUTS = {
+	known: [
+		"builder-name",
+		"proxy-mode",
+		"proxy-engine",
+		...LIST_INPUTS,
+		"fail-on-ca-residue",
+		"fail-on-blocked",
+		"upload-traffic-artifact",
+		"traffic-artifact-retention-days"
+	],
+	lists: LIST_INPUTS
+}, INPUT_NAMES = ["config-file", ...CONFIG_FILE_INPUTS.known], __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href)), COMPOSE_FILE = (0, node_path.join)(__dirname$1, "../docker/compose.action.yaml");
+function withComposeOverlay(composeFile, overlay) {
+	return overlay ? [composeFile, overlay] : [composeFile];
+}
+//#endregion
+//#region src/lib/local-image.ts
+async function readLocalImageOverride(env, log = console.log) {
+	return null;
+}
+//#endregion
+//#region src/core/lib/docker/args.ts
+function fileArgs(composeFiles) {
+	return composeFiles.flatMap((file) => ["-f", file]);
+}
+function buildComposeDownArgs({ composeFiles, projectName }) {
+	return [
+		"compose",
+		...fileArgs(composeFiles),
+		"-p",
+		projectName,
+		"down",
+		"-v"
+	];
+}
+//#endregion
+//#region src/core/lib/docker/compose-project-name.ts
+function deriveProjectName(containerName) {
+	return `buildcage-${(0, node_crypto.createHash)("sha256").update(containerName).digest("hex").slice(0, 12)}`;
+}
+function resolveProjectName(builderName, composeProjectNameOverride) {
+	return composeProjectNameOverride || deriveProjectName(builderName);
+}
+//#endregion
+//#region src/core/lib/acl/ipv4.ts
+const OCTET = "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])", PREFIX = "(3[0-2]|[12]?[0-9])", IPV4 = `${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}`;
+RegExp(`^${OCTET}$`), RegExp(`^${IPV4}(?:/${PREFIX})?$`), RegExp(`^${IPV4}/${PREFIX}$`);
+//#endregion
+//#region src/lib/inputs.ts
+function readBuilderName(getInput$3 = getInput) {
+	return resolveBuilderName(getInput$3("builder-name"));
+}
+function planPostCleanup(composeFile, projectNameOverride, env, { savedBuilderName, composeOverlay, getInput: getInput$1 = getInput } = {}) {
+	if (!savedBuilderName && getInput$1("config-file")) return;
+	let builderName = savedBuilderName;
+	if (!builderName) try {
+		builderName = readBuilderName(getInput$1);
+	} catch (e) {
+		if (e instanceof InvalidInputError) return;
+		throw e;
+	}
+	let projectName = resolveProjectName(builderName, projectNameOverride);
 	return {
 		args: buildComposeDownArgs({
-			composeFile,
-			projectName: resolveProjectName(builderName, projectNameOverride)
+			composeFiles: withComposeOverlay(composeFile, composeOverlay),
+			projectName
 		}),
 		env: {
 			...env,
@@ -207,13 +332,16 @@ function planPostCleanup(composeFile, projectNameOverride, env, getInput) {
 }
 //#endregion
 //#region src/post.ts
-const __dirname$1 = (0, node_path.dirname)((0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href));
-function main() {
-	let { args, env } = planPostCleanup((0, node_path.join)(__dirname$1, "../docker/compose.action.yaml"), void 0, process.env);
-	(0, node_child_process.execFileSync)("docker", args, {
-		stdio: "inherit",
-		env
+async function main() {
+	normalizeInputNames(process.env, INPUT_NAMES, CONFIG_FILE_INPUTS.lists);
+	let localOverride = await readLocalImageOverride(process.env, () => {}), plan = planPostCleanup(COMPOSE_FILE, void 0, process.env, {
+		savedBuilderName: getState("builder_name"),
+		composeOverlay: localOverride?.composeOverlay
 	});
+	plan ? (0, node_child_process.execFileSync)("docker", plan.args, {
+		stdio: "inherit",
+		env: plan.env
+	}) : info("No builder to remove: the setup step stopped before it named one.");
 }
-process.argv[1] === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main();
+process.argv[1] && (0, node_fs.realpathSync)(process.argv[1]) === (0, node_url.fileURLToPath)(require("url").pathToFileURL(__filename).href) && main().catch(exitOnFatalError("post"));
 //#endregion

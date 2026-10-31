@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   buildDockerCpArgs,
   buildComposeUpArgs,
@@ -21,7 +22,7 @@ describe("buildDockerCpArgs", () => {
 describe("buildComposeUpArgs", () => {
   it("always includes -p <projectName> alongside -f <composeFile>", () => {
     const args = buildComposeUpArgs({
-      composeFile: "/path/to/compose.yaml",
+      composeFiles: ["/path/to/compose.yaml"],
       projectName: "buildcage-proxy-abcd1234",
       pullPolicy: "always",
     });
@@ -48,7 +49,7 @@ describe("buildComposeLogsArgs", () => {
   it("builds a tailed, uncolored `docker compose ... logs` argv", () => {
     expect(
       buildComposeLogsArgs({
-        composeFile: "/path/to/compose.yaml",
+        composeFiles: ["/path/to/compose.yaml"],
         projectName: "buildcage-proxy-abcd1234",
         tail: 100,
       }),
@@ -67,9 +68,18 @@ describe("buildComposeLogsArgs", () => {
 });
 
 describe("buildComposeDownArgs", () => {
-  it("always includes -p <projectName> alongside -f <composeFile>", () => {
+  it("passes every compose file in order, so a later one overrides an earlier one", () => {
+    expect(
+      buildComposeDownArgs({
+        composeFiles: ["/path/to/compose.yaml", "/path/to/overlay.yaml"],
+        projectName: "buildcage-proxy-abcd1234",
+      }).slice(0, 5),
+    ).toStrictEqual(["compose", "-f", "/path/to/compose.yaml", "-f", "/path/to/overlay.yaml"]);
+  });
+
+  it("includes -p <projectName> alongside -f <composeFile>, and removes volumes", () => {
     const args = buildComposeDownArgs({
-      composeFile: "/path/to/compose.yaml",
+      composeFiles: ["/path/to/compose.yaml"],
       projectName: "buildcage-proxy-abcd1234",
     });
     expect(args).toStrictEqual([
@@ -79,6 +89,7 @@ describe("buildComposeDownArgs", () => {
       "-p",
       "buildcage-proxy-abcd1234",
       "down",
+      "-v",
     ]);
   });
 });

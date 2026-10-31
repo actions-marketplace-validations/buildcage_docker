@@ -2,7 +2,7 @@
 #
 # The audit-then-restrict round trip, which is what the inspect engine is for.
 #
-# Phase 1 runs a build under `audit` and takes the `allowed_url_rules` the
+# Phase 1 runs a build under `audit` and takes the `allowed-url-rules` the
 # report generated from what it saw. Phase 2 restarts under `restrict` with
 # exactly those rules and repeats every request plus a few the first build
 # never made: rules that break the build they were learned from make the
@@ -25,17 +25,10 @@ TEST_IMAGE="${TEST_IMAGE:-buildcage-test}"
 TEST_PLATFORM="${TEST_PLATFORM:-linux/arm64}"
 export BUILDER_NAME
 
-BASE_COMPOSE="compose.yaml:compose.test-inspect.yaml"
-OVERRIDE=$(mktemp -t buildcage-roundtrip-XXXXXX.yaml)
-trap 'rm -f "$OVERRIDE"' EXIT
+export BUILDCAGE_TEST_COMPOSE_OVERLAY=docker/compose.action.test-inspect.yaml
 
 start() {
-  local mode="$1" compose="$2"
-  COMPOSE_FILE="$compose" PROXY_ENGINE=inspect PROXY_MODE="$mode" \
-    docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --build >/dev/null
-  docker buildx rm "$BUILDER_NAME" >/dev/null 2>&1 || true
-  docker buildx create --bootstrap --name "$BUILDER_NAME" \
-    --driver remote "docker-container://$BUILDER_NAME" >/dev/null
+  ./test/setup-builder.sh inspect "$1" >/dev/null
 }
 
 build() {
@@ -45,7 +38,7 @@ build() {
 
 echo ""
 echo "=== Phase 1: check the audit run and learn the rules from it ==="
-start audit "$BASE_COMPOSE"
+start audit
 build test/Dockerfile.inspect-audit
 
 # The only build of Dockerfile.inspect-audit in the suite, so the audit-mode
@@ -53,20 +46,20 @@ build test/Dockerfile.inspect-audit
 ./test/assert-inspect-audit.sh
 
 RULES=$(
-  COMPOSE_FILE="$BASE_COMPOSE" GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 |
-    # Stops at the next top-level key (allowed_tls_rules/allowed_ip_rules are
+  GITHUB_STEP_SUMMARY= node report/src/main.ts 2>&1 |
+    # Stops at the next top-level key (allowed-tls-rules/allowed-ip-rules are
     # echoed into the same fenced block, see inspect-example.ts) as well as
-    # the closing fence, so only the allowed_url_rules value is captured.
+    # the closing fence, so only the allowed-url-rules value is captured.
     awk '
-      /allowed_url_rules: \|/ { capture=1; next }
-      capture && /^ *(allowed_tls_rules|allowed_ip_rules): \|/ { exit }
+      /allowed-url-rules: \|/ { capture=1; next }
+      capture && /^ *(allowed-tls-rules|allowed-ip-rules): \|/ { exit }
       capture && /```/ { exit }
       capture { print }
     ' | sed 's/^ *//'
 )
 
 if [ -z "$RULES" ]; then
-  echo "❌ FAILED: the audit report generated no allowed_url_rules"
+  echo "❌ FAILED: the audit report generated no allowed-url-rules"
   exit 1
 fi
 
@@ -74,27 +67,13 @@ echo ""
 echo "Rules generated from the audit run:"
 sed 's/^/    /' <<< "$RULES"
 
-# Written as a compose override so phase 2 is configured by nothing but this,
-# with every host and TLS rule cleared: the URL rules have to stand alone.
-{
-  echo "services:"
-  echo "  builder:"
-  echo "    environment:"
-  echo "      - ALLOWED_HTTPS_RULES="
-  echo "      - ALLOWED_HTTP_RULES="
-  echo "      - ALLOWED_TLS_RULES="
-  # One YAML scalar with escaped newlines, since a URL rule contains a space.
-  # awk rather than `sed -z`, which is GNU-only and silently yields nothing on
-  # a BSD sed.
-  printf '      - "ALLOWED_URL_RULES=%s"\n' \
-    "$(awk 'NR>1{printf "\\n"} {printf "%s", $0}' <<< "$RULES")"
-} > "$OVERRIDE"
-
 echo ""
 echo "=== Phase 2: enforce them, unedited ==="
-start restrict "$BASE_COMPOSE:$OVERRIDE"
+# Every host and TLS rule cleared: the URL rules have to stand alone.
+ALLOWED_HTTPS_RULES='' ALLOWED_HTTP_RULES='' ALLOWED_TLS_RULES='' ALLOWED_URL_RULES="$RULES" \
+  start restrict
 build test/Dockerfile.inspect-roundtrip
 
 echo ""
-echo "✅ The generated rules permit everything the audit run did, and refuse what it never did."
+echo "✅ The generated rules permit everything the audit run did, and block what it never did."
 echo ""

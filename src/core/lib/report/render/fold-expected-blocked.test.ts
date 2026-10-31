@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { foldExpectedBlockedRows } from "./fold-expected-blocked.ts";
 import type { HostTableRow } from "./host-table.ts";
 
@@ -20,7 +21,7 @@ describe("foldExpectedBlockedRows", () => {
       row({ host: "b.sury.org", count: 3 }),
     ]);
     expect(folded.length).toBe(1);
-    expect(folded[0].display).toBe("*.sury.org:* (2 hosts)");
+    expect([folded[0].host, folded[0].note]).toStrictEqual(["*.sury.org:*", "(2 hosts)"]);
     expect(folded[0].count).toBe(5);
     expect(folded[0].expected).toBe(true);
   });
@@ -32,7 +33,10 @@ describe("foldExpectedBlockedRows", () => {
   });
 
   it("says host, not hosts, when the rule matched only one", () => {
-    expect(foldExpectedBlockedRows([row()])[0].display).toBe("*.sury.org:* (1 host)");
+    expect([
+      foldExpectedBlockedRows([row()])[0].host,
+      foldExpectedBlockedRows([row()])[0].note,
+    ]).toStrictEqual(["*.sury.org:*", "(1 host)"]);
   });
 
   it("counts one host blocked on two ports once", () => {
@@ -40,7 +44,7 @@ describe("foldExpectedBlockedRows", () => {
       row({ port: "443", ruleType: "HTTPS", reason: "https-not-allowed" }),
       row({ port: "8443", ruleType: "HTTPS", reason: "https-not-allowed" }),
     ]);
-    expect(folded[0].display).toBe("*.sury.org:* (1 host)");
+    expect([folded[0].host, folded[0].note]).toStrictEqual(["*.sury.org:*", "(1 host)"]);
     expect(folded[0].count).toBe(2);
   });
 
@@ -57,7 +61,7 @@ describe("foldExpectedBlockedRows", () => {
     const unmatched = row({ host: "evil.example.com", expected: false, expectedBy: undefined });
     const folded = foldExpectedBlockedRows([row(), unmatched]);
     expect(folded[0]).toStrictEqual(unmatched);
-    expect(folded[1].display).toBe("*.sury.org:* (1 host)");
+    expect([folded[1].host, folded[1].note]).toStrictEqual(["*.sury.org:*", "(1 host)"]);
   });
 
   it("preserves the order of the rows no rule matched", () => {
@@ -123,7 +127,7 @@ describe("foldExpectedBlockedRows: grouping key and tie-break", () => {
       anyRow({ host: "z.example.com", expectedBy: "z.example.com:*" }),
       anyRow({ host: "a.example.com", expectedBy: "a.example.com:*" }),
     ]);
-    expect(folded.map((r) => r.display)).toStrictEqual([
+    expect(folded.map((r) => `${r.host} ${r.note}`)).toStrictEqual([
       "a.example.com:* (1 host)",
       "z.example.com:* (1 host)",
     ]);
@@ -157,8 +161,8 @@ describe("foldExpectedBlockedRows: two groups one rule produced", () => {
 });
 
 describe("foldExpectedBlockedRows: a tie broken the other way", () => {
-  // The tie-break has to hold whichever order the rows arrived in, so this is
-  // the mirror of the case above.
+  // The tie-break has to hold whichever order the rows arrived in, so this
+  // mirrors "breaks a tie on count by rule text".
   it("keeps rules in order when they already are", () => {
     const row = (expectedBy: string): HostTableRow => ({
       host: "a.example.com",
@@ -170,7 +174,7 @@ describe("foldExpectedBlockedRows: a tie broken the other way", () => {
       expectedBy,
     });
     const folded = foldExpectedBlockedRows([row("a.example.com:*"), row("z.example.com:*")]);
-    expect(folded.map((r) => r.display)).toStrictEqual([
+    expect(folded.map((r) => `${r.host} ${r.note}`)).toStrictEqual([
       "a.example.com:* (1 host)",
       "z.example.com:* (1 host)",
     ]);

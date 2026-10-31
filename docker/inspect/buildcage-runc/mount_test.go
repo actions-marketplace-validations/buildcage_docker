@@ -34,6 +34,41 @@ func TestGroupTargetsByBind(t *testing.T) {
 	}
 }
 
+// A group under another is folded into the outermost one; siblings, and a
+// directory that only shares a prefix, are not.
+func TestMergeNestedGroups(t *testing.T) {
+	groups := map[string][]string{
+		"/r/etc/ssl":       {"corp.pem"},
+		"/r/etc/ssl/certs": {"ca-certificates.crt"},
+		"/r/opt/a":         {"ca.pem"},
+		"/r/opt/a/b":       {"ca.pem"},
+		"/r/opt/a/b/c":     {"ca.pem"},
+		"/r/opt/ab":        {"ca.pem"},
+	}
+	merged, parts := mergeNestedGroups(groups)
+
+	want := map[string][]string{
+		"/r/etc/ssl": {"certs/ca-certificates.crt", "corp.pem"},
+		"/r/opt/a":   {"b/c/ca.pem", "b/ca.pem", "ca.pem"},
+		"/r/opt/ab":  {"ca.pem"},
+	}
+	if len(merged) != len(want) {
+		t.Fatalf("got %v, want %v", merged, want)
+	}
+	for dir, names := range want {
+		got := merged[dir]
+		slices.Sort(got)
+		if !slices.Equal(got, names) {
+			t.Errorf("%s = %v, want %v", dir, got, names)
+		}
+	}
+	got := parts["/r/opt/a"]
+	slices.Sort(got)
+	if want := []string{"/r/opt/a", "/r/opt/a/b", "/r/opt/a/b/c"}; !slices.Equal(got, want) {
+		t.Errorf("parts of /r/opt/a = %v, want %v", got, want)
+	}
+}
+
 // The store is prepared first so a nesting target never displaces it, and the
 // rest follow in a fixed order rather than map order, so which of two nesting
 // directories wins does not change from run to run.
@@ -104,6 +139,22 @@ func TestContainerPathOfRefusesAnythingButAPathInsideTheRootfs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := containerPathOf(rootfs, resolved); got != "/" {
 				t.Errorf("containerPathOf(%q, %q) = %q, want %q", rootfs, resolved, got, "/")
+			}
+		})
+	}
+}
+
+// The result becomes a mount destination, which runc needs as an absolute
+// path. A rootfs of "/" or one ending in a separator leaves no leading slash.
+func TestContainerPathOfAlwaysReturnsAnAbsolutePath(t *testing.T) {
+	cases := map[string]struct{ rootfs, resolved string }{
+		"rootfs is /":                {"/", "/etc/ssl"},
+		"rootfs ends in a separator": {"/run/bundle/rootfs/", "/run/bundle/rootfs/etc/ssl"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := containerPathOf(c.rootfs, c.resolved); got != "/etc/ssl" {
+				t.Errorf("containerPathOf(%q, %q) = %q, want %q", c.rootfs, c.resolved, got, "/etc/ssl")
 			}
 		})
 	}
@@ -349,7 +400,7 @@ func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
 				containerDir: "/custom",
 				scratchDir:   scratch,
 				bundleFiles:  []string{"roots.pem"},
-				custom:       true,
+				limit:        customDirLimit,
 			}
 			if err := b.prepare(testCA); err == nil {
 				t.Fatal("expected prepare to refuse the directory")
@@ -361,7 +412,8 @@ func TestPrepareRefusesACustomDirOverTheLimits(t *testing.T) {
 	}
 }
 
-// findSystemStore bounds it under limits of its own.
+// The store directory is bounded by findSystemStore's own limits, not the
+// custom ones.
 func TestPrepareDoesNotHoldTheStoreDirToTheCustomLimits(t *testing.T) {
 	useFakeRsync(t)
 	rootfs := t.TempDir()
@@ -453,8 +505,8 @@ func TestWriteBackReportsAFailedDryRun(t *testing.T) {
 	useFakeRsync(t)
 	scratch, hostDir := t.TempDir(), t.TempDir()
 	mustWriteFile(t, filepath.Join(scratch, "ca-certificates.crt"), "REGENERATED\n")
-	// failRsyncOn first, so the counter wraps it and sees every call.
-	failRsyncOn(t, 1)
+	// failRsyncWhen first, so the counter wraps it and sees every call.
+	failRsyncWhen(t, isRsyncDryRun)
 	calls := countRsync(t)
 
 	if err := writeBack(scratch, hostDir); err == nil {
@@ -462,6 +514,44 @@ func TestWriteBackReportsAFailedDryRun(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Errorf("got %d rsync invocations, want 1: the apply must not follow a failed dry run", *calls)
+	}
+}
+
+// The fakes pick out a call by its arguments, so each matcher has to accept
+// the call it names, as the code makes it, and no other.
+func TestRsyncMatchersRecogniseEachCall(t *testing.T) {
+	useFakeRsync(t)
+	var calls [][]string
+	orig := runRsync
+	runRsync = func(args []string) ([]byte, error) {
+		calls = append(calls, args)
+		return orig(args)
+	}
+	t.Cleanup(func() { runRsync = orig })
+	hostDir := t.TempDir()
+	scratch := filepath.Join(scratchRoot, "mirror")
+
+	if err := mirrorDir(hostDir, scratch); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBack(scratch, hostDir); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"mirror", "dry run", "apply"}
+	if len(calls) != len(want) {
+		t.Fatalf("got %d rsync calls, want %d: %v", len(calls), len(want), calls)
+	}
+	for i, args := range calls {
+		got := map[string]bool{"mirror": isRsyncMirror(args), "dry run": isRsyncDryRun(args), "apply": isRsyncApply(args)}
+		for name, matched := range got {
+			if matched != (name == want[i]) {
+				t.Errorf("call %d, the %s, %v: %s matcher says %v", i, want[i], args, name, matched)
+			}
+		}
+	}
+	if rsyncSrc([]string{"--version"}) != "" || rsyncDst(nil) != "" {
+		t.Error("a call without operands should have no source or destination")
 	}
 }
 
@@ -524,7 +614,7 @@ func TestPrepareReportsADirectoryItCannotMeasure(t *testing.T) {
 		containerDir: "/not-there",
 		scratchDir:   scratch,
 		bundleFiles:  []string{"roots.pem"},
-		custom:       true,
+		limit:        customDirLimit,
 	}
 
 	if err := b.prepare(testCA); err == nil {
@@ -536,7 +626,7 @@ func TestPrepareReportsAMirrorThatFailed(t *testing.T) {
 	useFakeRsync(t)
 	b, _ := newCAStoreBind(t)
 	// prepare already ran once in the fixture; run it again with rsync failing.
-	failRsyncOn(t, 1)
+	failRsyncWhen(t, isRsyncMirror)
 
 	if err := b.prepare(testCA); err == nil {
 		t.Fatal("expected the mirror's failure to propagate")
@@ -578,9 +668,9 @@ func TestPrepareLeavesABundleFileItCannotOpen(t *testing.T) {
 }
 
 // The write-back target is re-resolved before anything is written. A
-// destination that now points outside the rootfs fails the step rather than
-// being followed, since the wrapper runs as root on the host.
-func TestFinishRefusesATargetThatNowEscapesTheRootfs(t *testing.T) {
+// destination that now climbs past the rootfs lands on another directory in
+// it, and fails the step rather than being written to.
+func TestFinishRefusesATargetThatNowClimbsPastTheRootfs(t *testing.T) {
 	useFakeRsync(t)
 	b, rootfs := newCAStoreBind(t)
 	mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
@@ -591,8 +681,26 @@ func TestFinishRefusesATargetThatNowEscapesTheRootfs(t *testing.T) {
 
 	calls := countRsync(t)
 	err := b.finish()
-	if !errors.Is(err, errEscapesRoot) {
-		t.Fatalf("got %v, want it to name errEscapesRoot", err)
+	if err == nil || !strings.Contains(err.Error(), "now resolves to "+filepath.Join(rootfs, "etc/certs")) {
+		t.Fatalf("got %v, want the moved target to be refused", err)
+	}
+	if *calls != 0 {
+		t.Errorf("got %d rsync invocations, want none before the target is verified", *calls)
+	}
+}
+
+func TestFinishReportsATargetThatNoLongerResolves(t *testing.T) {
+	useFakeRsync(t)
+	b, rootfs := newCAStoreBind(t)
+	mustWriteFile(t, filepath.Join(b.scratchDir, "ca-certificates.crt"), "REGENERATED\n")
+	if err := os.RemoveAll(filepath.Join(rootfs, "etc/ssl")); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, "ssl", filepath.Join(rootfs, "etc/ssl"))
+
+	calls := countRsync(t)
+	if err := b.finish(); !errors.Is(err, errTooManySymlinks) {
+		t.Fatalf("got %v, want the symlink loop reported", err)
 	}
 	if *calls != 0 {
 		t.Errorf("got %d rsync invocations, want none before the target is verified", *calls)
@@ -866,7 +974,7 @@ func TestFinishWritesNothingBackWhenItCannotResetAnMtime(t *testing.T) {
 
 // coverKeystore folds a keystore that sits inside an already-mirrored directory
 // into that bind: it injects into the mirror's copy and re-captures the baseline
-// so the gatekeeper counts the injection.
+// so finish's unchanged check counts the injection.
 func TestCoverKeystoreInjectsAndRecapturesBaseline(t *testing.T) {
 	scratch := t.TempDir()
 	mustMkdirAll(t, filepath.Join(scratch, "java"))
@@ -896,6 +1004,21 @@ func TestCoverKeystoreLeavesBaselineWhenInjectionFails(t *testing.T) {
 
 	if b.baseline != nil {
 		t.Fatal("the baseline was re-captured though the injection failed")
+	}
+}
+
+func TestCoverKeystoreMarksAHalfWrittenKeystore(t *testing.T) {
+	scratch := t.TempDir()
+	mustWriteFile(t, filepath.Join(scratch, "cacerts"),
+		string(keystore(2, trustedEntry(2, "digicert", otherDER))))
+	b := &dirBind{scratchDir: scratch, containerDir: "/x"}
+	useBrokenBundleFile(t, &brokenFile{shortWriteAt: 1})
+
+	b.coverKeystore("cacerts", testCA)
+
+	if !errors.Is(b.halfWritten, errKeystoreHalfWritten) ||
+		!strings.Contains(b.halfWritten.Error(), "/x/cacerts") {
+		t.Fatalf("got %v, want the bind marked half-written, naming /x/cacerts", b.halfWritten)
 	}
 }
 

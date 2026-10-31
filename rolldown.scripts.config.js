@@ -1,4 +1,5 @@
 import { globSync } from "node:fs";
+
 import { defineConfig } from "rolldown";
 
 // Small standalone scripts baked into the built Docker images, as opposed
@@ -30,7 +31,7 @@ function settingsFor(input) {
         stripSuffix: /\.node\.ts$/,
         external: [/^node:/],
         platform: "node",
-        // report-action.node.ts only uses core.getInput/summary, but
+        // report-action.node.ts uses only a few @actions/core helpers, but
         // @actions/core statically imports @actions/http-client (for the
         // unused getIDToken) which pulls in all of undici otherwise.
         treeshake: {
@@ -51,8 +52,8 @@ const baseOutput = {
   },
 };
 
-// Unset BUILD_TARGET builds everything but qjs-test (an image Dockerfile
-// that doesn't need report-action.node.ts requests "qjs" explicitly).
+// Unset BUILD_TARGET builds every image script; qjs-test is built only on
+// request.
 const target = process.env.BUILD_TARGET;
 const scriptInputs =
   target === "qjs"

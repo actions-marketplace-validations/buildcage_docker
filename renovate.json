@@ -3,7 +3,8 @@
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "description": [
     "ignorePaths is spelled out because config:recommended's :ignoreModulesAndTests preset ignores **/test/**, and every fixture image and probe pin lives under test/. Left to the preset they are managed by nothing, so they drift behind the engine images' own base.",
-    "lockFileMaintenance is how transitive dependencies get updated at all. Renovate cannot apply minimumReleaseAge to it; pnpm does, from pnpm-workspace.yaml, when it regenerates the lockfile."
+    "lockFileMaintenance is how transitive dependencies get updated at all. It has no release timestamp, so Renovate's minimumReleaseAge would keep it pending forever and is \"0 days\" there; pnpm applies the one in pnpm-workspace.yaml when it regenerates the lockfile.",
+    "lockFileMaintenance has its own default schedule, so it repeats the weekly one."
   ],
   "ignorePaths": [
     "**/node_modules/**",
@@ -12,17 +13,21 @@
     "**/examples/**",
     "**/__fixtures__/**"
   ],
+  "timezone": "Asia/Tokyo",
   "schedule": ["* * * * 6"],
   "minimumReleaseAge": "14 days",
-  "lockFileMaintenance": { "enabled": true, "schedule": ["* * * * 6"] },
-  "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* * * * 6"],
+    "minimumReleaseAge": "0 days"
+  },
   "customManagers": [
     {
       "customType": "regex",
       "managerFilePatterns": ["/^docker/universal/Dockerfile$/", "/^docker/inspect/Dockerfile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG CNI_VERSION=(?<currentValue>v[\\d.]+)",
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG COREDNS_VERSION=(?<currentValue>[\\d.]+)",
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG [A-Z]+_VERSION=(?<currentValue>v[\\d.]+)\\n",
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) digestVersion=(?<currentValue>v[\\d.]+)\\nARG [A-Z]+_SHA256_[A-Z0-9]+=(?<currentDigest>[a-f0-9]{64})\\n",
         "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nARG HAPROXY_ALPINE_BRANCH=(?<currentValue>[\\d.]+)"
       ]
     },
@@ -37,7 +42,8 @@
       "customType": "regex",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nMOBY_PROFILES_SECCOMP_VERSION \\?= (?<currentValue>v[\\d.]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nMOBY_PROFILES_SECCOMP_VERSION \\?= (?<currentValue>v[\\d.]+)",
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\nTEST_[A-Z0-9_]+_IMAGE \\?= [^:\\s]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ]
     },
     {
@@ -52,15 +58,20 @@
   ],
   "packageRules": [
     {
-      "description": "Self-referencing actions (buildcage/docker*) are exempt from minimumReleaseAge, matching the previous Dependabot cooldown exclusion, and from the weekly schedule, so a new release lands right away.",
-      "matchPackageNames": ["/^buildcage\\/docker/"],
+      "description": "Actions from the buildcage org are exempt from minimumReleaseAge and from the weekly schedule, so a new release lands right away.",
+      "matchPackageNames": ["/^buildcage\\//"],
       "minimumReleaseAge": "0 days",
       "schedule": ["at any time"]
     },
     {
-      "description": "@vitest/coverage-v8 must equal the vitest that vite-plus bundles, which Renovate cannot see, so pin it by hand when upgrading vite-plus instead of letting Renovate bump it.",
-      "matchPackageNames": ["@vitest/coverage-v8"],
+      "description": "@vitest/coverage-v8 and @vitest/expect must equal the vitest that vite-plus bundles, which Renovate cannot see, so pin them by hand when upgrading vite-plus instead of letting Renovate bump them.",
+      "matchPackageNames": ["@vitest/coverage-v8", "@vitest/expect"],
       "enabled": false
+    },
+    {
+      "description": "CoreDNS still publishes its 2016-2017 tags v001 to v011, which Renovate ranks as majors 1 to 11, so only x.y.z releases are candidates.",
+      "matchPackageNames": ["coredns/coredns"],
+      "allowedVersions": "/^v?\\d+\\.\\d+\\.\\d+$/"
     },
     {
       "description": "buildcage-runc builds this fork through a replace. The fork also has upstream's tags, which semver ranks above the -buildcage.N prereleases, so only those are candidates. The tags are ours, so no release-age wait.",
@@ -69,6 +80,13 @@
       "allowedVersions": "/-buildcage\\.\\d+$/",
       "ignoreUnstable": false,
       "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "eclipse-temurin 17 is the JKS case of the Java tests, so it stays on 17.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["eclipse-temurin"],
+      "matchCurrentValue": "/^17$/",
+      "allowedVersions": "<18"
     },
     {
       "description": "Overridden by the replace above. An upstream release arrives as a new fork tag instead.",

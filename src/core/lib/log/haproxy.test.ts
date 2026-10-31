@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
+
 import { scanHaproxyLog } from "./haproxy.ts";
 
-/** A decision line in the format the log-format template emits. */
+/** A decision line in the format the universal engine's log-format emits. */
 const line = (
   decision: string,
   ruleType: string,
@@ -29,6 +30,17 @@ describe("scanHaproxyLog", () => {
         bytes: 1200,
       },
     ]);
+  });
+
+  it("keeps the trailing dot of an SNI and drops a Host's", async () => {
+    const { events } = await scanHaproxyLog(
+      [
+        line("BLOCKED", "HTTPS", "Example.com.:443", "not-allowed"),
+        line("ALLOWED", "HTTP", "Example.com.:80", "-"),
+      ],
+      false,
+    );
+    expect(events.map((e) => e.host)).toStrictEqual(["example.com.", "example.com"]);
   });
 
   it("reads an AUDIT line as an audited event when isAudit is true", async () => {
@@ -80,12 +92,85 @@ describe("scanHaproxyLog", () => {
     expect(events[0].bytes).toBeUndefined();
   });
 
-  it("maps an UNKNOWN rule kind to a tcp connection", async () => {
+  it("maps a rule kind it does not know to a tcp connection", async () => {
+    // The config overwrites its UNKNOWN default on every path that logs, so
+    // this guards the fallback rather than a line the proxy writes.
     const { events } = await scanHaproxyLog(
       [line("BLOCKED", "UNKNOWN", "10.0.0.9:1234", "-")],
       false,
     );
     expect(events[0].protocol).toBe("tcp");
+  });
+
+  /** http_in's line for a connection no request parsed on. */
+  const noRequest = (ts: string, dst = "198.19.255.1:22") =>
+    `buildcage 1787471970000 [-] (HTTP) "-" - 0 ts=${ts} dst=${dst}`;
+
+  it("reads bytes the HTTP stage blocked as no request as a block, in audit too", async () => {
+    for (const isAudit of [false, true]) {
+      const { events, unparsed } = await scanHaproxyLog([noRequest("PR")], isAudit);
+      expect(unparsed).toBe(0);
+      expect(events).toStrictEqual([
+        {
+          time: 1787471970,
+          action: "block",
+          protocol: "http",
+          host: "(unknown)",
+          port: 22,
+          reason: "bad-request",
+        },
+      ]);
+    }
+  });
+
+  it("leaves a connection the client ended before a request undecided", async () => {
+    const { events } = await scanHaproxyLog(
+      [noRequest("CR"), noRequest("cR"), noRequest("RR")],
+      false,
+    );
+    expect(events.map((e) => `${e.action} ${e.reason}`)).toStrictEqual([
+      "incomplete client-aborted",
+      "incomplete client-timeout",
+      "incomplete no-request",
+    ]);
+  });
+
+  it("keeps an address other than the proxy's own as the host", async () => {
+    const [e] = (await scanHaproxyLog([noRequest("PR", "10.0.0.9:25")], false)).events;
+    expect(e.host).toBe("10.0.0.9");
+    expect(e.port).toBe(25);
+  });
+
+  it("reads a decided line from the HTTP stage, ignoring what it appends", async () => {
+    const { events, unparsed } = await scanHaproxyLog(
+      [
+        `${line("BLOCKED", "HTTP", "198.19.255.1:80", "missing-host-header")} ts=PR dst=198.19.255.1:80`,
+        `${line("ALLOWED", "HTTP", "a.com:80", "-", 12)} ts=-- dst=198.19.255.1:80`,
+      ],
+      false,
+    );
+    expect(unparsed).toBe(0);
+    expect(
+      events.map((e) => `${e.action} ${e.host}:${e.port} ${e.reason ?? e.bytes}`),
+    ).toStrictEqual(["block (unknown):80 missing-host-header", "allow a.com:80 12"]);
+  });
+
+  it("keeps an address the build wrote out itself as the host", async () => {
+    const { events } = await scanHaproxyLog(
+      [line("BLOCKED", "IP", "198.19.255.10:22", "ip-not-allowed")],
+      false,
+    );
+    expect(events[0].host).toBe("198.19.255.10");
+  });
+
+  it("counts a line whose every field is empty but carries no state as unparsed", async () => {
+    // No state or destination to read it by.
+    const { events, unparsed } = await scanHaproxyLog(
+      ['buildcage 1790532433493 [-] (-) "-" - 0'],
+      false,
+    );
+    expect(events).toStrictEqual([]);
+    expect(unparsed).toBe(1);
   });
 
   it("reads a target with no port as a portless event", async () => {
@@ -106,7 +191,7 @@ describe("scanHaproxyLog", () => {
     expect(unparsed).toBe(0);
   });
 
-  it("counts a decision line it cannot read, since it may have been a refusal", async () => {
+  it("counts a decision line it cannot read, since it may have been a block", async () => {
     const log = [
       line("ALLOWED", "HTTPS", "example.com:443", "-", 10),
       `buildcage 1787471970001 [BLOCKED] (HTTPS) "bad.com:4buildcage 1787471970002 [BLOCKED] (HTTPS) "worse.com:443" not-allowed 0`,
@@ -154,6 +239,13 @@ describe("scanHaproxyLog", () => {
       false,
     );
     expect(headIntact).toBe(true);
+  });
+
+  it("counts a startup marker after the first line as a restart", async () => {
+    const allowed = line("ALLOWED", "HTTPS", "a.com:443", "-");
+    expect((await scanHaproxyLog([MARKER, allowed, MARKER], false)).restarts).toBe(1);
+    expect((await scanHaproxyLog([allowed, MARKER], false)).restarts).toBe(1);
+    expect((await scanHaproxyLog([MARKER, allowed], false)).restarts).toBe(0);
   });
 
   it("headIntact ignores blank lines when deciding", async () => {

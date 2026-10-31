@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
+
+import { UNINTERRUPTED } from "#core/lib/test/report-data.node.ts";
+
 import {
   determineBlockedOutcome,
   buildBlockedMessage,
   describeBlockedOutcome,
+  describeInterruptions,
   type BuildBlockedMessageOptions,
   type DescribeBlockedOutcomeOptions,
   type DetermineBlockedOutcomeOptions,
@@ -16,6 +20,8 @@ const decide = (overrides: Partial<DetermineBlockedOutcomeOptions> = {}) =>
     blockedCount: 2,
     blockedRows: [{ expected: false }],
     logLooksPlausible: true,
+    proxyAnswered: true,
+    resolverAnswered: true,
     ...overrides,
   });
 
@@ -24,7 +30,6 @@ const message = (overrides: Partial<BuildBlockedMessageOptions> = {}) =>
     blockedCount: 2,
     blockedRows: [{ expected: false }, { expected: false }],
     engineLabel: "sandbox",
-    engine: "universal",
     isAudit: false,
     ...overrides,
   });
@@ -36,8 +41,8 @@ const described = (overrides: Partial<DescribeBlockedOutcomeOptions> = {}) =>
     blockedCount: 1,
     blockedRows: [{ expected: false }],
     logLooksPlausible: true,
+    ...UNINTERRUPTED,
     engineLabel: "proxy",
-    engine: "universal",
     ...overrides,
   });
 
@@ -50,7 +55,7 @@ describe("determineBlockedOutcome", () => {
     expect(decide({ isAudit: true })).toStrictEqual({ level: "notice", shouldFail: false });
   });
 
-  it("returns notice (not error) when every blocked row matched known_blocked_rules", () => {
+  it("returns notice (not error) when every blocked row matched known-blocked-rules", () => {
     expect(
       decide({ blockedCount: 3, blockedRows: [{ expected: true }, { expected: true }] }),
     ).toStrictEqual({ level: "notice", shouldFail: false });
@@ -109,22 +114,74 @@ describe("determineBlockedOutcome", () => {
       }
     });
   });
+
+  it.each([
+    { service: "proxy", answered: { proxyAnswered: false } },
+    { service: "resolver", answered: { resolverAnswered: false } },
+  ])(
+    "fails whatever the mode or failOnBlocked when the $service did not answer",
+    ({ answered }) => {
+      for (const isAudit of [false, true]) {
+        for (const failOnBlocked of [false, true]) {
+          expect(
+            decide({
+              isAudit,
+              failOnBlocked,
+              blockedCount: 0,
+              blockedRows: [],
+              logLooksPlausible: false,
+              ...answered,
+            }),
+          ).toStrictEqual({ level: "error", shouldFail: true });
+        }
+      }
+    },
+  );
+});
+
+describe("describeInterruptions", () => {
+  it("names nothing for a run nothing interrupted", () => {
+    expect(describeInterruptions(UNINTERRUPTED)).toStrictEqual([]);
+  });
+
+  it("names a proxy that did not answer", () => {
+    expect(describeInterruptions({ ...UNINTERRUPTED, proxyAnswered: false })).toStrictEqual([
+      "The proxy did not answer the report, so it stopped or hung during the run. Requests made while it was down failed rather than going around it.",
+      "The step fails for this whatever the mode or fail-on-blocked.",
+    ]);
+  });
+
+  it("names a resolver that did not answer", () => {
+    expect(describeInterruptions({ ...UNINTERRUPTED, resolverAnswered: false })).toStrictEqual([
+      "The DNS resolver did not answer the report, so it stopped or hung during the run. Lookups made while it was down failed and left no line.",
+      "The step fails for this whatever the mode or fail-on-blocked.",
+    ]);
+  });
+
+  it("says once that the step fails when neither service answered", () => {
+    expect(
+      describeInterruptions({ ...UNINTERRUPTED, proxyAnswered: false, resolverAnswered: false }),
+    ).toStrictEqual([
+      "The proxy did not answer the report, so it stopped or hung during the run. Requests made while it was down failed rather than going around it.",
+      "The DNS resolver did not answer the report, so it stopped or hung during the run. Lookups made while it was down failed and left no line.",
+      "The step fails for this whatever the mode or fail-on-blocked.",
+    ]);
+  });
+
+  it("counts each service's restarts and says what a restart loses", () => {
+    expect(
+      describeInterruptions({ ...UNINTERRUPTED, restarts: { proxy: 2, resolver: 1 } }),
+    ).toStrictEqual([
+      "The proxy restarted 2 time(s) during the run.",
+      "The DNS resolver restarted 1 time(s) during the run.",
+      "A restart loses the line of whatever was still in progress when the service stopped.",
+    ]);
+  });
 });
 
 describe("buildBlockedMessage", () => {
-  it("stays the base text when no rows matched known_blocked_rules", () => {
-    expect(message()).toBe("2 blocked connection(s) detected by buildcage sandbox");
-  });
-
-  // Every other engine takes universal's branch: only inspect's resolver
-  // decides about a name, so only its count can hold a lookup.
-  it("names lookups too under inspect, and connections alone otherwise", () => {
-    expect(message({ engine: "inspect" })).toBe(
-      "2 blocked connection(s) and lookup(s) detected by buildcage sandbox",
-    );
-    expect(message({ engine: "universal" })).toBe(
-      "2 blocked connection(s) detected by buildcage sandbox",
-    );
+  it("stays the base text when no rows matched known-blocked-rules", () => {
+    expect(message()).toBe("2 blocked connection(s) and lookup(s) detected by buildcage sandbox");
   });
 
   it("notes that all rows matched when every row is expected", () => {
@@ -134,13 +191,13 @@ describe("buildBlockedMessage", () => {
         blockedRows: [{ expected: true }, { expected: true }],
         engineLabel: "proxy",
       }),
-    ).toMatch(/all matched known_blocked_rules \(expected\)/);
+    ).toMatch(/all matched known-blocked-rules \(expected\)/);
   });
 
   it("reports the unmatched count when some rows are unexpected", () => {
     expect(
       message({ blockedCount: 3, blockedRows: [{ expected: true }, { expected: false }] }),
-    ).toMatch(/1 of 2 distinct blocked host\(s\) unmatched by known_blocked_rules/);
+    ).toMatch(/1 of 2 distinct blocked host\(s\) unmatched by known-blocked-rules/);
   });
 
   // Audit's outcome never depends on matching (see determineBlockedOutcome),
@@ -153,7 +210,7 @@ describe("buildBlockedMessage", () => {
     ];
     for (const blockedRows of rowSets) {
       expect(message({ blockedCount: 5, blockedRows, isAudit: true })).toBe(
-        "5 blocked connection(s) detected by buildcage sandbox",
+        "5 blocked connection(s) and lookup(s) detected by buildcage sandbox",
       );
     }
   });
@@ -164,7 +221,7 @@ describe("describeBlockedOutcome", () => {
     expect(described()).toStrictEqual({
       level: "error",
       shouldFail: true,
-      message: "1 blocked connection(s) detected by buildcage proxy",
+      message: "1 blocked connection(s) and lookup(s) detected by buildcage proxy",
     });
   });
 
@@ -190,7 +247,7 @@ describe("describeBlockedOutcome", () => {
       level: "error",
       shouldFail: true,
       message:
-        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) still recorded). Either the logs don't begin where a real run does, one carries a line the report cannot read, or the proxy dropped lines it could not write (or could not say whether it had). A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand ordinary requests or a few thousand made as long as a request can be: the report's own tables still count what survived, per host.",
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran (3 blocked connection(s) and lookup(s) still recorded). Either the logs don't begin where a real run does, one carries a line the report cannot read, or the proxy dropped lines it could not write (or could not say whether it had). A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand ordinary requests or a few thousand made as long as a request can be: the report's own tables still count what survived, per host.",
     });
   });
 
@@ -203,10 +260,63 @@ describe("describeBlockedOutcome", () => {
     });
     expect(result.level).toBe("notice");
     expect(result.shouldFail).toBe(false);
-    expect(result.message.startsWith("2 blocked connection(s) detected by buildcage proxy")).toBe(
-      true,
-    );
-    expect(result.message.includes("the logs are incomplete")).toBe(true);
+    expect(
+      result.message.startsWith(
+        "2 blocked connection(s) and lookup(s) detected by buildcage proxy",
+      ),
+    ).toBe(true);
+    expect(result.message).toContain("the logs are incomplete");
+  });
+
+  it("names a restart after audit's notice", () => {
+    expect(
+      described({
+        isAudit: true,
+        blockedCount: 2,
+        blockedRows: [{ expected: false }],
+        logLooksPlausible: false,
+        restarts: { proxy: 1, resolver: 0 },
+      }),
+    ).toStrictEqual({
+      level: "notice",
+      shouldFail: false,
+      message:
+        "2 blocked connection(s) and lookup(s) detected by buildcage proxy, but the logs are incomplete and this is not a full record. The proxy restarted 1 time(s) during the run. A restart loses the line of whatever was still in progress when the service stopped.",
+    });
+  });
+
+  it("fails audit for a proxy that did not answer, naming that before the other causes", () => {
+    expect(
+      described({
+        isAudit: true,
+        blockedCount: 0,
+        blockedRows: [],
+        logLooksPlausible: false,
+        proxyAnswered: false,
+      }),
+    ).toStrictEqual({
+      level: "error",
+      shouldFail: true,
+      message:
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran. The proxy did not answer the report, so it stopped or hung during the run. Requests made while it was down failed rather than going around it. The step fails for this whatever the mode or fail-on-blocked. Other causes may apply too: the logs don't begin where a real run does, one carries a line the report cannot read, or the proxy dropped lines it could not write (or could not say whether it had). A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand ordinary requests or a few thousand made as long as a request can be: the report's own tables still count what survived, per host.",
+    });
+  });
+
+  it("fails audit for a resolver that did not answer, naming that before the other causes", () => {
+    expect(
+      described({
+        isAudit: true,
+        blockedCount: 0,
+        blockedRows: [],
+        logLooksPlausible: false,
+        resolverAnswered: false,
+      }),
+    ).toStrictEqual({
+      level: "error",
+      shouldFail: true,
+      message:
+        "buildcage proxy logs are incomplete, so this report is not a full record of what ran. The DNS resolver did not answer the report, so it stopped or hung during the run. Lookups made while it was down failed and left no line. The step fails for this whatever the mode or fail-on-blocked. Other causes may apply too: the logs don't begin where a real run does, one carries a line the report cannot read, or the proxy dropped lines it could not write (or could not say whether it had). A missing beginning was either removed or rotated out by traffic heavy enough to fill the 100 MB of log kept, which takes a few hundred thousand ordinary requests or a few thousand made as long as a request can be: the report's own tables still count what survived, per host.",
+    });
   });
 
   it("names no count for an incomplete log that recorded none", () => {

@@ -4,9 +4,11 @@ run-name: Test / Unit (${{ github.ref_name }})
 on:
   workflow_dispatch:
 
+  # epic/ branches gather a large change before it lands on main.
   pull_request:
     branches:
       - main
+      - "epic/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,6 +19,7 @@ permissions: {}
 jobs:
   changes:
     runs-on: ubuntu-slim
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -49,6 +52,7 @@ jobs:
               - 'src/**'
               - 'docker/**'
               - 'report/**'
+              - 'test/covfilter/**'
               - 'licenses/**'
               - 'Makefile'
               - 'dist/**'
@@ -61,6 +65,7 @@ jobs:
     # only on pull_request); a skipped need otherwise skips the job unevaluated.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.unit_test == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     name: "unit: test"
@@ -99,7 +104,10 @@ jobs:
           make seccomp_profile
           git diff --exit-code -- docker/seccomp/builder.json
 
+      # A test stuck in a synchronous loop never yields to vitest's own timeout,
+      # so the step limit is what turns a hang into a failure.
       - name: Run unit tests (with coverage)
+        timeout-minutes: 5
         run: make test_unit_coverage
 
       - name: Publish the coverage summary
@@ -113,6 +121,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run unit tests under QuickJS
+        timeout-minutes: 5
         run: make test_unit_qjs
 
   # Single, stably-named required status check for branch protection: the
@@ -121,7 +130,8 @@ jobs:
   # list across files, so branch protection targets one job per file instead.
   unit-tests-passed:
     name: Unit tests passed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
     needs: [changes, unit_test]
     if: always()
     permissions: {}

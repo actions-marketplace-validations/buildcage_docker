@@ -8,17 +8,26 @@
  * Those are only visible from here, so this is where they are tested.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
-import { createDocker } from "#core/lib/docker/client.ts";
-import { REPORT_ACTION_SCRIPT_PATH } from "#core/lib/docker/report-source.ts";
 import { annotate } from "#core/lib/actions/annotation.ts";
+import { applyConfigFile } from "#core/lib/actions/config-file.ts";
+import { normalizeInputNames } from "#core/lib/actions/input-names.ts";
+import { readTrafficArtifactInputs } from "#core/lib/actions/inputs.ts";
+import { createDocker } from "#core/lib/docker/client.ts";
+import { resolveProjectName } from "#core/lib/docker/compose-project-name.ts";
+import {
+  CONFIG_FILE_INPUTS,
+  INPUT_NAMES,
+  REPORT_ACTION_SCRIPT_PATH,
+  dropListInputs,
+} from "#report/report-source.ts";
+
 import { copyFromContainerImage } from "./copy-from-image.ts";
 import { findReportSourceContainer } from "./find-report-source.ts";
-import { readBuilderName, readTrafficArtifactInputs } from "./inputs.ts";
+import { checkFailOnBlocked, readBuilderName } from "./inputs.ts";
 import { runReportScript } from "./run-report-script.ts";
 import { uploadTrafficArtifact } from "./traffic-artifact.ts";
 
@@ -32,7 +41,9 @@ import { uploadTrafficArtifact } from "./traffic-artifact.ts";
  * not the call.
  */
 export interface ReportStepDeps {
+  applyConfigFile: typeof applyConfigFile;
   readBuilderName: typeof readBuilderName;
+  checkFailOnBlocked: typeof checkFailOnBlocked;
   readTrafficArtifactInputs: typeof readTrafficArtifactInputs;
   createDocker: typeof createDocker;
   findReportSourceContainer: typeof findReportSourceContainer;
@@ -43,8 +54,8 @@ export interface ReportStepDeps {
    *  removal. Seams because everything this step writes goes through them. */
   makeScratchDir: () => string;
   removeScratchDir: (dir: string) => void;
-  /** The inputs' own migration and misuse messages. They go to the always-on
-   *  emitter: this action's report is written by the script it launches. */
+  /** The upload's own messages. They go to the always-on emitter: this
+   *  action's report is written by the script it launches. */
   warn: (message: string) => void;
 }
 
@@ -56,7 +67,9 @@ const removeScratchDirTree = (dir: string): void => rmSync(dir, { recursive: tru
 /* v8 ignore stop */
 
 const realDeps: ReportStepDeps = {
+  applyConfigFile,
   readBuilderName,
+  checkFailOnBlocked,
   readTrafficArtifactInputs,
   createDocker,
   findReportSourceContainer,
@@ -78,7 +91,9 @@ export async function runReportStep(
   overrides: Partial<ReportStepDeps> = {},
 ): Promise<void> {
   const {
+    applyConfigFile,
     readBuilderName,
+    checkFailOnBlocked,
     readTrafficArtifactInputs,
     createDocker,
     findReportSourceContainer,
@@ -90,8 +105,17 @@ export async function runReportStep(
     warn,
   } = { ...realDeps, ...overrides };
 
+  // Before any input is read, and before report-action.js inherits this
+  // environment: it reads fail-on-blocked itself.
+  for (const ignored of normalizeInputNames(env, INPUT_NAMES, CONFIG_FILE_INPUTS.lists)) {
+    warn(ignored);
+  }
+  const { warning } = applyConfigFile(env, CONFIG_FILE_INPUTS) ?? {};
+  if (warning) warn(warning);
   const builderName = readBuilderName();
-  const trafficArtifact = readTrafficArtifactInputs(warn);
+  checkFailOnBlocked();
+  const trafficArtifact = readTrafficArtifactInputs();
+  dropListInputs(env);
   // The COMPOSE_PROJECT_NAME override is gated to this repo's own CI/dev
   // testing. The gate reads process.env, not the passed env, so rolldown's
   // replacePlugin folds it to a constant at build time and tree-shakes the
@@ -107,12 +131,23 @@ export async function runReportStep(
   const scratchDir = makeScratchDir();
   // The path is handed to the script, so only a file this step created is
   // ever uploaded.
-  const trafficFile = trafficArtifact.wanted ? join(scratchDir, "traffic.json") : undefined;
+  const trafficFile = trafficArtifact.upload ? join(scratchDir, "traffic.json") : undefined;
   try {
     const reportActionPath = join(scratchDir, "report-action.js");
     copyFromContainerImage(containerId, REPORT_ACTION_SCRIPT_PATH, reportActionPath);
 
-    process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile });
+    process.exitCode = runReportScript(reportActionPath, containerId, { trafficFile, env });
+    // This repo's e2e reads the Job Summary from here: a later step cannot
+    // read GITHUB_STEP_SUMMARY back. Gated like COMPOSE_PROJECT_NAME above.
+    // A script that failed before writing one leaves no file to copy.
+    if (
+      process.env.BUILDCAGE_BUILD_TEST_HOOKS === "1" &&
+      env.BUILDCAGE_TEST_SUMMARY_FILE &&
+      env.GITHUB_STEP_SUMMARY &&
+      existsSync(env.GITHUB_STEP_SUMMARY)
+    ) {
+      copyFileSync(env.GITHUB_STEP_SUMMARY, env.BUILDCAGE_TEST_SUMMARY_FILE);
+    }
   } finally {
     // Uploaded from here so every path that ran the script keeps the file:
     // a failing run is when it is most wanted.

@@ -1,13 +1,12 @@
 #!/bin/bash
 #
-# known_blocked_rules -> the builder container's environment -> the report's
-# exit code.
+# known-blocked-rules -> the setup step -> the builder container's environment
+# -> the report's exit code.
 #
-# The matching itself is unit-tested (blocked-outcome.test.ts), and the action
-# input -> container environment half is what test-e2e.yml's known_blocked_rules
-# job covers. What this covers is the middle: a rule set on the running builder
-# decides whether fail_on_blocked fails the step, and one that matches nothing
-# does not excuse the rest.
+# The matching itself is unit-tested (blocked-outcome.test.ts). What this
+# covers is the rest: a rule set through the setup step decides whether
+# fail-on-blocked fails the step, and one that matches nothing does not excuse
+# the rest.
 #
 # Two phases over the same two-host build, because the rules are read from the
 # container's own environment and each phase therefore needs its own builder:
@@ -28,8 +27,8 @@ TEST_IMAGE="${TEST_IMAGE:-buildcage-test}"
 TEST_PLATFORM="${TEST_PLATFORM:-linux/arm64}"
 export BUILDER_NAME
 
-COMPOSE="compose.yaml:compose.test-universal.yaml"
-# One rule per line: known_blocked_rules is newline-separated.
+export BUILDCAGE_TEST_COMPOSE_OVERLAY=docker/compose.action.test-universal.yaml
+# One rule per line: known-blocked-rules is newline-separated.
 BOTH_HOSTS="blocked.example.com:443
 deep.sub.wildcard.example.com:443"
 ONE_HOST="blocked.example.com:443"
@@ -44,11 +43,7 @@ trap 'rm -f "$SUMMARY"' EXIT
 
 run_phase() {
   local rules="$1"
-  COMPOSE_FILE="$COMPOSE" PROXY_MODE=restrict KNOWN_BLOCKED_RULES="$rules" \
-    docker compose -p "$COMPOSE_PROJECT_NAME" up -d --wait --build >/dev/null
-  docker buildx rm "$BUILDER_NAME" >/dev/null 2>&1 || true
-  docker buildx create --bootstrap --name "$BUILDER_NAME" \
-    --driver remote "docker-container://$BUILDER_NAME" >/dev/null
+  KNOWN_BLOCKED_RULES="$rules" ./test/setup-builder.sh universal restrict >/dev/null
   docker buildx build --no-cache --builder "$BUILDER_NAME" --platform "$TEST_PLATFORM" \
     --progress=plain -f test/Dockerfile.universal-known-blocked test/ --load -t "$TEST_IMAGE"
 
@@ -83,22 +78,22 @@ assert_message() {
 }
 
 echo ""
-echo "=== known_blocked_rules Assertions ==="
+echo "=== known-blocked-rules Assertions ==="
 echo ""
 
 echo "=== Phase 1: every blocked host is named ==="
 run_phase "$BOTH_HOSTS"
 echo ""
-echo "[all matched] fail_on_blocked must not fail the step:"
+echo "[all matched] fail-on-blocked must not fail the step:"
 assert_exit "the report accepted the run" 0
-assert_message "all matched known_blocked_rules (expected)"
+assert_message "all matched known-blocked-rules (expected)"
 echo ""
 
 echo "=== Phase 2: one of the two blocked hosts is named ==="
 run_phase "$ONE_HOST"
 echo ""
-echo "[one unmatched] known_blocked_rules must not excuse the rest:"
+echo "[one unmatched] known-blocked-rules must not excuse the rest:"
 assert_exit "the report failed the step" 1
-assert_message "1 of 2 distinct blocked host(s) unmatched by known_blocked_rules"
+assert_message "1 of 2 distinct blocked host(s) unmatched by known-blocked-rules"
 
 assert_results

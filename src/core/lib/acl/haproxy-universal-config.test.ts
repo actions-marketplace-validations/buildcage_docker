@@ -1,0 +1,258 @@
+import { PROXY_ADDRESS, PROXY_SUBNET } from "../log/proxy-address.ts";
+import { describe, it, expect, reportResults } from "../test/test-shim.ts";
+import { INTERNAL_RANGES } from "./haproxy-rules.ts";
+import {
+  generateUniversalHaproxyConfig,
+  type UniversalHaproxyConfigOptions,
+} from "./haproxy-universal-config.ts";
+import { convertRule } from "./wildcard-rules.ts";
+
+const HOST_FILE = "/etc/haproxy/rules/host_addrs.lst";
+
+function gen(options: Partial<UniversalHaproxyConfigOptions> = {}) {
+  return generateUniversalHaproxyConfig({
+    proxyAddress: PROXY_ADDRESS,
+    hostAddressFile: HOST_FILE,
+    ...options,
+  });
+}
+
+function lines(config: string): string[] {
+  return config.split("\n").map((l) => l.trim());
+}
+
+/** The patterns of every `acl <name> ... -m reg -i <pattern>` line, unescaped. */
+function patterns(config: string, name: string): string[] {
+  const prefix = `acl ${name} `;
+  return lines(config)
+    .filter((l) => l.startsWith(prefix))
+    .map((l) => l.slice(l.indexOf("-m reg -i ") + "-m reg -i ".length))
+    .map((p) => p.replace(/\\([\\#'" ])/g, "$1"));
+}
+
+const HTTPS = [
+  "github.com:443",
+  "*.example.com:443",
+  "**.example.org:*",
+  "ex?mple.net:8443",
+  "~^api[0-9]+\\.example\\.com:443$",
+];
+const HTTP = ["deb.debian.org:80", "*.ubuntu.com:*"];
+const IP = ["10.0.0.5:5432", "172.16.0.0/12:*", "192.168.*.*:22", "~^10\\.1\\.[0-9]+:6379$"];
+
+describe("rule lists", () => {
+  const config = gen({ httpsRules: HTTPS, httpRules: HTTP, ipRules: IP });
+
+  it("matches each rule with the regex convertRule gives it", () => {
+    // Setup validates rules with convertRule, so the proxy matches the very
+    // regex setup accepted.
+    expect(patterns(config, "is_https_allowed")).toStrictEqual(HTTPS.map(convertRule));
+    expect(patterns(config, "is_http_allowed")).toStrictEqual(HTTP.map(convertRule));
+    expect(patterns(config, "is_ip_match")).toStrictEqual(IP.map(convertRule));
+  });
+
+  it("escapes a backslash for the config parser", () => {
+    expect(lines(config)).toContain(
+      "acl is_https_allowed var(txn.sni_port) -m reg -i ^api[0-9]+\\\\.example\\\\.com:443$",
+    );
+  });
+
+  it("names the rule each acl line came from", () => {
+    const all = lines(config);
+    const at = all.indexOf("# **.example.org:*");
+    expect(all[at + 1]).toBe(
+      "acl is_https_allowed var(txn.sni_port) -m reg -i ^.+\\\\.example\\\\.org:\\\\d+$",
+    );
+  });
+
+  it("matches nothing for a list with no rules", () => {
+    const empty = lines(gen());
+    for (const name of ["is_ip_match", "is_https_allowed", "is_http_allowed"]) {
+      expect(empty.filter((l) => l.startsWith(`acl ${name} `))).toStrictEqual([
+        `acl ${name} always_false`,
+      ]);
+    }
+  });
+
+  it("refuses a wildcard inside a label, as setup does", () => {
+    expect(() => gen({ httpsRules: ["a*b.example.com:443"] })).toThrow("mixes");
+  });
+
+  it("refuses an IP rule with no port, as setup does", () => {
+    expect(() => gen({ ipRules: ["10.0.0.1"] })).toThrow("missing port");
+  });
+});
+
+describe("audit", () => {
+  const config = gen({
+    mode: "audit",
+    httpsRules: ["a*b.example.com:443"],
+    ipRules: ["10.0.0.1"],
+  });
+
+  it("lets every list match anything, without compiling the rules", () => {
+    for (const name of ["is_ip_match", "is_https_allowed", "is_http_allowed"]) {
+      expect(patterns(config, name)).toStrictEqual([".*"]);
+    }
+  });
+
+  it("logs AUDIT where restrict logs ALLOWED", () => {
+    expect(config).not.toContain("str(ALLOWED)");
+    expect(lines(config).filter((l) => l.includes("str(AUDIT)")).length).toBe(3);
+    expect(lines(gen()).filter((l) => l.includes("str(ALLOWED)")).length).toBe(3);
+  });
+
+  it("accepts an unmatched IP connection only in audit", () => {
+    const accept = "tcp-request content accept if !is_dns_routed !is_ip_match";
+    expect(lines(config)).toContain(accept);
+    expect(lines(gen())).not.toContain(accept);
+  });
+});
+
+describe("resolver", () => {
+  it("resolves through the container's own /etc/resolv.conf", () => {
+    const config = gen();
+    expect(lines(config)).toContain("parse-resolv-conf");
+    expect(config).not.toContain("nameserver");
+  });
+
+  it("retries a failed resolution on the path no inspect-delay caps", () => {
+    // Without the second call one transient miss blocks a name the rules
+    // allow; without its guard a destination already found is re-resolved.
+    const resolves = lines(gen()).filter((l) => l.startsWith("http-request do-resolve("));
+    expect(resolves.length).toBe(2);
+    expect(resolves[1].endsWith("unless { var(txn.dst) -m found }")).toBe(true);
+  });
+});
+
+describe("internal-address guard", () => {
+  // An IP rule naming a metadata address must not open it to a name.
+  const config = gen({ ipRules: ["169.254.169.254:80"] });
+
+  for (const name of ["dst_internal", "dst_internal_http"]) {
+    it(`${name} covers INTERNAL_RANGES, the proxy's network and the runner's addresses`, () => {
+      expect(lines(config).filter((l) => l.startsWith(`acl ${name} `))).toStrictEqual([
+        `acl ${name} var(txn.dst) -m ip ${[...INTERNAL_RANGES, PROXY_SUBNET].join(" ")}`,
+        `acl ${name} var(txn.dst) -m ip -f ${HOST_FILE}`,
+      ]);
+    });
+  }
+});
+
+describe("a connection to the proxy's own listener", () => {
+  for (const mode of ["restrict", "audit"] as const) {
+    it(`is blocked in ${mode} on an internal address, whatever the IP rules say`, () => {
+      const all = lines(gen({ mode, ipRules: ["0.0.0.0/0:*"] }));
+      const self = "!is_dns_routed is_ip_match ip_dst_internal { dst_port 10024 }";
+      const reject = all.indexOf(`tcp-request content reject if ${self}`);
+      expect(all).toContain(`acl ip_dst_internal dst -m ip -f ${HOST_FILE}`);
+      expect(all[reject - 1]).toBe(
+        `tcp-request content set-var(txn.reason) str(internal-address) if ${self}`,
+      );
+      const accept = all.findIndex((l) => l.includes("accept if !is_dns_routed"));
+      expect(reject !== -1 && reject < accept).toBe(true);
+    });
+  }
+});
+
+describe("outbound_proxy", () => {
+  const all = lines(gen());
+
+  it("recognises a connection that came through a name by the proxy's address", () => {
+    expect(all).toContain(`acl is_dns_routed dst ${PROXY_ADDRESS}`);
+  });
+
+  it("matches IP rules against a variable set once, from dst", () => {
+    // An acl is evaluated where it is used, so a variable a later line
+    // overwrites with the SNI would let the client pick what is matched.
+    expect(all.filter((l) => /set-var(-fmt)?\(txn\.dst_target\)/.test(l))).toStrictEqual([
+      "tcp-request content set-var-fmt(txn.dst_target) %[dst]:%[dst_port]",
+    ]);
+  });
+
+  it("matches the SNI as sent, so a trailing dot is not dropped", () => {
+    expect(all).toContain("tcp-request content set-var(txn.sni) req_ssl_sni if is_tls");
+  });
+
+  it("blocks an SNI that is not a hostname before the allowlist or the resolver acts on it", () => {
+    const reject = all.indexOf("tcp-request content reject if is_tls has_sni !sni_is_name");
+    expect(reject !== -1).toBe(true);
+    expect(
+      reject < all.indexOf("tcp-request content reject if is_tls has_sni !is_https_allowed"),
+    ).toBe(true);
+    expect(reject < all.findIndex((l) => l.startsWith("tcp-request content do-resolve"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("an IP rule's connection", () => {
+  for (const mode of ["restrict", "audit"] as const) {
+    it(`is accepted in ${mode} without waiting for the client to speak`, () => {
+      // HAProxy holds a rule that reads the request buffer until bytes arrive
+      // or inspect-delay runs out, and a server-first client sends none. So
+      // only what an IP rule needs may run before this accept.
+      const rules = lines(gen({ mode, ipRules: IP })).filter((l) =>
+        l.startsWith("tcp-request content"),
+      );
+      const accept = rules.indexOf("tcp-request content accept if !is_dns_routed is_ip_match");
+      const self = "!is_dns_routed is_ip_match ip_dst_internal { dst_port 10024 }";
+      expect(rules.slice(0, accept)).toStrictEqual([
+        `tcp-request content set-var(txn.decision) str(BLOCKED)`,
+        "tcp-request content set-var(txn.reason) str(-)",
+        "tcp-request content set-var-fmt(txn.target) %[dst]:%[dst_port]",
+        "tcp-request content set-var(txn.rule_type) str(UNKNOWN)",
+        "tcp-request content set-var(txn.dns_routed) str(true) if is_dns_routed",
+        "tcp-request content set-var-fmt(txn.dst_target) %[dst]:%[dst_port]",
+        "tcp-request content set-var(txn.rule_type) str(IP) if !is_dns_routed",
+        `tcp-request content set-var(txn.reason) str(internal-address) if ${self}`,
+        `tcp-request content reject if ${self}`,
+        `tcp-request content set-var(txn.decision) str(${mode === "audit" ? "AUDIT" : "ALLOWED"}) if !is_dns_routed is_ip_match`,
+      ]);
+    });
+  }
+});
+
+describe("a plaintext request's Host", () => {
+  const deny = "http-request deny deny_status 400";
+  for (const mode of ["restrict", "audit"] as const) {
+    it(`is blocked in ${mode} when it is not a hostname, before the allowlist or the resolver`, () => {
+      const all = lines(gen({ mode, httpRules: HTTP }));
+      const reject = all.findIndex((l) => l.startsWith(deny) && l.endsWith(" if !host_is_name"));
+      expect(reject).not.toBe(-1);
+      expect(reject).toBeLessThan(all.findIndex((l) => l.includes("if !is_http_allowed")));
+      expect(reject).toBeLessThan(all.findIndex((l) => l.startsWith("http-request do-resolve")));
+    });
+  }
+
+  it("is checked once its port is gone, as inspect checks it", () => {
+    const set = "http-request set-var(txn.host_only) hdr(host),host_only,regsub(\\.$,)";
+    expect(lines(gen())).toContain(set);
+  });
+});
+
+describe("plaintext request timeout", () => {
+  it("ends a silent client's wait before outbound_proxy's client timeout does", () => {
+    // outbound_proxy's clock starts at the connection, http_in's only after the
+    // hand-off.
+    const config = gen();
+    const seconds = (directive: string, text = config) => {
+      const [, n, unit] = new RegExp(`${directive} (\\d+)(s|m)\\n`).exec(text)!;
+      return Number(n) * (unit === "m" ? 60 : 1);
+    };
+    const httpIn = config.slice(config.indexOf("frontend http_in\n"));
+    const deadline = seconds("timeout client") - seconds("tcp-request inspect-delay");
+    expect(seconds("timeout http-request", httpIn) < deadline).toBe(true);
+    expect(seconds("timeout http-keep-alive", httpIn)).toBe(seconds("timeout client"));
+  });
+});
+
+describe("idle timeouts", () => {
+  it("closes a half-closed connection at the client and server timeouts, not the tunnel's", () => {
+    const value = (name: string) => new RegExp(`\\n    timeout ${name} (\\S+)\\n`).exec(gen())![1];
+    expect(value("client-fin")).toBe(value("client"));
+    expect(value("server-fin")).toBe(value("server"));
+  });
+});
+
+reportResults();

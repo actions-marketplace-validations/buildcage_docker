@@ -40,6 +40,13 @@ var systemCertFiles = []string{
 	"/etc/ssl/cert.pem",
 }
 
+// SUSE's GnuTLS reads this directory (/etc/ssl/certs links to it), not the
+// store. It reads every file there, so the CA needs no hash link.
+const (
+	suseCertDir  = "/var/lib/ca-certificates/pem"
+	suseCertName = "buildcage.pem"
+)
+
 var (
 	errEscapesRoot     = errors.New("path escapes the rootfs")
 	errTooManySymlinks = errors.New("too many symlinks")
@@ -60,7 +67,7 @@ var errNotACertificate = errors.New("not a certificate")
 // cannot be used to reach outside.
 //
 // The wrapper runs as root on the host while the rootfs comes from an image
-// the build chose, so a link placed at one of the paths below would otherwise
+// the build chose, so a link placed at a path the wrapper writes would otherwise
 // direct an append onto a host file. Absolute links are therefore followed
 // from the rootfs rather than from the host's own root, and the result is
 // checked to be inside it either way.
@@ -84,8 +91,9 @@ func resolveInRoot(rootfs, path string) (string, error) {
 		}
 		next := filepath.Join(current, name)
 		if !withinRoot(rootfs, next) {
-			// ".." climbing above the rootfs lands here.
-			return "", errEscapesRoot
+			// ".." at the root stays there, as the kernel resolves it.
+			current = rootfs
+			continue
 		}
 
 		info, err := os.Lstat(next)
@@ -136,7 +144,9 @@ func resolveInRoot(rootfs, path string) (string, error) {
 }
 
 func withinRoot(rootfs, path string) bool {
-	return path == rootfs || strings.HasPrefix(path, rootfs+string(os.PathSeparator))
+	// "/" is the one clean path that already ends in the separator.
+	sep := string(os.PathSeparator)
+	return path == rootfs || strings.HasPrefix(path, strings.TrimSuffix(rootfs, sep)+sep)
 }
 
 // asNotRegular folds the open() failures O_NOFOLLOW/O_NONBLOCK produce for a
@@ -597,10 +607,8 @@ func containerPathOf(rootfs, resolved string) string {
 	if !withinRoot(rootfs, resolved) {
 		return "/"
 	}
-	if rel := strings.TrimPrefix(resolved, rootfs); rel != "" {
-		return rel
-	}
-	return "/"
+	// A rootfs of "/" takes the leading slash with it.
+	return "/" + strings.TrimPrefix(strings.TrimPrefix(resolved, rootfs), "/")
 }
 
 // systemStore is the container's own CA bundle: where the wrapper reaches it

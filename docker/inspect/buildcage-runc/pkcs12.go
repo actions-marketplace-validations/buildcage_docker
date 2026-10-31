@@ -3,9 +3,8 @@ package main
 // PKCS#12 is the other shape a JVM keystore comes in: newer JDKs ship
 // $JAVA_HOME/lib/security/cacerts as a PKCS#12 trust store rather than the JKS
 // older ones use, and keystore.type defaults to pkcs12 from JDK 9 on. The DER
-// sits among the container's own bytes the same way it does in a JKS, so no PEM
-// removal reaches it, and until this the sweep could detect a copy there but not
-// take it out, which failed the build (errUnstrippableCA).
+// sits among the file's own bytes the same way it does in a JKS, so no PEM
+// removal reaches it.
 //
 // The JDK's own cacerts carries no MAC (the password guards only the MAC, and
 // the certificate bags are never encrypted), so it decodes under the empty
@@ -15,14 +14,16 @@ package main
 // password it opened with. The empty one means Passwordless, whose bags are
 // unencrypted and carry no MAC, the one shape the JVM's default loader trusts
 // as a cacerts: the Modern encoders encrypt the bags with PBES2, which that
-// loader does not decrypt. A "changeit" store is resealed Modern, the shape
-// keytool writes, so whatever read it before still does. Entries keep their
-// aliases: the JVM loads one entry per alias, so naming them after their
-// subjects would merge any that share one.
+// loader does not decrypt. A "changeit" store keeps its format: one with a
+// SHA-1 MAC, which a JDK before 8u301 or 11.0.12 writes, is resealed
+// LegacyDES, which those JDKs and every OpenSSL read; any other is resealed
+// Modern. Entries keep their aliases: the JVM loads one entry per alias, so
+// naming them after their subjects would merge any that share one.
 // removeFromBinaryStore reads the file and dispatches on its magic.
 
 import (
 	"crypto/x509"
+	"encoding/asn1"
 	"errors"
 	"io"
 	"slices"
@@ -73,10 +74,38 @@ func decodePKCS12(content []byte) (entries []pkcs12.TrustStoreEntry, password st
 	return nil, "", err
 }
 
-// encodePKCS12 writes entries back as a trust store under password (see the
-// file comment). It is a var so a test can make the encode fail, which valid
-// certificates otherwise never do.
-var encodePKCS12 = func(entries []pkcs12.TrustStoreEntry, password string) ([]byte, error) {
+// oidSHA1 is the MAC digest of a legacy PKCS#12.
+var oidSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
+
+// pkcs12MACIsSHA1 reports whether content has a SHA-1 MAC. No MAC, or content
+// that does not parse, reports false.
+func pkcs12MACIsSHA1(content []byte) bool {
+	var pfx struct {
+		Version  int
+		AuthSafe asn1.RawValue
+		MacData  struct {
+			Mac struct {
+				Algorithm struct {
+					Algorithm  asn1.ObjectIdentifier
+					Parameters asn1.RawValue `asn1:"optional"`
+				}
+				Digest []byte
+			}
+			MacSalt    []byte
+			Iterations int `asn1:"optional,default:1"`
+		} `asn1:"optional"`
+	}
+	if _, err := asn1.Unmarshal(content, &pfx); err != nil {
+		return false
+	}
+	return pfx.MacData.Mac.Algorithm.Algorithm.Equal(oidSHA1)
+}
+
+// encodePKCS12 writes entries back as a trust store under password, legacy
+// when the store it came from had a SHA-1 MAC (see the file comment). It is a
+// var so a test can make the encode fail, which valid certificates otherwise
+// never do.
+var encodePKCS12 = func(entries []pkcs12.TrustStoreEntry, password string, legacy bool) ([]byte, error) {
 	named := slices.Clone(entries)
 	for i := range named {
 		// Entries sharing the empty alias would merge in the JVM.
@@ -84,15 +113,19 @@ var encodePKCS12 = func(entries []pkcs12.TrustStoreEntry, password string) ([]by
 			named[i].FriendlyName = named[i].Cert.Subject.String()
 		}
 	}
-	if password == "" {
+	switch {
+	case password == "":
 		return pkcs12.Passwordless.EncodeTrustStoreEntries(named, "")
+	case legacy:
+		return pkcs12.LegacyDES.EncodeTrustStoreEntries(named, password)
+	default:
+		return pkcs12.Modern.EncodeTrustStoreEntries(named, password)
 	}
-	return pkcs12.Modern.EncodeTrustStoreEntries(named, password)
 }
 
 // pkcs12With returns a PKCS#12 trust store holding everything in content plus
 // a trusted certificate for each der, under the password content opened with.
-// content is already known to begin with the PKCS#12 magic. A store
+// content already looks like a PKCS#12 (looksLikePKCS12). A store
 // decodePKCS12 will not open is one this cannot rewrite, so injection is
 // skipped for it and the step's JVM is left not trusting the CA.
 func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
@@ -107,12 +140,12 @@ func pkcs12With(content []byte, ders [][]byte) ([]byte, error) {
 		}
 		entries = append(entries, pkcs12.TrustStoreEntry{Cert: cert, FriendlyName: injectedAliasFor(i)})
 	}
-	return encodePKCS12(entries, password)
+	return encodePKCS12(entries, password, pkcs12MACIsSHA1(content))
 }
 
 // pkcs12Without returns a PKCS#12 trust store holding everything in content but
 // the certificate, under the password content opened with, and reports whether
-// it removed anything. content is already known to begin with the PKCS#12 magic.
+// it removed anything. content already looks like a PKCS#12 (looksLikePKCS12).
 //
 // A store decodePKCS12 will not open (a key with its chain, or a trust store
 // under another password), or one holding the DER among its bytes but not as a
@@ -126,9 +159,8 @@ func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 		logf("a PKCS#12 keystore this cannot decode as a trust store: %v", err)
 		return nil, false, nil
 	}
-	// Captured before the delete: slices.DeleteFunc rewrites entries' backing
-	// array in place and returns a shorter slice, leaving entries' own length
-	// unchanged, so comparing kept against it is what says a copy was found.
+	// slices.DeleteFunc rewrites entries in place, so the count is taken first;
+	// kept coming back shorter is what says a copy was found.
 	before := len(entries)
 	kept := slices.DeleteFunc(entries, func(entry pkcs12.TrustStoreEntry) bool {
 		return holdsAnyDER(entry.Cert.Raw, ders)
@@ -136,7 +168,7 @@ func pkcs12Without(content []byte, ders [][]byte) ([]byte, bool, error) {
 	if len(kept) == before {
 		return nil, false, nil
 	}
-	out, err := encodePKCS12(kept, password)
+	out, err := encodePKCS12(kept, password, pkcs12MACIsSHA1(content))
 	if err != nil {
 		return nil, false, err
 	}

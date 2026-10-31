@@ -11,27 +11,35 @@ package main
 // back out of a keystore a step went on to change.
 //
 // A step that installs a JRE part-way through is a different case, already
-// covered by the anchors ca-certificates-java imports; this is for the JVM that
-// was there from the start.
+// covered by the anchors ca-certificates-java imports; this is for the JVMs that
+// were there from the start. One the step itself downloads is not there yet to
+// inject into.
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
 )
 
-// errNotAKeystore means the file discovery pointed at does not begin with
-// either keystore magic, so injection has nothing it knows how to write.
+// errNotAKeystore means the file discovery pointed at is neither a JKS nor
+// shaped like a PKCS#12, so injection has nothing it knows how to write.
 var errNotAKeystore = errors.New("not a JKS or PKCS#12 keystore")
+
+// errKeystoreHalfWritten means writing the CA into the mirror's copy of a
+// keystore failed partway, so the copy holds neither its old bytes nor the
+// injected ones and the step must not run with it.
+var errKeystoreHalfWritten = errors.New("adding the CA to the wrapper's copy of this keystore failed partway (the image's own keystore is unchanged)")
 
 // The alias of the injected entry in either keystore shape, and its creation
 // time in a JKS. The time is fixed so the entry is byte-for-byte the same every
-// build, which keeps the gatekeeper comparing like with like; the alias only
-// has to not collide with one the keystore already uses.
+// build, which keeps finish's unchanged check (manifestsEqual against the
+// baseline) comparing like with like; the alias only has to not collide with
+// one the keystore already uses.
 const (
 	injectedAlias        = "buildcage-proxy-ca"
 	injectedCreationTime = 1700000000000
@@ -51,31 +59,50 @@ func injectedAliasFor(i int) string {
 // the CA has to go into whichever exist, not cacerts alone.
 var jvmKeystoreNames = []string{"jssecacerts", "cacerts"}
 
-// Security directories tried when JAVA_HOME is unset. JAVA_HOME covers the Java
-// base images this is aimed at; these catch a JVM installed at a fixed location
-// without it. /etc/ssl/certs/java is Debian's ca-certificates-java output and
-// the /etc/pki ones are RHEL's, each a symlink resolveInRoot follows to the
-// real file.
-var knownJVMKeystoreDirs = []string{
-	"/etc/ssl/certs/java",
-	"/etc/pki/java",
-	"/etc/pki/ca-trust/extracted/java",
+// securityDirs is where a JDK rooted at root keeps its keystores: lib/security
+// from JDK 9 on, jre/lib/security in a JDK 8.
+func securityDirs(root string) []string {
+	return []string{
+		filepath.Join(root, "lib", "security"),
+		filepath.Join(root, "jre", "lib", "security"),
+	}
+}
+
+// javaOnPath returns the JDK root of the first java on the step's PATH, the one
+// a bare `java` runs, followed through its symlinks (/usr/bin/java to
+// /etc/alternatives to the JDK), as a container path. A JDK 8's jre/bin/java
+// gives its jre/, whose lib/security is the one it reads.
+func javaOnPath(s *spec) (string, bool) {
+	for _, dir := range filepath.SplitList(s.env["PATH"]) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		resolved, err := resolveInRoot(s.rootfs, filepath.Join(dir, "java"))
+		if err != nil {
+			continue
+		}
+		// The shell passes over a java it cannot execute, so this does too.
+		if info, err := os.Stat(resolved); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return filepath.Dir(filepath.Dir(containerPathOf(s.rootfs, resolved))), true
+		}
+	}
+	return "", false
 }
 
 // findJVMKeystores returns the resolved host paths of every JVM keystore inside
-// the rootfs, from JAVA_HOME first and then the known fixed directories, each
-// deduplicated by where it resolves so a symlinked one is not injected twice.
+// the rootfs: JAVA_HOME's first, then that of the first java on PATH. Each is
+// deduplicated by where it resolves, so a distribution's JDKs, which link to
+// one shared keystore, have it injected once. Other JDKs in the image are left
+// alone: binding a keystore's directory makes it a mount point, which the step
+// could then not remove.
 func findJVMKeystores(s *spec) []string {
 	var dirs []string
 	if home := s.env["JAVA_HOME"]; home != "" {
-		// lib/security is the layout from JDK 9 on; jre/lib/security is where a
-		// JDK 8's JAVA_HOME (the JDK root, with the JRE under jre/) keeps it.
-		dirs = append(dirs,
-			filepath.Join(home, "lib", "security"),
-			filepath.Join(home, "jre", "lib", "security"),
-		)
+		dirs = append(dirs, securityDirs(home)...)
 	}
-	dirs = append(dirs, knownJVMKeystoreDirs...)
+	if root, ok := javaOnPath(s); ok {
+		dirs = append(dirs, securityDirs(root)...)
+	}
 
 	var keystores []string
 	seen := map[string]bool{}
@@ -96,10 +123,11 @@ func findJVMKeystores(s *spec) []string {
 
 // insertIntoKeystore adds a trusted-certificate entry for the CA to the keystore
 // at path, rewriting it in place. Like removeFromBinaryStore it reads the file
-// once and dispatches on its magic. On success it returns the keystore's
-// pre-injection bytes for the caller to restore later. An error leaves the
-// keystore untouched for the caller to report, so the step's JVM does not trust
-// the CA.
+// once and dispatches on its format. On success it returns the keystore's
+// pre-injection bytes for the caller to restore later. An error that wrote
+// nothing leaves the keystore untouched for the caller to report, so the
+// step's JVM does not trust the CA; one after part of the write wraps
+// errKeystoreHalfWritten.
 func insertIntoKeystore(path string, ca []byte) ([]byte, error) {
 	ders := certificateDERs(ca)
 	if len(ders) == 0 {
@@ -139,9 +167,32 @@ func insertIntoKeystore(path string, ca []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
-	if _, err := f.WriteAt(injected, 0); err != nil {
-		return nil, err
+	if n, err := f.WriteAt(injected, 0); err != nil {
+		if n == 0 {
+			// Nothing written, so the keystore is as it was.
+			return nil, withoutPath(err)
+		}
+		return nil, fmt.Errorf("%w: %w", errKeystoreHalfWritten, withoutPath(err))
 	}
-	// Returns content alongside a Truncate error; the caller ignores it there.
-	return content, f.Truncate(int64(len(injected)))
+	// Only a shorter rewrite leaves an old tail to cut; a JKS always grows.
+	if int64(len(injected)) < size {
+		if err := f.Truncate(int64(len(injected))); err != nil {
+			return nil, fmt.Errorf("%w: %w", errKeystoreHalfWritten, withoutPath(err))
+		}
+	}
+	// Some filesystems (NFS among them) report a failed write only at close.
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("%w: %w", errKeystoreHalfWritten, withoutPath(err))
+	}
+	return content, nil
+}
+
+// withoutPath drops the scratch path an *fs.PathError carries, since the
+// caller names the keystore by its path in the container.
+func withoutPath(err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	return err
 }

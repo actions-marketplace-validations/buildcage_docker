@@ -71,7 +71,6 @@ describe("host and url rule compilation", () => {
 
   it("gives a ~regex url rule's host half bare/full matching, with no port acl", () => {
     const set = compileRuleSet({ urlRules: buildUrlRules("GET ~^https://a\\.com/x$") });
-    expect(set.warnings.length).toBe(0);
     expect(set.https.length).toBe(1);
     expect(set.https[0].hostMatch).toBe("hostBareFull");
     expect(set.https[0].hostRegex).toBe("^a\\.com$");
@@ -82,7 +81,7 @@ describe("host and url rule compilation", () => {
 
   it("keeps a ~regex url rule's own port pattern in the host half untouched", () => {
     // The whole host half, port pattern included, is matched as one
-    // expression; see haproxy-config.ts.
+    // expression; see HostMatch in haproxy-rules.ts.
     const set = compileRuleSet({ urlRules: buildUrlRules("GET ~^https://a\\.com:(443|8443)/x$") });
     expect(set.https[0].hostMatch).toBe("hostBareFull");
     expect(set.https[0].hostRegex).toBe("^a\\.com:(443|8443)$");
@@ -102,20 +101,32 @@ describe("ip rule compilation", () => {
     expect(compileRuleSet({ ipRules: ["10.0.0.5:*"] }).ip[0].port).toBe(null);
   });
 
-  it("warns and drops a rule with no port", () => {
-    const set = compileRuleSet({ ipRules: ["10.0.0.5"] });
-    expect(set.ip.length).toBe(0);
-    expect(set.warnings[0].includes("no port")).toBe(true);
+  it("refuses a rule with no port", () => {
+    expect(() => compileRuleSet({ ipRules: ["10.0.0.5"] })).toThrow(/missing port/);
   });
 
-  it("warns and drops a pattern, since only an address can be tunnelled", () => {
-    const set = compileRuleSet({ ipRules: ["10.0.0.*:5432"] });
-    expect(set.ip.length).toBe(0);
-    expect(set.warnings.length).toBe(1);
+  it("matches an address wildcard as text, since dst takes none", () => {
+    const set = compileRuleSet({ ipRules: ["10.0.0.*:5432", "10.0.?.1:*"] });
+    expect(set.ip[0].hostMatch).toBe("hostPort");
+    expect(set.ip[0].address).toBe("^10\\.0\\.0\\.[^.]+:5432$");
+    expect(set.ip[0].port).toBe(null);
+    expect(set.ip[1].address).toBe("^10\\.0\\.[^.]\\.1:\\d+$");
+  });
+
+  it("refuses a host name, which no connection's address is", () => {
+    expect(() => compileRuleSet({ ipRules: ["db-primary:5432"] })).toThrow(/Invalid address/);
+  });
+
+  it("refuses a wildcard with too few octets, which no address matches", () => {
+    expect(() => compileRuleSet({ ipRules: ["10.0.*:5432"] })).toThrow(/Invalid address/);
   });
 
   it("accepts a CIDR block", () => {
     expect(compileRuleSet({ ipRules: ["10.0.0.0/24:5432"] }).ip[0].address).toBe("10.0.0.0/24");
+  });
+
+  it("refuses an address HAProxy would misread", () => {
+    expect(() => compileRuleSet({ ipRules: ["010.0.0.0/8:5432"] })).toThrow(/Invalid address/);
   });
 
   it("matches a ~regex ip rule's address and port as one expression", () => {
@@ -165,10 +176,17 @@ describe("tls rule compilation", () => {
 });
 
 describe("port validation", () => {
-  it('refuses a port that is neither digits nor "*"', () => {
-    expect(() => compileRuleSet({ httpsRules: ["example.com:https"] })).toThrow(
-      /Invalid port in rule/,
-    );
+  it('refuses a port that is not a decimal from 1 to 65535, or "*"', () => {
+    for (const port of ["https", "0443", "0", "65536"]) {
+      expect(() => compileRuleSet({ httpsRules: [`a.com:${port}`] })).toThrow(/Invalid port/);
+      expect(() => compileRuleSet({ tlsRules: [`a.com:${port}`] })).toThrow(/Invalid port/);
+    }
+  });
+
+  it("refuses an IP rule with such a port", () => {
+    for (const rule of ["10.0.0.1:0443", "10.0.0.*:0", "10.0.0.0/8:65536"]) {
+      expect(() => compileRuleSet({ ipRules: [rule] })).toThrow(/Invalid port/);
+    }
   });
 
   // The rule was split at its last colon, so anything before it belongs to a

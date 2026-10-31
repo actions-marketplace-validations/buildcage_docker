@@ -35,3 +35,17 @@ export function splitHostPort(authority: string): HostPort {
   }
   return { host: authority.slice(0, colon), port: authority.slice(colon + 1) };
 }
+
+/** A host as the rules match it: ASCII lowercased, with one trailing dot
+ *  dropped (see HOST_ONLY). CoreDNS already logs names this way and the proxy
+ *  logs are folded to it, so one host is one row whatever case it was spelled
+ *  in. */
+export function ruleHost(host: string): string {
+  return sniHost(host).replace(/\.$/, "");
+}
+
+/** An SNI as the rules match it: ASCII lowercased, trailing dot kept. Folding
+ *  the dot would list a block under a host the rules allow. */
+export function sniHost(sni: string): string {
+  return sni.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}

@@ -1,29 +1,33 @@
 /**
- * Compiles buildcage's rule strings into the matchers the `inspect` engine's
- * haproxy.cfg is built from. Pure data: haproxy-config.ts turns the result
- * into config text, and this module knows nothing about that text.
+ * Compiles buildcage's rule strings into the matchers haproxy.cfg and the
+ * Corefile are built from. Pure data: the generators turn the result into
+ * config text, and this module knows nothing about that text.
  */
 
+import { IPV4, IPV4_OR_CIDR, isIpRuleAddress } from "./ipv4.ts";
+import {
+  anchorRawRegex,
+  checkPort,
+  domainToRegexPartial,
+  splitRawRegexHost,
+} from "./partial-wildcard.ts";
 import type { UrlRule } from "./url-rules.ts";
-import { anchorRawRegex, domainToRegexPartial, splitRawRegexHost } from "./partial-wildcard.ts";
-
-/** An IPv4 address or CIDR block, which is what HAProxy's `dst` acl accepts. */
-export const IPV4_OR_CIDR = /^\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?$/;
+import { convertRule } from "./wildcard-rules.ts";
 
 /**
  * A dotted quad matched against a Host header. Strict about octets: whatever
  * matches is used as the destination unresolved, so nothing that is not an
  * address may pass.
  */
-const OCTET = "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
-export const HOST_IS_ADDRESS = `^${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}$`;
+export const HOST_IS_ADDRESS = `^${IPV4}$`;
 
 /**
- * Ranges a resolved name may not point at, refused to stop an allowlisted name
+ * Ranges a resolved name may not point at, blocked to stop an allowlisted name
  * resolving to somewhere the proxy can reach but the build cannot, a cloud
  * metadata endpoint above all. Only never-public ranges; RFC1918 (and its v6
  * equivalent, fc00::/7 ULA) is allowed, since a name pointing at an internal
- * mirror is legitimate. An address named directly in a rule is exempt.
+ * mirror is legitimate. Under `inspect` an address named directly in a rule
+ * is exempt.
  *
  * A resolution produces an IPv4 address only, enforced by `dns-accept-family
  * ipv4` in the generated global section. ::1 and fe80::/10 are kept anyway, at
@@ -119,19 +123,13 @@ export interface CompiledRuleSet {
    * a name.
    */
   resolverHosts: string[];
-  /**
-   * Rules that could not be honoured in full, for the caller to surface. Only
-   * IP rules reach this list: a host, TLS or URL rule that will not compile
-   * throws instead, which stops the proxy from starting at all.
-   */
-  warnings: string[];
 }
 
 /**
  * Split a `host:port` rule at its port separator.
  *
- * @throws {Error} if the rule names no port, names one that is neither a
- *   number nor `*`, or leaves a `:` in the host half
+ * @throws {Error} if the rule names no port, names one checkPort refuses, or
+ *   leaves a `:` in the host half
  */
 function splitHostRule(pattern: string): { host: string; port: string } {
   const colonIndex = pattern.lastIndexOf(":");
@@ -139,9 +137,7 @@ function splitHostRule(pattern: string): { host: string; port: string } {
     throw new Error(`Invalid rule "${pattern}": missing port`);
   }
   const port = pattern.slice(colonIndex + 1);
-  if (!/^(?:\d+|\*)$/.test(port)) {
-    throw new Error(`Invalid port in rule "${pattern}": "${port}"`);
-  }
+  checkPort(port, pattern);
   const host = pattern.slice(0, colonIndex);
   if (host.includes(":")) {
     throw new Error(
@@ -256,12 +252,15 @@ function compileSchemeRules(
   return out;
 }
 
-function compileIpRules(rules: string[] | undefined, warnings: string[]): CompiledIpRule[] {
+/**
+ * @throws {Error} if a rule names no port, names one checkPort refuses, or is
+ *   not an address, CIDR block or address wildcard
+ */
+function compileIpRules(rules: string[] | undefined): CompiledIpRule[] {
   const out: CompiledIpRule[] = [];
   (rules ?? []).forEach((rule, index) => {
     if (rule.startsWith("~")) {
-      // Validates: the regex compiles and it names a port. See
-      // hostRuleToMatcher for why this is checked here too.
+      // Validates: the regex compiles and it names a port.
       splitRawRegexHost(rule);
       out.push({
         id: `ip${index}`,
@@ -274,16 +273,27 @@ function compileIpRules(rules: string[] | undefined, warnings: string[]): Compil
     }
     const colonIndex = rule.lastIndexOf(":");
     if (colonIndex === -1) {
-      warnings.push(`IP rule ${JSON.stringify(rule)} has no port. It is ignored.`);
-      return;
+      throw new Error(`Invalid rule "${rule}": missing port`);
     }
     const address = rule.slice(0, colonIndex);
     const port = rule.slice(colonIndex + 1);
-    if (!IPV4_OR_CIDR.test(address)) {
-      warnings.push(
-        `IP rule ${JSON.stringify(rule)} is not an address or CIDR block, which is all that can be ` +
-          `tunnelled without inspection. It is ignored.`,
+    if (!isIpRuleAddress(address)) {
+      throw new Error(
+        `Invalid address in rule "${rule}": not an address, CIDR block or address wildcard, ` +
+          `which is all that can be tunnelled without inspection`,
       );
+    }
+    checkPort(port, rule);
+    if (!IPV4_OR_CIDR.test(address)) {
+      // `dst` takes no wildcard, so the address is matched as text the way
+      // the `universal` engine matches every IP rule.
+      out.push({
+        id: `ip${index}`,
+        address: convertRule(rule),
+        hostMatch: "hostPort",
+        port: null,
+        raw: rule,
+      });
       return;
     }
     out.push({
@@ -298,24 +308,21 @@ function compileIpRules(rules: string[] | undefined, warnings: string[]): Compil
 }
 
 /**
- * Compile every rule input into matchers, collecting warnings for rules that
- * cannot be honoured in full.
+ * Compile every rule input into matchers.
  *
- * @throws {Error} if a host rule has invalid wildcard syntax
+ * @throws {Error} if a rule is malformed
  */
 export function compileRuleSet(inputs: RuleInputs): CompiledRuleSet {
-  const warnings: string[] = [];
   return {
     https: compileSchemeRules(inputs.httpsRules, inputs.urlRules, "https"),
     http: compileSchemeRules(inputs.httpRules, inputs.urlRules, "http"),
-    ip: compileIpRules(inputs.ipRules, warnings),
+    ip: compileIpRules(inputs.ipRules),
     tls: (inputs.tlsRules ?? []).map((pattern, index) => ({
       id: `tls${index}`,
       ...hostRuleToMatcher(pattern),
       raw: pattern,
     })),
     resolverHosts: resolverHosts(inputs),
-    warnings,
   };
 }
 

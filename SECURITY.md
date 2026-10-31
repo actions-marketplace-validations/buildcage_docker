@@ -2,12 +2,12 @@
 
 ## Scope
 
-I welcome reports about both proxy engines (`universal` and `inspect`):
+I welcome reports about every proxy engine:
 
-- **Proxy bypass (`universal`)**: ways to make network connections from `RUN` steps that evade the Buildcage proxy (other than the [known domain fronting limitation](./docs/security.md#domain-fronting))
-- **Network isolation escape (`universal`)**: bypassing CNI isolation or iptables rules to reach the internet directly
-- **DNS filtering bypass (`universal`)**: bypassing the DNS redirect mechanism
-- **Rule bypass (`inspect`)**: ways to reach a destination, method or path that the rules do not permit: a request that escapes its path rule, a forged `Host` or SNI that changes where the proxy connects, or a name resolved to somewhere the rules never named
+- **Proxy bypass**: ways to make network connections from `RUN` steps that evade the Buildcage proxy (other than the [known domain fronting limitation](./docs/security.md#domain-fronting))
+- **Network isolation escape**: bypassing CNI isolation or iptables rules to reach the internet directly
+- **DNS filtering bypass**: getting a DNS query, or what it carries, out past the builder's own resolver
+- **Rule bypass**: ways to reach a destination, method or path that the rules do not permit: a request that escapes its path rule under `inspect`, a forged `Host` or SNI that changes where the proxy connects, or a name resolved to somewhere the rules never named
 - **GitHub Actions setup**: vulnerabilities in the `setup` or `report` actions (e.g., injection, credential leak)
 
 The following are **out of scope** (please report to the respective projects instead):
@@ -18,20 +18,20 @@ The following are **out of scope** (please report to the respective projects ins
 
 ## Supported Versions
 
-| Version   | Supported          |
-| --------- | ------------------ |
-| 4.x       | :white_check_mark: |
-| 1.x – 3.x | :x:                |
+| Version    | Supported          |
+| ---------- | ------------------ |
+| 4.x        | :white_check_mark: |
+| 1.x to 3.x | :x:                |
 
 ## Verifying Releases
 
 Buildcage ships one Docker image at `ghcr.io/buildcage/docker`, published per engine: release
 `vX.Y.Z` is tagged `X.Y.Z-inspect` for the default `inspect` engine and `X.Y.Z-universal` for the
-universal engine (the image tag drops the release tag's leading `v` and carries the engine suffix).
-Each release is signed
-keylessly with [cosign](https://github.com/sigstore/cosign) and carries a GitHub build-provenance
-attestation, both issued via GitHub Actions OIDC at release time. There is no long-lived signing key
-to leak or rotate. The `setup` action verifies this automatically, in-process, on every run (see
+`universal` engine (the image tag drops the release tag's leading `v` and carries the engine
+suffix). Each release is signed keylessly with [cosign](https://github.com/sigstore/cosign) and
+carries a GitHub build-provenance attestation, both issued via GitHub Actions OIDC at release time.
+There is no long-lived signing key to leak or rotate. The `setup` action verifies this
+automatically, in-process, on every run (see
 [Image Provenance Verification](./docs/security.md#image-provenance-verification) for exactly how);
 to verify a release manually instead:
 
@@ -60,6 +60,8 @@ corresponding [GitHub Release](https://github.com/buildcage/docker/releases).
 - [Trivy](https://github.com/aquasecurity/trivy) rebuilds each engine's image from source and scans
   it for known vulnerabilities on a monthly schedule (and on manual dispatch), and Dependabot alerts
   are enabled on the repository; both report into this repository's Security tab.
+- A daily check fails while the CA bundle in the latest release's images differs from the newest
+  one in their Alpine branch, as it does once Alpine removes a root CA.
 
 ## Reporting a Vulnerability
 

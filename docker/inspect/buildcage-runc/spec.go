@@ -41,7 +41,9 @@ func loadSpec(bundle string) (*spec, error) {
 			rootfs = p
 		}
 	}
-	if !filepath.IsAbs(rootfs) {
+	if filepath.IsAbs(rootfs) {
+		rootfs = filepath.Clean(rootfs)
+	} else {
 		rootfs = filepath.Join(bundle, rootfs)
 	}
 
@@ -61,6 +63,49 @@ func loadSpec(bundle string) (*spec, error) {
 		}
 	}
 	return s, nil
+}
+
+// processUser reads the numeric uid and gid BuildKit resolved USER into; a spec
+// naming none runs as root.
+func (s *spec) processUser() (uid, gid int) {
+	proc, _ := s.raw["process"].(map[string]any)
+	user, _ := proc["user"].(map[string]any)
+	return specInt(user["uid"]), specInt(user["gid"])
+}
+
+// processCwd reads the directory BuildKit starts the step in, its WORKDIR, or
+// / when the spec names none or a relative one.
+func (s *spec) processCwd() string {
+	proc, _ := s.raw["process"].(map[string]any)
+	if cwd, _ := proc["cwd"].(string); filepath.IsAbs(cwd) {
+		return cwd
+	}
+	return "/"
+}
+
+// processGroups reads the supplementary gids BuildKit resolved for the user.
+func (s *spec) processGroups() []int {
+	proc, _ := s.raw["process"].(map[string]any)
+	user, _ := proc["user"].(map[string]any)
+	extra, _ := user["additionalGids"].([]any)
+	groups := make([]int, 0, len(extra))
+	for _, g := range extra {
+		groups = append(groups, specInt(g))
+	}
+	return groups
+}
+
+// specInt reads a number loadSpec kept as json.Number, or 0 when there is none.
+func specInt(v any) int {
+	n, ok := v.(json.Number)
+	if !ok {
+		return 0
+	}
+	i, err := n.Int64()
+	if err != nil {
+		return 0
+	}
+	return int(i)
 }
 
 // setEnv adds variables to the process spec in memory; call save to persist.
@@ -83,8 +128,9 @@ func (s *spec) setEnv(extra map[string]string) {
 
 func (s *spec) save() error {
 	out, err := json.Marshal(s.raw)
-	// Untested by design: s.raw came out of json.Unmarshal and is only ever
-	// added to with strings and maps, so it holds nothing Marshal can refuse.
+	// Untested by design: s.raw came out of the JSON decoder and is only ever
+	// added to with strings, slices and maps, so it holds nothing Marshal can
+	// refuse.
 	//coverage:ignore start
 	if err != nil {
 		return err
@@ -117,6 +163,20 @@ func (s *spec) mountConflicts(dest string) bool {
 	return false
 }
 
+// mountedWithin reports whether a mount already in the spec sits at or below
+// dest. Unlike mountConflicts it allows one above, such as the /dev tmpfs.
+func (s *spec) mountedWithin(dest string) bool {
+	mounts, _ := s.raw["mounts"].([]any)
+	for _, m := range mounts {
+		entry, _ := m.(map[string]any)
+		existing, _ := entry["destination"].(string)
+		if existing != "" && pathWithin(filepath.Clean(existing), dest) {
+			return true
+		}
+	}
+	return false
+}
+
 // pathWithin reports whether the clean path p is dir or lies under it.
 func pathWithin(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, strings.TrimSuffix(dir, "/")+"/")
@@ -129,5 +189,15 @@ func (s *spec) addBindMount(dest, src string) {
 		"type":        "bind",
 		"source":      src,
 		"options":     []any{"rbind", "rw"},
+	})
+}
+
+func (s *spec) addReadOnlyBindMount(dest, src string) {
+	mounts, _ := s.raw["mounts"].([]any)
+	s.raw["mounts"] = append(mounts, map[string]any{
+		"destination": dest,
+		"type":        "bind",
+		"source":      src,
+		"options":     []any{"rbind", "ro", "nosuid", "nodev", "noexec"},
 	})
 }

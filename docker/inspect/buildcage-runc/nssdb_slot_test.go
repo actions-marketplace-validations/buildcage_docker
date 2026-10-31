@@ -1,0 +1,723 @@
+package main
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// injectSlot injects into a bundle whose step user has a home and, when
+// pkcs11 is not nil, a legacy database of its own holding that pkcs11.txt.
+func injectSlot(t *testing.T, pkcs11 *string) (in *injection, bundle, rootfs, mirror string) {
+	t.Helper()
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs = newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	if pkcs11 != nil {
+		legacy := filepath.Join(rootfs, "root", nssDBPath)
+		mustMkdirAll(t, legacy)
+		mustWriteFile(t, filepath.Join(legacy, "cert9.db"), "THE STEP'S OWN")
+		mustWriteFile(t, filepath.Join(legacy, "pkcs11.txt"), *pkcs11)
+		giveToStepUser(t, legacy, uid, gid)
+	}
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return in, bundle, rootfs, slotAt(t, in, bundle, "/root/.pki/nssdb")
+}
+
+func ptr(s string) *string { return &s }
+
+func TestNSSDBSlotGoesIntoANewDatabaseAndComesBackOut(t *testing.T) {
+	in, bundle, rootfs, mirror := injectSlot(t, nil)
+	uid, gid := stepUser()
+
+	if got := mustRead(t, filepath.Join(mirror, "pkcs11.txt")); got != string(nssSlot) {
+		t.Fatalf("pkcs11.txt holds %q, want only the slot", got)
+	}
+	if u, g, mode := mustOwner(t, filepath.Join(mirror, "pkcs11.txt")); u != uid || g != gid || mode != 0o600 {
+		t.Fatalf("pkcs11.txt is %d:%d %o, want %d:%d 600", u, g, mode, uid, gid)
+	}
+	if u, g, mode := mustOwner(t, mirror); u != uid || g != gid || mode != 0o700 {
+		t.Fatalf("the mirror is %d:%d %o, want %d:%d 700", u, g, mode, uid, gid)
+	}
+	for _, dir := range []string{".pki", ".pki/nssdb"} {
+		if u, g, mode := mustOwner(t, filepath.Join(rootfs, "root", dir)); u != uid || g != gid || mode != 0o700 {
+			t.Fatalf("~/%s was created %d:%d %o, want %d:%d 700", dir, u, g, mode, uid, gid)
+		}
+	}
+	caDB, _ := findMount(t, loadMounts(t, bundle), nssCADBDir)["source"].(string)
+	if _, _, mode := mustOwner(t, caDB); mode != 0o755 {
+		t.Fatalf("the CA database directory is %o, want 755", mode)
+	}
+	for name, want := range testNSSTemplate {
+		path := filepath.Join(caDB, name)
+		if got := mustRead(t, path); got != want {
+			t.Fatalf("%s holds %q, not the template's %q", name, got, want)
+		}
+		if _, _, mode := mustOwner(t, path); mode != 0o644 {
+			t.Fatalf("%s is %o, want 644", name, mode)
+		}
+	}
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "root/.pki")); !os.IsNotExist(err) {
+		t.Fatal("~/.pki was left behind")
+	}
+	for _, dir := range []string{mirror, caDB} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("%s was left behind", dir)
+		}
+	}
+}
+
+// Chromium creates a database where there was none; the step keeps it, less
+// the pkcs11.txt that held only the slot.
+func TestNSSDBSlotKeepsADatabaseTheStepCreated(t *testing.T) {
+	in, _, rootfs, mirror := injectSlot(t, nil)
+	mustWriteFile(t, filepath.Join(mirror, "cert9.db"), "CREATED BY CHROMIUM")
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(rootfs, "root", nssDBPath)
+	if got := mustRead(t, filepath.Join(legacy, "cert9.db")); got != "CREATED BY CHROMIUM" {
+		t.Fatalf("cert9.db holds %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(legacy, "pkcs11.txt")); !os.IsNotExist(err) {
+		t.Fatal("the pkcs11.txt holding only the slot was written back")
+	}
+}
+
+func TestNSSDBSlotIsAppendedAsAnEntryOfItsOwn(t *testing.T) {
+	for name, tc := range map[string]struct{ original, separator string }{
+		"ending in a blank line": {"library=\nname=internal\n\n", ""},
+		"ending in a newline":    {"library=\nname=internal\n", "\n"},
+		"ending mid-line":        {"library=\nname=internal", "\n\n"},
+		"a lone newline":         {"\n", ""},
+		"empty":                  {"", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, _, rootfs, mirror := injectSlot(t, ptr(tc.original))
+			want := tc.original + tc.separator + string(nssSlot)
+			if got := mustRead(t, filepath.Join(mirror, "pkcs11.txt")); got != want {
+				t.Fatalf("pkcs11.txt holds %q, want %q", got, want)
+			}
+
+			// A change elsewhere, so the mirror is written back.
+			mustWriteFile(t, filepath.Join(mirror, "cert9.db"), "CHANGED BY THE STEP")
+			if err := in.finish(); err != nil {
+				t.Fatal(err)
+			}
+			legacy := filepath.Join(rootfs, "root", nssDBPath)
+			if got := mustRead(t, filepath.Join(legacy, "pkcs11.txt")); got != tc.original {
+				t.Fatalf("pkcs11.txt was written back as %q, want %q", got, tc.original)
+			}
+			if got := mustRead(t, filepath.Join(legacy, "cert9.db")); got != "CHANGED BY THE STEP" {
+				t.Fatalf("the step's change was not written back: %q", got)
+			}
+		})
+	}
+}
+
+// What modutil does: NSS copies the entries it keeps byte for byte and
+// appends the new one.
+// The separator the injection added stays, so the module does not run into
+// the entry before it.
+func TestNSSDBSlotLeavesAModuleTheStepAdded(t *testing.T) {
+	for name, tc := range map[string]struct{ original, separator string }{
+		"ending in a blank line": {"library=\nname=internal\n\n", ""},
+		"ending in a newline":    {"library=\nname=internal\n", "\n"},
+		"ending mid-line":        {"library=\nname=internal", "\n\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, _, rootfs, mirror := injectSlot(t, ptr(tc.original))
+			module := "library=/usr/lib/opensc-pkcs11.so\nname=OpenSC\n\n"
+			mustAppendFile(t, filepath.Join(mirror, "pkcs11.txt"), module)
+
+			if err := in.finish(); err != nil {
+				t.Fatal(err)
+			}
+			want := tc.original + tc.separator + module
+			if got := mustRead(t, filepath.Join(rootfs, "root", nssDBPath, "pkcs11.txt")); got != want {
+				t.Fatalf("pkcs11.txt was written back as %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestNSSDBSlotTheStepRewroteIsStillTakenOut(t *testing.T) {
+	for name, tc := range map[string]struct{ rewrite, want string }{
+		// The separator the injection added is gone, the slot itself is not.
+		"without the separator": {"library=\nname=rewritten" + string(nssSlot), "library=\nname=rewritten"},
+		"the slot taken out":    {"library=\nname=rewritten\n", "library=\nname=rewritten\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, _, rootfs, mirror := injectSlot(t, ptr("library=\nname=internal\n"))
+			mustWriteFile(t, filepath.Join(mirror, "pkcs11.txt"), tc.rewrite)
+
+			if err := in.finish(); err != nil {
+				t.Fatal(err)
+			}
+			if got := mustRead(t, filepath.Join(rootfs, "root", nssDBPath, "pkcs11.txt")); got != tc.want {
+				t.Fatalf("pkcs11.txt was written back as %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Nothing but a file can carry the slot, so anything else is written back as
+// the step left it.
+func TestNSSDBSlotLeavesAPkcs11TxtThatIsNoLongerAFile(t *testing.T) {
+	for name, replace := range map[string]func(t *testing.T, path string){
+		"a symlink":   func(t *testing.T, path string) { mustSymlink(t, "elsewhere", path) },
+		"a directory": func(t *testing.T, path string) { mustMkdirAll(t, path) },
+		"gone":        func(*testing.T, string) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, _, rootfs, mirror := injectSlot(t, ptr("library=\n"))
+			path := filepath.Join(mirror, "pkcs11.txt")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			replace(t, path)
+
+			if err := in.finish(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(rootfs, "root", nssDBPath, "cert9.db")); err != nil {
+				t.Fatal("the rest of the database was not written back")
+			}
+		})
+	}
+}
+
+func TestNSSDBSlotRefusesAPkcs11TxtTooLargeToRead(t *testing.T) {
+	in, _, _, mirror := injectSlot(t, ptr("library=\n"))
+	mustSparseFile(t, filepath.Join(mirror, "pkcs11.txt"), maxPKCS11TxtBytes+1)
+
+	if err := in.finish(); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("got %v, want a pkcs11.txt too large to read to fail the step", err)
+	}
+}
+
+// Changing the CA's trust in the step copies it into the step's own database,
+// which is binary and so cannot be cut.
+func TestNSSDBSlotFailsOnTheCACopiedIntoTheStepsDatabase(t *testing.T) {
+	in, _, _, mirror := injectSlot(t, ptr("library=\n"))
+	mustWriteFile(t, filepath.Join(mirror, "cert9.db"), "SQLite\x00"+string(certificateDERs(testCA)[0]))
+
+	if err := in.finish(); !errors.Is(err, errUnstrippableCA) {
+		t.Fatalf("got %v, want the copy to fail the step as residue", err)
+	}
+}
+
+func TestNSSDBIsSkippedWhenTheSlotCannotBeAdded(t *testing.T) {
+	for name, arrange := range map[string]func(t *testing.T, bundle, legacy string){
+		"a database the user cannot write": func(t *testing.T, _, legacy string) {
+			if err := os.Chmod(legacy, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(legacy, 0o755) })
+		},
+		"a cert9.db the user cannot write": func(t *testing.T, _, legacy string) {
+			if err := os.Chmod(filepath.Join(legacy, "cert9.db"), 0o444); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a cert9.db that is a symlink": func(t *testing.T, _, legacy string) {
+			if err := os.Remove(filepath.Join(legacy, "cert9.db")); err != nil {
+				t.Fatal(err)
+			}
+			mustSymlink(t, "/etc/passwd", filepath.Join(legacy, "cert9.db"))
+		},
+		"a pkcs11.txt that is a symlink": func(t *testing.T, _, legacy string) {
+			mustSymlink(t, "/etc/passwd", filepath.Join(legacy, "pkcs11.txt"))
+		},
+		"a database too large to mirror": func(t *testing.T, _, legacy string) {
+			mustSparseFile(t, filepath.Join(legacy, "big.db"), maxCustomDirBytes+1)
+		},
+		"a mount where the CA database goes": func(t *testing.T, bundle, _ string) {
+			mountAt(t, bundle, nssCADBDir+"/x")
+		},
+		"a mirror that cannot be made": func(t *testing.T, _, legacy string) {
+			failRsyncWhen(t, func(args []string) bool { return rsyncSrc(args) == legacy })
+		},
+		"a mirror that cannot be read": func(t *testing.T, _, _ string) {
+			failWalkUnderOnce(t, scratchRoot)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			useTempLog(t)
+			useFakeRsync(t)
+			useNSSTemplate(t)
+			uid, gid := stepUser()
+			bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+			legacy := filepath.Join(rootfs, "root", nssDBPath)
+			mustMkdirAll(t, legacy)
+			mustWriteFile(t, filepath.Join(legacy, "cert9.db"), "THE STEP'S OWN")
+			giveToStepUser(t, legacy, uid, gid)
+			arrange(t, bundle, legacy)
+			readStderr := captureStderr(t)
+
+			in, err := inject(bundle, testCA)
+			stderr := readStderr()
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertNSSDBSkipped(t, in, bundle, "/root/.pki/nssdb", stderr)
+		})
+	}
+}
+
+// failWalkUnderOnce fails the first walk of anything under root, which here is
+// the mirror's first manifest.
+func failWalkUnderOnce(t *testing.T, root string) {
+	t.Helper()
+	failed := false
+	old := walkDir
+	walkDir = func(dir string, fn fs.WalkDirFunc) error {
+		if !failed && strings.HasPrefix(dir, root+"/") {
+			failed = true
+			return errBrokenWalk
+		}
+		return old(dir, fn)
+	}
+	t.Cleanup(func() { walkDir = old })
+}
+
+// The mirror's second manifest, taken after the slot went in.
+func TestNSSDBIsSkippedWhenTheMirrorCannotBeReadAfterTheSlot(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, _ := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	walks := 0
+	old := walkDir
+	walkDir = func(dir string, fn fs.WalkDirFunc) error {
+		if strings.HasPrefix(dir, scratchRoot+"/") {
+			if walks++; walks == 2 {
+				return errBrokenWalk
+			}
+		}
+		return old(dir, fn)
+	}
+	t.Cleanup(func() { walkDir = old })
+	readStderr := captureStderr(t)
+
+	in, err := inject(bundle, testCA)
+	stderr := readStderr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNSSDBSkipped(t, in, bundle, "/root/.pki/nssdb", stderr)
+}
+
+func TestNSSDBIsSkippedWhenTheXDGPathCannotBeResolved(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	mustWriteFile(t, filepath.Join(rootfs, "root/.local"), "")
+	readStderr := captureStderr(t)
+
+	in, err := inject(bundle, testCA)
+	stderr := readStderr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNSSDBSkipped(t, in, bundle, "/root/.pki/nssdb", stderr)
+}
+
+func TestNSSDBIsSkippedWhenTheDatabaseCannotBeListed(t *testing.T) {
+	skipIfRoot(t)
+	useTempLog(t)
+	useFakeRsync(t)
+	useNSSTemplate(t)
+	uid, gid := stepUser()
+	bundle, rootfs := newNSSBundle(t, []string{"HOME=/root"}, uid, gid, "/root")
+	legacy := filepath.Join(rootfs, "root", nssDBPath)
+	mustMkdirAll(t, legacy)
+	// Writable, but not searchable, so its files cannot be looked at.
+	if err := os.Chmod(legacy, 0o200); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(legacy, 0o755) })
+
+	in, err := inject(bundle, testCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoSlot(t, in)
+}
+
+func TestAppendNSSSlotReportsWhatItCannotDo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		broken   *brokenFile
+		existing string
+		lchown   bool
+	}{
+		"a failed stat":         {broken: &brokenFile{failStat: true}},
+		"not a regular file":    {broken: &brokenFile{notRegular: true}},
+		"a failed read":         {broken: &brokenFile{failReadAt: 1}, existing: "library=\n"},
+		"a failed write":        {broken: &brokenFile{failWrite: 1}},
+		"a failed hand-over":    {lchown: true},
+		"a failed open":         {existing: "\x00dir"},
+		"a symlink in its path": {existing: "\x00link"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "pkcs11.txt")
+			switch tc.existing {
+			case "":
+			case "\x00dir":
+				mustMkdirAll(t, path)
+			case "\x00link":
+				mustSymlink(t, "elsewhere", path)
+			default:
+				mustWriteFile(t, path, tc.existing)
+			}
+			if tc.broken != nil {
+				useBrokenBundleFile(t, tc.broken)
+			}
+			if tc.lchown {
+				old := lchown
+				lchown = func(string, int, int) error { return errBrokenFile }
+				t.Cleanup(func() { lchown = old })
+			}
+			if _, err := appendNSSSlot(path, 0, 0); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+func TestRemoveNSSSlotReportsWhatItCannotDo(t *testing.T) {
+	for name, broken := range map[string]*brokenFile{
+		"a failed stat":     {failStat: true},
+		"a failed read":     {failReadAt: 1},
+		"a failed write":    {failWriteAt: 1},
+		"a failed truncate": {failTruncate: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "pkcs11.txt")
+			mustWriteFile(t, path, "library=\n"+string(nssSlot))
+			useBrokenBundleFile(t, broken)
+			if err := removeNSSSlot(path, nssSlot, false); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+func TestRemoveNSSSlotLeavesSomethingNotRegular(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pkcs11.txt")
+	mustWriteFile(t, path, string(nssSlot))
+	useBrokenBundleFile(t, &brokenFile{notRegular: true})
+	if err := removeNSSSlot(path, nssSlot, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, path); got != string(nssSlot) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRemoveNSSSlotReportsAFileItCannotOpen(t *testing.T) {
+	skipIfRoot(t)
+	path := filepath.Join(t.TempDir(), "pkcs11.txt")
+	mustWriteFile(t, path, string(nssSlot))
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeNSSSlot(path, nssSlot, false); err == nil {
+		t.Fatal("expected an unreadable pkcs11.txt to be reported")
+	}
+}
+
+// cp -a of the home copies the slot into the layer; finish cuts it out.
+func TestNSSDBSlotComesOutOfACopiedHome(t *testing.T) {
+	in, _, rootfs, mirror := injectSlot(t, nil)
+	copied := filepath.Join(rootfs, "backup", nssDBPath, "pkcs11.txt")
+	mustMkdirAll(t, filepath.Dir(copied))
+	mustWriteFile(t, copied, "library=\nname=NSS Internal PKCS #11 Module\n\n"+mustRead(t, filepath.Join(mirror, "pkcs11.txt")))
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, copied); got != "library=\nname=NSS Internal PKCS #11 Module\n\n" {
+		t.Fatalf("the copy holds %q, want the slot gone and the rest kept", got)
+	}
+}
+
+// A copy of a pkcs11.txt the injection created is removed, and its directory
+// kept: nothing says whether the step made it or found it there.
+func TestNSSDBSlotCopyOfACreatedDatabaseLeavesItsDirectory(t *testing.T) {
+	in, _, rootfs, mirror := injectSlot(t, nil)
+	copied := filepath.Join(rootfs, "backup", nssDBPath, "pkcs11.txt")
+	mustMkdirAll(t, filepath.Dir(copied))
+	mustWriteFile(t, copied, mustRead(t, filepath.Join(mirror, "pkcs11.txt")))
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(copied); !os.IsNotExist(err) {
+		t.Fatalf("got %v, want the copied pkcs11.txt gone", err)
+	}
+	if _, err := os.Stat(filepath.Dir(copied)); err != nil {
+		t.Fatalf("got %v, want its directory kept", err)
+	}
+}
+
+// The separator the slot was appended with goes too, so the copy is left as
+// the step's own pkcs11.txt was.
+func TestNSSDBSlotCopyLosesItsSeparator(t *testing.T) {
+	own := "library=\nname=NSS Internal PKCS #11 Module"
+	in, _, rootfs, mirror := injectSlot(t, ptr(own))
+	copied := filepath.Join(rootfs, "backup", "pkcs11.txt")
+	mustMkdirAll(t, filepath.Dir(copied))
+	mustWriteFile(t, copied, mustRead(t, filepath.Join(mirror, "pkcs11.txt")))
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, copied); got != own {
+		t.Fatalf("the copy holds %q, want %q", got, own)
+	}
+}
+
+// stripNSSSlotLayer writes content to backup/name in a layer, runs stripLayer,
+// and returns the file's content afterwards, or "<removed>".
+func stripNSSSlotLayer(t *testing.T, name, content string) (string, error) {
+	t.Helper()
+	useTempLog(t)
+	rootfs := t.TempDir()
+	path := filepath.Join(rootfs, "backup", name)
+	mustMkdirAll(t, filepath.Dir(path))
+	mustWriteFile(t, path, content)
+	err := stripLayer(rootfs, rootfs, testCA, nil)
+	got, readErr := os.ReadFile(path)
+	if os.IsNotExist(readErr) {
+		return "<removed>", err
+	}
+	return string(got), err
+}
+
+func TestStripLayerTakesTheNSSSlotOutOfPkcs11Txt(t *testing.T) {
+	own := "library=\nname=NSS Internal PKCS #11 Module\n\n"
+	slot := string(nssSlot)
+	for name, c := range map[string]struct{ content, want string }{
+		"beside the file's own entries": {own + slot, own},
+		"alone, which removes the file": {slot, "<removed>"},
+		"twice":                         {slot + own + slot, own},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got, err := stripNSSSlotLayer(t, "pkcs11.txt", c.content); err != nil || got != c.want {
+				t.Fatalf("got (%v, %q), want (nil, %q)", err, got, c.want)
+			}
+		})
+	}
+}
+
+// A file with another name, such as the wrapper's own binary, is left alone.
+func TestStripLayerLeavesTheSlotTextOutsidePkcs11Txt(t *testing.T) {
+	content := "BINARY\x00" + string(nssSlot)
+	if got, err := stripNSSSlotLayer(t, "buildcage-runc", content); err != nil || got != content {
+		t.Fatalf("got (%v, %q), want the file left alone", err, got)
+	}
+}
+
+// An oversized pkcs11.txt is reported unread, as a slot rather than a
+// certificate.
+func TestStripLayerReportsAPkcs11TxtTooLargeToRead(t *testing.T) {
+	content := string(nssSlot) + strings.Repeat("#", maxPKCS11TxtBytes)
+	got, err := stripNSSSlotLayer(t, "pkcs11.txt", content)
+	if !errors.Is(err, errNSSSlotLeftInLayer) || errors.Is(err, errCALeftInLayer) || got != content ||
+		!strings.Contains(err.Error(), "/backup/pkcs11.txt (over 1 MiB, not read)") {
+		t.Fatalf("got %v, want the file reported unread and left as it was", err)
+	}
+}
+
+// An edited slot that still names the CA database is reported.
+func TestStripLayerReportsAnEditedNSSSlot(t *testing.T) {
+	content := "library=libsoftokn3.so\nparameters=\"configdir='sql:" + nssCADBDir + "'\"\n\n"
+	_, err := stripNSSSlotLayer(t, "pkcs11.txt", content)
+	if !errors.Is(err, errNSSSlotLeftInLayer) || errors.Is(err, errCALeftInLayer) ||
+		!strings.Contains(err.Error(), "/backup/pkcs11.txt (still names "+nssCADBDir+")") {
+		t.Fatalf("got %v, want the edited slot reported", err)
+	}
+	useFailOnCAResidue(t, false)
+	if err := tolerateResidue(err); err != nil {
+		t.Fatalf("got %v, want only a warning under fail-on-ca-residue: false", err)
+	}
+}
+
+// I/O failures on the file are returned.
+func TestStripNSSSlotCopyReportsWhatItCannotDo(t *testing.T) {
+	for name, broken := range map[string]*brokenFile{
+		"a failed stat":     {failStat: true},
+		"a failed read":     {failReadAt: 1},
+		"a failed write":    {failWriteAt: 1},
+		"a failed truncate": {failTruncate: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "pkcs11.txt")
+			mustWriteFile(t, path, "library=\n"+string(nssSlot))
+			useBrokenBundleFile(t, broken)
+			if _, err := stripNSSSlotCopy(path, nil); !errors.Is(err, errBrokenFile) {
+				t.Fatalf("got %v, want the failure reported", err)
+			}
+		})
+	}
+}
+
+// A copy left empty that cannot be removed is reported.
+func TestStripNSSSlotCopyReportsAFileItCannotRemove(t *testing.T) {
+	skipIfRoot(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pkcs11.txt")
+	mustWriteFile(t, path, string(nssSlot))
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if _, err := stripNSSSlotCopy(path, nil); err == nil {
+		t.Fatal("expected the failed removal to be reported")
+	}
+}
+
+// A copy that cannot be reached through the rootfs is reported.
+func TestStripLayerReportsAPkcs11TxtTheRootfsDoesNotReach(t *testing.T) {
+	for name, lay := range map[string]func(t *testing.T, rootfs string){
+		"not there": func(*testing.T, string) {},
+		"behind a symlink loop": func(t *testing.T, rootfs string) {
+			mustSymlink(t, "backup", filepath.Join(rootfs, "backup"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			useTempLog(t)
+			root := t.TempDir()
+			rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "upper")
+			mustMkdirAll(t, rootfs)
+			mustMkdirAll(t, filepath.Join(upper, "backup"))
+			mustWriteFile(t, filepath.Join(upper, "backup", "pkcs11.txt"), string(nssSlot))
+			lay(t, rootfs)
+			if err := stripLayer(rootfs, upper, testCA, nil); err == nil {
+				t.Fatal("expected the copy to be reported")
+			}
+		})
+	}
+}
+
+// A step that renames pkcs11.txt and leaves a symlink in its place has the
+// slot cut from the file the link leads to, which NSS still reads.
+func TestNSSDBSlotComesOutOfARenamedPkcs11Txt(t *testing.T) {
+	own := "library=\nname=NSS Internal PKCS #11 Module"
+	in, _, rootfs, mirror := injectSlot(t, ptr(own))
+	if err := os.Rename(filepath.Join(mirror, "pkcs11.txt"), filepath.Join(mirror, "p.txt")); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, "p.txt", filepath.Join(mirror, "pkcs11.txt"))
+
+	if err := in.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, filepath.Join(rootfs, "root", nssDBPath, "p.txt")); got != own {
+		t.Fatalf("the renamed file holds %q, want %q", got, own)
+	}
+}
+
+// A pkcs11.txt symlink into the layer has the file it leads to cut, once
+// however many links lead there.
+func TestStripLayerFollowsAPkcs11TxtSymlink(t *testing.T) {
+	own := "library=\nname=NSS Internal PKCS #11 Module\n\n"
+	for name, link := range map[string]string{
+		"beside it":                 "p.txt",
+		"elsewhere in the layer":    "/elsewhere/p.txt",
+		"to another pkcs11.txt too": "/elsewhere/pkcs11.txt",
+	} {
+		t.Run(name, func(t *testing.T) {
+			useTempLog(t)
+			rootfs := t.TempDir()
+			target := filepath.Join(rootfs, "backup", link)
+			if filepath.IsAbs(link) {
+				target = filepath.Join(rootfs, link)
+			}
+			mustMkdirAll(t, filepath.Join(rootfs, "backup"))
+			mustMkdirAll(t, filepath.Dir(target))
+			mustWriteFile(t, target, own+string(nssSlot))
+			mustSymlink(t, link, filepath.Join(rootfs, "backup", "pkcs11.txt"))
+
+			if err := stripLayer(rootfs, rootfs, testCA, nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := mustRead(t, target); got != own {
+				t.Fatalf("the linked file holds %q, want %q", got, own)
+			}
+		})
+	}
+}
+
+// A slot left in a linked file is reported once, under the file's own path.
+func TestStripLayerReportsALinkedPkcs11TxtOnce(t *testing.T) {
+	useTempLog(t)
+	rootfs := t.TempDir()
+	mustMkdirAll(t, filepath.Join(rootfs, "elsewhere"))
+	mustMkdirAll(t, filepath.Join(rootfs, "backup"))
+	mustWriteFile(t, filepath.Join(rootfs, "elsewhere", "pkcs11.txt"), string(nssSlot)+strings.Repeat("#", maxPKCS11TxtBytes))
+	mustSymlink(t, "/elsewhere/pkcs11.txt", filepath.Join(rootfs, "backup", "pkcs11.txt"))
+
+	err := stripLayer(rootfs, rootfs, testCA, nil)
+	if !errors.Is(err, errNSSSlotLeftInLayer) || strings.Count(err.Error(), "/elsewhere/pkcs11.txt") != 1 {
+		t.Fatalf("got %v, want the linked file reported once", err)
+	}
+}
+
+// A pkcs11.txt symlink that leads nowhere NSS could read, or to a file the step
+// did not write, is left alone, and so is a pkcs11.txt that is not a file.
+func TestStripLayerLeavesAPkcs11TxtSymlinkOutOfTheLayer(t *testing.T) {
+	for name, lay := range map[string]func(t *testing.T, rootfs, upper string){
+		"to a file below the layer": func(t *testing.T, rootfs, upper string) {
+			mustMkdirAll(t, filepath.Join(rootfs, "lower"))
+			mustWriteFile(t, filepath.Join(rootfs, "lower", "p.txt"), string(nssSlot))
+			for _, dir := range []string{rootfs, upper} {
+				mustSymlink(t, "/lower/p.txt", filepath.Join(dir, "backup", "pkcs11.txt"))
+			}
+		},
+		"in a loop": func(t *testing.T, rootfs, upper string) {
+			for _, dir := range []string{rootfs, upper} {
+				mustSymlink(t, "pkcs11.txt", filepath.Join(dir, "backup", "pkcs11.txt"))
+			}
+		},
+		"a directory": func(t *testing.T, _, upper string) {
+			mustMkdirAll(t, filepath.Join(upper, "backup", "pkcs11.txt"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			useTempLog(t)
+			root := t.TempDir()
+			rootfs, upper := filepath.Join(root, "rootfs"), filepath.Join(root, "upper")
+			mustMkdirAll(t, filepath.Join(rootfs, "backup"))
+			mustMkdirAll(t, filepath.Join(upper, "backup"))
+			lay(t, rootfs, upper)
+
+			if err := stripLayer(rootfs, upper, testCA, nil); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(rootfs, "lower", "p.txt")); err == nil {
+				if got := mustRead(t, filepath.Join(rootfs, "lower", "p.txt")); got != string(nssSlot) {
+					t.Fatalf("the file below the layer was changed to %q", got)
+				}
+			}
+		})
+	}
+}

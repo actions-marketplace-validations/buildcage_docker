@@ -1,23 +1,29 @@
 /**
- * The domain model of the `inspect` engine: one thing a build did, produced by
- * the log parser (inspect.ts) and consumed by the report layer.
+ * The report's domain model: one thing a build did, produced by the log
+ * parsers (inspect.ts, haproxy.ts, dns.ts) and consumed by the report layer.
  */
+
+import { ruleHost } from "./authority.ts";
+import { UNKNOWN_HOST } from "./proxy-address.ts";
 
 /**
  * What a rule decided, or would have decided had one been enforced.
  *
  * `discovery`, `incomplete` and `failed` are none of those: no rule decided
  * them and none could. Folding any into `block` would put a row in the report
- * no rule could take away, and fail a build under fail_on_blocked over
+ * no rule could take away, and fail a build under fail-on-blocked over
  * something the rules had nothing to say about. A service name is answered
  * empty whatever the rules say, a connection nobody ended on purpose gave a
  * rule nothing to judge, and `failed` is what became of a request the rules had
  * already allowed.
  *
- * A request this proxy refused before one had wholly arrived is a `block` like
- * any other, though: it refused rather than stood by, and a rule does clear it
- * (see the bad-request remedy in docs/reference.md). `incomplete` is only what
- * the client or the proxy's own machinery ended.
+ * A request this proxy blocked before one had wholly arrived is a `block` like
+ * any other, though: it blocked rather than stood by, and a rule does clear it
+ * (see the bad-request remedy in docs/reference.md). So is one sent straight to
+ * an address no ip rule covers that ended before its request, unless its SNI
+ * names a host the rules allow; see blockUnpassedAddresses and
+ * blockUnallowedNames in inspect.ts. `incomplete` is only what the client or
+ * the proxy's own machinery ended.
  *
  * `failed` alone names a host worth tabulating: the rules passed on it and the
  * name is the one the build asked for, so it gets a table where the other two
@@ -33,12 +39,13 @@ export interface TrafficEvent {
   time: number;
   action: TrafficAction;
   protocol: TrafficProtocol;
-  /** The name asked for, or the address when there was no name. */
+  /** The name asked for, as ruleHost (or sniHost, for a name from the SNI)
+   *  folds it, or the address when there was no name. */
   host: string;
   /** Absent for dns, which connects to nothing. */
   port?: number;
   /** dns only, and only where the type is the point: a discovery lookup, or a
-   *  refused service name. */
+   *  blocked service name. */
   queryType?: string;
   /** http and https only. */
   method?: string;
@@ -46,47 +53,88 @@ export interface TrafficEvent {
   url?: string;
   /** http and https only, and only when the exchange completed. */
   status?: number;
-  /** Bytes returned to the build. Absent for dns and for a refusal. */
+  /** Bytes returned to the build. Absent for dns and for a block. */
   bytes?: number;
-  /** Why it was refused, or what cut it short before a rule saw it. Set when
+  /** Why it was blocked, or what cut it short before a rule saw it. Set when
    *  action is "block" or "incomplete". */
   reason?: string;
   /** Address it was actually sent to. Absent for dns. */
   destination?: string;
+  /** The reason restrict mode would have blocked a request audit let through
+   *  for, where an action's own check says so. Set only then. */
+  wouldBlock?: string;
+  /** What an action's own check logged for a request, as objects by name; see
+   *  InspectLogFields. Only the fields that had a value. */
+  extensions?: Record<string, Record<string, string>>;
 }
 
-/** The hosts a run connected to, for isRedundantDns. CoreDNS lowercases what it
- *  logs while HAProxy repeats the authority verbatim, so both sides are
- *  folded. */
+/**
+ * The failures that are not the inspect proxy's own: an origin that answered
+ * nothing usable or broke off mid-transfer, one no passthrough could reach,
+ * and a name the upstream resolver could not answer for a host the rules had
+ * already allowed. See TrafficAction for what the report does with them.
+ *
+ * What the first two share is a connection that completed, which is where the
+ * origin's certificate was checked: whatever went wrong afterwards, it went
+ * wrong with an origin this proxy had authenticated. An inspected connection
+ * that never completed is absent on purpose, `origin-connect-failed` as much as
+ * `origin-untrusted`: the check guards nothing if failing it does not fail a
+ * build, and the log cannot say which of the two it was. See reasonFor in
+ * inspect.ts.
+ */
+const FAILURE_REASONS = new Set([
+  "origin-unreachable",
+  "origin-no-response",
+  "origin-aborted",
+  "dns-failed",
+]);
+
+/** Decided from the reason rather than from the termination state, which says
+ *  that something was blocked but not by whom. */
+export function actionFor(reason: string | undefined, isAudit: boolean): TrafficAction {
+  if (reason !== undefined) return FAILURE_REASONS.has(reason) ? "failed" : "block";
+  // audit enforces nothing, so nothing here was allowed by a rule. Calling it
+  // "allow" would claim a decision that was never made.
+  return isAudit ? "audit" : "allow";
+}
+
+/** The hosts a run connected to, for isRedundantDns. */
 export interface ConnectedHosts {
   any: Set<string>;
   blocked: Set<string>;
 }
 
-const CLIENT_ENDED_REASONS = new Set(["client-aborted", "client-timeout"]);
+/** What a client ending a connection before its request is logged as. */
+export const CLIENT_ENDED_REASONS: ReadonlySet<string | undefined> = new Set([
+  "client-aborted",
+  "client-timeout",
+]);
 
 /**
  * Given a whole timeline, which client-ended `incomplete` connections
  * (client-aborted, client-timeout) are only noise and are left out of the
  * report: those to a host the client also got a request read on, where the
  * close is a keepalive pool cleaning up after its work. Any non-dns event but
- * these closes proves as much, since an allowed, refused or origin-failed
+ * these closes proves as much, since an allowed, blocked or origin-failed
  * request each took a completed handshake first. A host with none keeps its
  * closes, since then every attempt to it ended before a request, as a client
  * that cannot trust the CA does (a container missing `ca-certificates`). The
  * raw traffic artifact keeps them all either way.
+ *
+ * `(unknown)` is no single host, so it proves nothing about a close.
  */
 export function clientEndedNoise(timeline: TrafficEvent[]): (event: TrafficEvent) => boolean {
   const completed = new Set<string>();
   for (const event of timeline) {
-    if (event.protocol !== "dns" && event.action !== "incomplete") {
-      completed.add(event.host.toLowerCase());
+    if (event.protocol !== "dns" && event.action !== "incomplete" && event.host !== UNKNOWN_HOST) {
+      completed.add(ruleHost(event.host));
     }
   }
+  // A close is named by its SNI, which may keep a dot the request's Host lost.
   return (event) =>
     event.action === "incomplete" &&
-    CLIENT_ENDED_REASONS.has(event.reason ?? "") &&
-    completed.has(event.host.toLowerCase());
+    CLIENT_ENDED_REASONS.has(event.reason) &&
+    completed.has(ruleHost(event.host));
 }
 
 /** Index a timeline once. The check below runs for every lookup, and rescanning
@@ -94,8 +142,11 @@ export function clientEndedNoise(timeline: TrafficEvent[]): (event: TrafficEvent
 export function connectedHosts(timeline: TrafficEvent[]): ConnectedHosts {
   const connected: ConnectedHosts = { any: new Set(), blocked: new Set() };
   for (const event of timeline) {
-    if (event.protocol === "dns") continue;
-    const host = event.host.toLowerCase();
+    // Where these are all a host left, as from a client that cannot trust the
+    // CA, its lookup is the only row a table has for it.
+    if (event.protocol === "dns" || event.action === "incomplete") continue;
+    // The resolver logs every name without the dot an SNI may keep.
+    const host = ruleHost(event.host);
     connected.any.add(host);
     if (event.action === "block") connected.blocked.add(host);
   }
@@ -104,11 +155,11 @@ export function connectedHosts(timeline: TrafficEvent[]): ConnectedHosts {
 
 /**
  * A lookup is the sole trace of a name the build never connected to, and worth
- * keeping for that. Once a connection to the same name also appears, it says
- * nothing that connection does not and only doubles the row.
+ * keeping for that. Once a connection to the same name also reaches a host
+ * table, it says nothing that connection does not and only doubles the row.
  *
- * A refused lookup takes a refused connection to cover it. An allowed request
- * for a name the resolver refused would mean the two disagreed about that host,
+ * A blocked lookup takes a blocked connection to cover it. An allowed request
+ * for a name the resolver blocked would mean the two disagreed about that host,
  * which a reader should see rather than have collapsed away.
  *
  * A discovery lookup is never redundant: it asks about `_service._proto.<host>`,
@@ -116,6 +167,7 @@ export function connectedHosts(timeline: TrafficEvent[]): ConnectedHosts {
  */
 export function isRedundantDns(event: TrafficEvent, connected: ConnectedHosts): boolean {
   if (event.protocol !== "dns" || event.action === "discovery") return false;
-  const host = event.host.toLowerCase();
-  return event.action === "block" ? connected.blocked.has(host) : connected.any.has(host);
+  return event.action === "block"
+    ? connected.blocked.has(event.host)
+    : connected.any.has(event.host);
 }

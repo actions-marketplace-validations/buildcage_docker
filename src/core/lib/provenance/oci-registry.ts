@@ -4,8 +4,8 @@
  * All errors are thrown as VerifyImageError (see errors.ts).
  */
 
-import { VerifyImageError } from "./errors.ts";
 import { errorMessage } from "../errors.ts";
+import { VerifyImageError } from "./errors.ts";
 
 /** Appended to every 401/403 message: the status alone reads as a bug in the
  *  action, when by far the likeliest cause is an unauthenticated runner. */
@@ -189,7 +189,7 @@ export interface RegistryClient {
        */
       absentOn404?: boolean;
       /**
-       * The `sha256:<hex>` this document is addressed by. When set, the fetched
+       * The digest this document is addressed by. When set, the fetched
        * bytes are verified against it before they are parsed, so the registry
        * cannot answer a content-addressed read with different content.
        */
@@ -333,7 +333,8 @@ export async function fetchImageConfigLabels(
  * Fetch a pull token via Docker Token Authentication.
  *
  * If Docker credentials for the registry are available (basicAuth from
- * readGhcrBasicAuth), uses Basic auth directly, with no anonymous attempt.
+ * readGhcrBasicAuth), uses Basic auth directly, with no anonymous attempt:
+ * docker pulls the image with the same credentials, so it would fail there.
  * Otherwise falls back to anonymous access (public packages).
  */
 export async function fetchRegistryToken(
@@ -365,7 +366,8 @@ export async function fetchRegistryToken(
     throw new VerifyImageError(
       basicAuth
         ? `Registry authentication failed: HTTP ${resp.status}. ` +
-            `The credentials in Docker config may be expired. Run \`docker login ${registry}\` again.`
+            `The credentials in Docker config may be expired, and ${registry} refuses them even for a public package. ` +
+            `Run \`docker login ${registry}\` again, or \`docker logout ${registry}\` if the package is public.`
         : `Failed to get registry token: HTTP ${resp.status}. ` +
             `The package may be private. Run \`docker login ${registry}\` ` +
             `(or use docker/login-action with 'packages: read') before this action.`,

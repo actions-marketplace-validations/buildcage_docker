@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { renderHostTable } from "./host-table.ts";
 
 describe("renderHostTable", () => {
@@ -14,34 +15,14 @@ describe("renderHostTable", () => {
   it("renders a default 3-column table (Host, Rule, Count)", () => {
     const table = renderHostTable([row()]);
     expect(table).toBe(
-      "| Host | Rule | Count |\n| --- | --- | ---: |\n| example.com:443 | HTTPS | 2 |",
+      "| Host | Rule | Count |\n| --- | --- | ---: |\n| `example.com:443` | HTTPS | 2 |",
     );
   });
 
   it("adds a Reason column when showReason is true", () => {
     const table = renderHostTable([row()], { showReason: true });
     expect(table).toMatch(/^\| Host \| Rule \| Reason \| Count \|/);
-    expect(table).toMatch(/\| example\.com:443 \| HTTPS \| not in allowlist \| 2 \|/);
-  });
-
-  it("adds an Expected column with a checkmark when showExpected is true and the row matched", () => {
-    const table = renderHostTable([row({ expected: true })], { showExpected: true });
-    expect(table).toMatch(/^\| Host \| Rule \| Count \| Expected \|/);
-    expect(table).toMatch(/\| example\.com:443 \| HTTPS \| 2 \| ✅ \|/);
-  });
-
-  it("leaves the Expected cell blank when the row did not match", () => {
-    const table = renderHostTable([row({ expected: false })], { showExpected: true });
-    expect(table).toMatch(/\| example\.com:443 \| HTTPS \| 2 \| {2}\|/);
-  });
-
-  it("renders all 5 columns when both showReason and showExpected are true", () => {
-    const table = renderHostTable([row({ expected: true })], {
-      showReason: true,
-      showExpected: true,
-    });
-    expect(table).toMatch(/^\| Host \| Rule \| Reason \| Count \| Expected \|/);
-    expect(table).toMatch(/\| example\.com:443 \| HTTPS \| not in allowlist \| 2 \| ✅ \|/);
+    expect(table).toMatch(/\| `example\.com:443` \| HTTPS \| not in allowlist \| 2 \|/);
   });
 
   it("renders only the header rows for an empty list", () => {
@@ -65,12 +46,12 @@ describe("a host carrying markdown syntax", () => {
       { showReason: true },
     );
     const row = md.split("\n")[2];
-    expect(row).toBe("| evil.example\\|HTTPS\\|-\\|1\\|x\\|:443 | HTTPS | - | 1 |");
+    expect(row).toBe("| `evil.example\\|HTTPS\\|-\\|1\\|x\\|:443` | HTTPS | - | 1 |");
   });
 });
 
-describe("a row carrying its own Host text", () => {
-  it("shows that text instead of host:port, for a row standing for several", () => {
+describe("a row carrying a note", () => {
+  it("shows the note after the host, for a row standing for several", () => {
     const md = renderHostTable([
       {
         host: "*.sury.org:*",
@@ -78,19 +59,19 @@ describe("a row carrying its own Host text", () => {
         ruleType: "DNS",
         reason: "dns-not-allowed",
         count: 12,
-        display: "*.sury.org:* (12 hosts)",
+        note: "(12 hosts)",
       },
     ]);
-    expect(md.includes("| \\*.sury.org:\\* (12 hosts) | DNS | 12 |")).toBe(true);
+    expect(md).toContain("| `*.sury.org:*` (12 hosts) | DNS | 12 |");
   });
 });
 
 describe("a row with no port", () => {
-  it("shows the name alone, since a refused name was never connected to", () => {
+  it("shows the name alone, since a blocked name was never connected to", () => {
     const md = renderHostTable([
       { host: "attacker.example", port: "-", ruleType: "DNS", reason: "dns-not-allowed", count: 1 },
     ]);
-    expect(md.includes("attacker.example |")).toBe(true);
-    expect(md.includes("attacker.example:-")).toBe(false);
+    expect(md).toContain("`attacker.example` |");
+    expect(md).not.toContain("attacker.example:-");
   });
 });

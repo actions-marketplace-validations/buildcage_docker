@@ -11,7 +11,12 @@ import {
   type AggregatedEntry,
   type LogEntry,
 } from "#core/lib/log/aggregate.ts";
+import type { DnsLogScan } from "#core/lib/log/dns.ts";
+import type { HaproxyLogScan } from "#core/lib/log/haproxy.ts";
+import type { InspectLogScan } from "#core/lib/log/inspect.ts";
 import { connectedHosts, isRedundantDns, type TrafficEvent } from "#core/lib/log/traffic-event.ts";
+
+import type { GenReportParameters, ReportData, ServiceHealth } from "../types.ts";
 
 export interface AnnotatedBlockedRow extends AggregatedEntry {
   expected: boolean;
@@ -24,7 +29,7 @@ export interface ExpectedFlag {
   expected: boolean;
 }
 
-/** A compiled known_blocked_rules rule and the text a row it covers is grouped
+/** A compiled known-blocked-rules rule and the text a row it covers is grouped
  *  under. */
 interface KnownBlockedMatcher {
   /** Port-completed for a host rule, exactly as written for a URL rule. */
@@ -35,9 +40,9 @@ interface KnownBlockedMatcher {
 /**
  * What a host rule is tested against, normally `host:port`.
  *
- * A block with no port is a refused name, connected to nothing. It is tested as
+ * A block with no port is a blocked name, connected to nothing. It is tested as
  * port 0, which `host:*` matches (compiling to `host:\d+`) but `host:443` does
- * not, which is right since no port was involved. Without this a refused name
+ * not, which is right since no port was involved. Without this a blocked name
  * could never be marked expected.
  */
 function targetOf(event: TrafficEvent): string {
@@ -70,7 +75,7 @@ interface CompiledUrlRule {
  * Whether a blocked event is one a URL rule acknowledges.
  *
  * Only `inspect` records a method and a URL on a block, so an event without
- * them (a host-level refusal, or any block under `universal`) never matches a
+ * them (a host-level block, or any block under `universal`) never matches a
  * URL rule; those are acknowledged with a host rule instead. Scheme, host, port
  * and path are matched as the proxy would (see haproxy-rule-block.ts and
  * haproxy-rules.ts's per-scheme bucketing): port and scheme against the
@@ -94,7 +99,7 @@ function matchesUrlRule({ rule, hostRe, pathRe }: CompiledUrlRule, event: Traffi
 }
 
 /**
- * Compile the known_blocked_rules lines into matchers, once per report. A line
+ * Compile the known-blocked-rules lines into matchers, once per report. A line
  * carrying a space is a URL rule (see isKnownBlockedUrlRule); otherwise it is a
  * host rule, whose missing port is completed here too so a value set straight
  * in the environment behaves like one that came through the action's input, and
@@ -132,7 +137,7 @@ interface BlockedAccumulator {
 
 /**
  * Aggregate blocked events into the report's blocked-hosts rows, tagging each
- * row with whether known_blocked_rules accounts for it and the rule that did.
+ * row with whether known-blocked-rules accounts for it and the rule that did.
  *
  * Matching is per event, not per aggregated row: a URL rule marks one request
  * to a host and not another, so a row (which counts several requests to one
@@ -191,7 +196,7 @@ const RULE_TYPE: Record<TrafficEvent["protocol"], string> = {
 
 /** Reduce an event to the host row a rule is written against. A dns event has
  *  no port, having connected to nothing. */
-function toHostRow(event: TrafficEvent): LogEntry {
+export function toHostRow(event: TrafficEvent): LogEntry {
   return {
     host: event.host,
     port: event.port === undefined ? "-" : String(event.port),
@@ -209,11 +214,10 @@ export interface ReducedTimeline {
 }
 
 /**
- * Turn a timeline into the report's three host tables, the reduction both
- * engines share. `discovery` and `incomplete` events reach neither table (no
- * rule decided them; the timeline still keeps them). A lookup a connection
- * already covers is dropped, and a failed connection gets its own table apart
- * from refusals (see TrafficAction).
+ * Turn a timeline into the report's three host tables. `discovery` and
+ * `incomplete` events reach none of them (no rule decided them; the timeline
+ * still keeps them). A lookup a connection already covers is dropped, and a
+ * failed connection is kept apart from blocks (see TrafficAction).
  *
  * Blocked events are kept whole rather than reduced to host rows first:
  * annotateKnownBlocked matches a URL rule against the method and path a host
@@ -240,4 +244,51 @@ export function reduceTimeline(
     failed: aggregate(failedRows),
     blockedCount: blockedEvents.length,
   };
+}
+
+/**
+ * Builds the report data from the already-started log scans: reads them
+ * concurrently, merges them into one timeline, reduces it, and judges whether
+ * the logs are a complete record. Only the proxy scan differs (inspect
+ * decrypts, universal reads SNI/Host), so each caller passes its own and
+ * shares everything else.
+ */
+export async function assembleReportData<E extends ReportData["engine"]>(
+  engine: E,
+  proxyScan: Promise<InspectLogScan | HaproxyLogScan>,
+  dnsScan: Promise<DnsLogScan>,
+  parameters: GenReportParameters,
+  { droppedLogs, resolverAnswered }: ServiceHealth,
+): Promise<Extract<ReportData, { engine: E }>> {
+  const [
+    { events: proxyEvents, startedAt, headIntact: proxyHeadIntact, unparsed, restarts: proxy },
+    { events: dnsEvents, headIntact: dnsHeadIntact, unparsed: dnsUnparsed, restarts: resolver },
+  ] = await Promise.all([proxyScan, dnsScan]);
+
+  const timeline = [...proxyEvents, ...dnsEvents].sort((a, b) => a.time - b.time);
+
+  // engine is the discriminant and the rest is the shared ReportDataCommon, so
+  // the assertion only restates the variant E already fixes.
+  return {
+    engine,
+    parameters,
+    ...reduceTimeline(timeline, parameters.knownBlockedRules),
+    // Either log losing its beginning loses evidence the other cannot vouch
+    // for, and an unreadable or dropped line is the same gap mid-log. A
+    // resolver that stopped logs nothing of the lookups it then missed.
+    logLooksPlausible:
+      proxyHeadIntact &&
+      dnsHeadIntact &&
+      unparsed === 0 &&
+      dnsUnparsed === 0 &&
+      droppedLogs.count === 0 &&
+      resolverAnswered &&
+      proxy === 0 &&
+      resolver === 0,
+    proxyAnswered: droppedLogs.answered,
+    resolverAnswered,
+    restarts: { proxy, resolver },
+    startedAt,
+    timeline,
+  } as Extract<ReportData, { engine: E }>;
 }

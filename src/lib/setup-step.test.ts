@@ -1,24 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { runSetupStep, COMPOSE_FILE, type SetupStepDeps } from "./setup-step.ts";
+import { COMPOSE_FILE } from "../compose-file.ts";
 import { SetupError } from "./errors.ts";
+import { runSetupStep, type SetupStepDeps } from "./setup-step.ts";
 
 // Every collaborator is tested in its own file; what is left to check here is
 // the order they run in, what each one is handed, and which of them still run
 // when an earlier step fails.
 const mocks = {
-  readEngineInputs: vi.fn(),
-  readRuleInputs: vi.fn(),
-  readBuilderName: vi.fn(),
+  applyConfigFile: vi.fn(),
+  readSetupInputs: vi.fn(),
   readLocalImageOverride: vi.fn(),
   verifyImageDigestOrThrow: vi.fn(),
   checkUrlAndTlsRuleSupport: vi.fn(),
   checkKnownBlockedUrlRuleSupport: vi.fn(),
-  checkIpRuleSupport: vi.fn(),
   logRules: vi.fn(),
   withLogGroup: vi.fn(),
   builderStartError: vi.fn(),
   runDocker: vi.fn(),
+  saveState: vi.fn(),
+  setOutput: vi.fn(),
   log: vi.fn(),
   warn: vi.fn(),
 };
@@ -35,22 +36,16 @@ const ENV = {
 };
 
 /** `buildcage-` + the first 12 hex of sha256("buildcage"): the same name
- *  report derives from its own builder_name input. */
+ *  report derives from its own builder-name input. */
 const PROJECT_NAME = "buildcage-eeb358f947ee";
 
+let prevHooks: string | undefined;
+
 beforeEach(() => {
+  prevHooks = process.env.BUILDCAGE_BUILD_TEST_HOOKS;
+  delete process.env.BUILDCAGE_BUILD_TEST_HOOKS;
   vi.resetAllMocks();
-  mocks.readEngineInputs.mockReturnValue({ proxyEngine: "universal" });
-  mocks.readRuleInputs.mockReturnValue({
-    proxyMode: "restrict",
-    httpsRules: ["example.com:443"],
-    httpRules: [],
-    ipRules: [],
-    urlRules: [],
-    tlsRules: [],
-    knownBlockedRules: [],
-  });
-  mocks.readBuilderName.mockReturnValue("buildcage");
+  mocks.readSetupInputs.mockReturnValue(inputsWith());
   mocks.readLocalImageOverride.mockResolvedValue(null);
   mocks.verifyImageDigestOrThrow.mockResolvedValue(DIGEST);
   // The real one runs the callback; a test that cares asserts on logRules.
@@ -59,6 +54,29 @@ beforeEach(() => {
     new SetupError("builder never came up", "BUILDER_NOT_READY"),
   );
 });
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  if (prevHooks === undefined) delete process.env.BUILDCAGE_BUILD_TEST_HOOKS;
+  else process.env.BUILDCAGE_BUILD_TEST_HOOKS = prevHooks;
+});
+
+/** What readSetupInputs returns, with `overrides` on top of a minimal run. */
+function inputsWith(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    proxyEngine: "universal",
+    builderName: "buildcage",
+    proxyMode: "restrict",
+    failOnCaResidue: true,
+    httpsRules: ["example.com:443"],
+    httpRules: [],
+    ipRules: [],
+    urlRules: [],
+    tlsRules: [],
+    knownBlockedRules: [],
+    ...overrides,
+  };
+}
 
 /** Call order of a step that ran, for comparing two steps against each other. */
 function orderOf(mock: { mock: { invocationCallOrder: number[] } }): number {
@@ -73,13 +91,90 @@ function dockerArgs(n: number): string[] {
 }
 
 describe("runSetupStep", () => {
+  it("saves the builder name for post before starting the builder", async () => {
+    mocks.readSetupInputs.mockReturnValue(inputsWith({ builderName: "from-file" }));
+
+    await runSetupStep({ ...ENV, GITHUB_STATE: "/tmp/state" }, deps);
+
+    expect(mocks.saveState).toHaveBeenCalledWith("builder_name", "from-file");
+    expect(orderOf(mocks.saveState)).toBeLessThan(orderOf(mocks.runDocker));
+  });
+
+  it("saves nothing when the runner set no state file", async () => {
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.saveState).not.toHaveBeenCalled();
+  });
+
+  it("outputs the builder name before starting the builder", async () => {
+    mocks.readSetupInputs.mockReturnValue(inputsWith({ builderName: "from-file" }));
+
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.setOutput).toHaveBeenCalledWith("builder-name", "from-file");
+    expect(mocks.setOutput).toHaveBeenCalledWith("builder_name", "from-file");
+    expect(orderOf(mocks.setOutput)).toBeLessThan(orderOf(mocks.runDocker));
+  });
+
+  it("reads an input's underscore spelling, before config-file, and warns of one it ignored", async () => {
+    const env = {
+      ...ENV,
+      INPUT_PROXY_MODE: "audit",
+      "INPUT_PROXY-MODE": "restrict",
+      INPUT_CONFIG_FILE: "c.yml",
+    };
+    mocks.applyConfigFile.mockImplementation((seen: NodeJS.ProcessEnv) => {
+      expect(seen).toMatchObject({ "INPUT_CONFIG-FILE": "c.yml", "INPUT_PROXY-MODE": "restrict" });
+      expect(seen).not.toHaveProperty("INPUT_PROXY_MODE");
+    });
+
+    await runSetupStep(env, deps);
+
+    expect(mocks.warn).toHaveBeenCalledWith("Ignored proxy_mode, as proxy-mode is also set.");
+  });
+
+  it("joins a rule input's two spellings", async () => {
+    const env = {
+      ...ENV,
+      INPUT_ALLOWED_HTTPS_RULES: "a.example.com:443",
+      "INPUT_ALLOWED-HTTPS-RULES": "b.example.com:443",
+    };
+    mocks.applyConfigFile.mockImplementation((seen: NodeJS.ProcessEnv) => {
+      expect(seen["INPUT_ALLOWED-HTTPS-RULES"]).toBe("b.example.com:443\na.example.com:443");
+    });
+
+    await runSetupStep(env, deps);
+
+    expect(mocks.applyConfigFile).toHaveBeenCalled();
+    expect(mocks.warn).not.toHaveBeenCalled();
+  });
+
+  it("applies config-file to the step's env before reading any input, and warns of what it ignored", async () => {
+    mocks.applyConfigFile.mockReturnValue({
+      path: "/home/runner/work/repo/repo/c.yml",
+      warning: "Ignored from config-file c.yml, set by the workflow: proxy-mode",
+      origins: new Map(),
+    });
+
+    await runSetupStep(ENV, deps);
+
+    expect(mocks.applyConfigFile).toHaveBeenCalledWith(
+      ENV,
+      expect.objectContaining({ known: expect.arrayContaining(["builder-name"]) }),
+    );
+    expect(orderOf(mocks.applyConfigFile)).toBeLessThan(orderOf(mocks.readSetupInputs));
+    expect(mocks.warn).toHaveBeenCalledWith(
+      "Ignored from config-file c.yml, set by the workflow: proxy-mode",
+    );
+  });
+
   // The image tag is per-engine, so the engine has to be known before
   // anything resolves an image.
   it("reads the engine before it resolves the image", async () => {
     await runSetupStep(ENV, deps);
 
-    expect(orderOf(mocks.readEngineInputs)).toBeLessThan(orderOf(mocks.readLocalImageOverride));
-    expect(orderOf(mocks.readEngineInputs)).toBeLessThan(orderOf(mocks.verifyImageDigestOrThrow));
+    expect(orderOf(mocks.readSetupInputs)).toBeLessThan(orderOf(mocks.readLocalImageOverride));
+    expect(orderOf(mocks.readSetupInputs)).toBeLessThan(orderOf(mocks.verifyImageDigestOrThrow));
     expect(mocks.verifyImageDigestOrThrow).toHaveBeenCalledWith({
       actionRef: "v3.2.1",
       actionRepo: "buildcage/docker",
@@ -98,19 +193,22 @@ describe("runSetupStep", () => {
     });
   });
 
-  // Folding the two input reads into one would move rule validation ahead of
-  // image verification, changing which error a run with both problems reports.
-  it("validates the rules only after the image has been verified", async () => {
-    await runSetupStep(ENV, deps);
+  // A typo in an input fails without waiting on verification's network calls.
+  it("reports invalid inputs before it resolves the image", async () => {
+    mocks.readSetupInputs.mockImplementation(() => {
+      throw new Error("Invalid rule");
+    });
 
-    expect(orderOf(mocks.verifyImageDigestOrThrow)).toBeLessThan(orderOf(mocks.readRuleInputs));
+    await expect(runSetupStep(ENV, deps)).rejects.toThrow("Invalid rule");
+    expect(mocks.readLocalImageOverride).not.toHaveBeenCalled();
+    expect(mocks.verifyImageDigestOrThrow).not.toHaveBeenCalled();
+    expect(mocks.runDocker).not.toHaveBeenCalled();
   });
 
-  it("reports an unverifiable image without reading the rules at all", async () => {
+  it("starts no builder when the image cannot be verified", async () => {
     mocks.verifyImageDigestOrThrow.mockRejectedValue(new Error("no signature found"));
 
     await expect(runSetupStep(ENV, deps)).rejects.toThrow("no signature found");
-    expect(mocks.readRuleInputs).not.toHaveBeenCalled();
     expect(mocks.runDocker).not.toHaveBeenCalled();
   });
 
@@ -128,16 +226,23 @@ describe("runSetupStep", () => {
     expect(orderOf(mocks.checkUrlAndTlsRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
   });
 
-  it("checks known_blocked_rules URL lines against the engine, host lines excluded", async () => {
-    mocks.readRuleInputs.mockReturnValue({
-      proxyMode: "restrict",
-      httpsRules: [],
-      httpRules: [],
-      ipRules: [],
-      urlRules: [],
-      tlsRules: [],
-      knownBlockedRules: ["telemetry.example.com:*", "POST https://api.example.com/telemetry"],
-    });
+  it("refuses a rule input too long for the builder's environment, before the builder starts", async () => {
+    mocks.readSetupInputs.mockReturnValue(
+      inputsWith({ knownBlockedRules: Array.from({ length: 12_000 }, () => "*.example.com:*") }),
+    );
+
+    await expect(runSetupStep(ENV, deps)).rejects.toThrow("known-blocked-rules is");
+    expect(mocks.checkUrlAndTlsRuleSupport).toHaveBeenCalled();
+    expect(mocks.runDocker).not.toHaveBeenCalled();
+  });
+
+  it("checks known-blocked-rules URL lines against the engine, host lines excluded", async () => {
+    mocks.readSetupInputs.mockReturnValue(
+      inputsWith({
+        httpsRules: [],
+        knownBlockedRules: ["telemetry.example.com:*", "POST https://api.example.com/telemetry"],
+      }),
+    );
 
     await runSetupStep(ENV, deps);
 
@@ -148,28 +253,6 @@ describe("runSetupStep", () => {
     });
     expect(mocks.checkKnownBlockedUrlRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
     expect(orderOf(mocks.checkKnownBlockedUrlRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
-  });
-
-  it("checks allowed_ip_rules against the engine before the builder starts", async () => {
-    mocks.readRuleInputs.mockReturnValue({
-      proxyMode: "restrict",
-      httpsRules: [],
-      httpRules: [],
-      ipRules: ["10.0.0.0/8:443"],
-      urlRules: [],
-      tlsRules: [],
-      knownBlockedRules: [],
-    });
-
-    await runSetupStep(ENV, deps);
-
-    expect(mocks.checkIpRuleSupport.mock.calls[0]![0]).toStrictEqual({
-      proxyEngine: "universal",
-      proxyMode: "restrict",
-      ipRules: ["10.0.0.0/8:443"],
-    });
-    expect(mocks.checkIpRuleSupport.mock.calls[0]![1]).toBe(mocks.warn);
-    expect(orderOf(mocks.checkIpRuleSupport)).toBeLessThan(orderOf(mocks.runDocker));
   });
 
   it("pulls the image by verified digest, under the action's own repository", async () => {
@@ -184,13 +267,39 @@ describe("runSetupStep", () => {
   });
 
   it("skips provenance verification when a local override names an image", async () => {
-    mocks.readLocalImageOverride.mockResolvedValue({ imageRef: "local:dev", pullPolicy: "never" });
+    mocks.readLocalImageOverride.mockResolvedValue({
+      imageRef: "local:dev",
+      pullPolicy: "never",
+      composeOverlay: undefined,
+    });
 
     await runSetupStep(ENV, deps);
 
     expect(mocks.verifyImageDigestOrThrow).not.toHaveBeenCalled();
     expect(dockerArgs(1)).toStrictEqual(expect.arrayContaining(["--pull", "never"]));
+    expect(dockerArgs(1).slice(0, 3)).toStrictEqual(["compose", "-f", COMPOSE_FILE]);
     expect(mocks.runDocker.mock.calls[1]![1]).toMatchObject({ BUILDCAGE_IMAGE_REF: "local:dev" });
+  });
+
+  // Layered rather than substituted, so a test overlay cannot drift from what ships.
+  it("layers a local override's compose overlay on the shipped compose file", async () => {
+    mocks.readLocalImageOverride.mockResolvedValue({
+      imageRef: "local:dev",
+      pullPolicy: "never",
+      composeOverlay: "/repo/docker/compose.action.test-inspect.yaml",
+    });
+
+    await runSetupStep(ENV, deps);
+
+    for (const n of [0, 1]) {
+      expect(dockerArgs(n).slice(0, 5)).toStrictEqual([
+        "compose",
+        "-f",
+        COMPOSE_FILE,
+        "-f",
+        "/repo/docker/compose.action.test-inspect.yaml",
+      ]);
+    }
   });
 
   // The rule-support warning goes to the emitter nothing can suppress.
@@ -201,15 +310,18 @@ describe("runSetupStep", () => {
   });
 
   it("hands the builder the rules that were read, not the job environment's", async () => {
-    mocks.readRuleInputs.mockReturnValue({
-      proxyMode: "audit",
-      httpsRules: ["example.com:443", "*.npmjs.org:443"],
-      httpRules: ["deb.debian.org:80"],
-      ipRules: ["10.0.0.0/8"],
-      urlRules: ["GET https://example.com/ok"],
-      tlsRules: ["example.com"],
-      knownBlockedRules: ["blocked.example:443"],
-    });
+    mocks.readSetupInputs.mockReturnValue(
+      inputsWith({
+        proxyMode: "audit",
+        failOnCaResidue: false,
+        httpsRules: ["example.com:443", "*.npmjs.org:443"],
+        httpRules: ["deb.debian.org:80"],
+        ipRules: ["10.0.0.0/8"],
+        urlRules: ["GET https://example.com/ok"],
+        tlsRules: ["example.com"],
+        knownBlockedRules: ["blocked.example:443"],
+      }),
+    );
 
     await runSetupStep({ ...ENV, PROXY_MODE: "restrict", ALLOWED_HTTP_RULES: "leaked:80" }, deps);
 
@@ -223,7 +335,21 @@ describe("runSetupStep", () => {
       ALLOWED_URL_RULES: "GET https://example.com/ok",
       ALLOWED_TLS_RULES: "example.com",
       KNOWN_BLOCKED_RULES: "blocked.example:443",
+      FAIL_ON_CA_RESIDUE: "false",
     });
+  });
+
+  it("keeps the list inputs config-file appended to out of every docker command", async () => {
+    mocks.applyConfigFile.mockImplementation((env: NodeJS.ProcessEnv) => {
+      env["INPUT_ALLOWED-HTTPS-RULES"] = "# a comment\n".repeat(20_000);
+    });
+    const env = { ...ENV, "INPUT_CONFIG-FILE": "c.yml" };
+    await runSetupStep(env, deps);
+
+    expect(mocks.runDocker).toHaveBeenCalledTimes(2);
+    for (const [, dockerEnv] of mocks.runDocker.mock.calls) {
+      expect(dockerEnv).not.toHaveProperty("INPUT_ALLOWED-HTTPS-RULES");
+    }
   });
 
   it("logs every rule list the builder was configured with", async () => {
@@ -254,17 +380,31 @@ describe("runSetupStep", () => {
         "-p",
         PROJECT_NAME,
         "down",
+        "-v",
       ]);
       expect(dockerArgs(1)[5]).toBe("up");
     });
 
-    // report derives the same name from its own builder_name input to find
+    // report derives the same name from its own builder-name input to find
     // this container with `docker ps --filter`.
     it("runs under the project name report derives from the same builder name", async () => {
+      vi.stubEnv("COMPOSE_PROJECT_NAME", "somebody-elses-project");
+
       await runSetupStep(ENV, deps);
 
       expect(dockerArgs(0)).toContain(PROJECT_NAME);
       expect(dockerArgs(1)).toContain(PROJECT_NAME);
+    });
+
+    // This repo's own test hook, which report and post honour the same way.
+    it("takes COMPOSE_PROJECT_NAME as given in a build with test hooks", async () => {
+      process.env.BUILDCAGE_BUILD_TEST_HOOKS = "1";
+      vi.stubEnv("COMPOSE_PROJECT_NAME", "buildcage-project");
+
+      await runSetupStep(ENV, deps);
+
+      expect(dockerArgs(0)).toContain("buildcage-project");
+      expect(dockerArgs(1)).toContain("buildcage-project");
     });
 
     it("is never started when the teardown itself fails", async () => {
@@ -293,7 +433,7 @@ describe("runSetupStep", () => {
       await expect(runSetupStep(ENV, deps)).rejects.toThrow("builder never came up");
       expect(mocks.builderStartError.mock.calls[0]![0]).toBe(cause);
       expect(mocks.builderStartError.mock.calls[0]![1]).toMatchObject({
-        composeFile: COMPOSE_FILE,
+        composeFiles: [COMPOSE_FILE],
         projectName: PROJECT_NAME,
         builderName: "buildcage",
       });

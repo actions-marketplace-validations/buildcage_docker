@@ -16,11 +16,13 @@ assert_log_contains ALLOWED "allowed.example.com:80" "-"
 assert_log_contains ALLOWED "allowed.example.com:8443" "-"
 assert_log_contains ALLOWED "allowed.example.com:8080" "-"
 assert_log_contains ALLOWED "ALLOWED.example.com:443" "-"
-assert_log_contains ALLOWED "ALLOWED.example.com:80" "-"
+# A Host is logged in lower case with its trailing dot dropped.
+assert_log_contains ALLOWED "trailingdot.wildcard.example.com:80" "-"
 assert_log_contains ALLOWED "ok.regex.example.com:443" "-"
 assert_log_contains ALLOWED "ports.regex.example.com:443" "-"
 assert_log_contains ALLOWED "ports.regex.example.com:8443" "-"
 assert_log_contains ALLOWED "10.200.0.100:8443" "-"
+assert_log_contains ALLOWED "10.200.0.100:2525" "-"
 echo ""
 
 echo "[BLOCKED] expected:"
@@ -46,12 +48,25 @@ assert_log_contains BLOCKED "runner.wildcard.example.com:80" "internal-address"
 echo ""
 
 echo "[BLOCKED] forged SNI, sanitized to a single log line:"
-assert_log_contains BLOCKED "x__-__T__buildcage__ALLOWED___HTTPS___forged.example.com:443" "not-allowed"
+assert_log_contains BLOCKED "x__-__T__buildcage__ALLOWED___HTTPS___forged.example.com:443" "invalid-sni"
+echo ""
+
+echo "[BLOCKED] an SNI holding a colon, before a ~ rule's port pattern can match it:"
+assert_log_contains BLOCKED "tlsany.example.com_x.evil.example.net:443" "invalid-sni"
+echo ""
+
+echo "[BLOCKED] a plaintext Host holding a colon, likewise:"
+assert_log_contains BLOCKED "tlsany.example.com_x.evil.example.net:80" "invalid-host"
+echo ""
+
+echo "[IP rule] the SNI no rule allows was judged by the address, not the name:"
+assert_log_not_matching ALLOWED "blocked.example.com:8443"
 echo ""
 
 echo "[keep-alive] txn.decision/txn.reason must not leak across requests on one connection:"
 assert_log_not_matching ALLOWED "blocked.example.com:80"
-assert_log_not_matching ALLOWED "allowed.example.com:80" "not-allowed"
+assert_log_contains ALLOWED "keepalive.wildcard.example.com:80" "-"
+assert_log_not_matching ALLOWED "keepalive.wildcard.example.com:80" "not-allowed"
 echo ""
 
 echo "[AUDIT] must not exist:"
@@ -70,33 +85,32 @@ echo ""
 
 echo "[report] Allowed Hosts:"
 if grep -qF "### ✅ Allowed Hosts" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| allowed.example.com:443 | HTTPS |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| allowed.example.com:80 | HTTP |" <<< "$REPORT_MARKDOWN"; then
+  && grep -qF "| \`allowed.example.com:443\` | HTTPS |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`allowed.example.com:80\` | HTTP |" <<< "$REPORT_MARKDOWN"; then
   pass "the table lists the hosts that were reached, each on its own port"
 else
   fail "the Allowed Hosts table is missing expected rows"
 fi
 echo ""
 
-echo "[report] Blocked Hosts, one row per reason the proxy refused for:"
-if grep -qF "### 🚫 Blocked Hosts" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| blocked.example.com:443 | HTTPS | not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| 10.200.0.100:80 | IP | ip-not-allowed |" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| internal.wildcard.example.com:443 | HTTPS | internal-address |" <<< "$REPORT_MARKDOWN"; then
+echo "[report] Blocked / Failed Hosts, one row per reason the proxy blocked for:"
+if grep -qF "### 🚫 Blocked / ⚠️ Failed Hosts" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`blocked.example.com:443\` | HTTPS | 🚫 not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`10.200.0.100:80\` | IP | 🚫 ip-not-allowed |" <<< "$REPORT_MARKDOWN" \
+  && grep -qF "| \`internal.wildcard.example.com:443\` | HTTPS | 🚫 internal-address |" <<< "$REPORT_MARKDOWN"; then
   pass "a name no rule covers, an address and an internal one each keep their reason"
 else
-  fail "the Blocked Hosts table is missing expected rows"
+  fail "the Blocked / Failed Hosts table is missing expected rows"
 fi
 echo ""
 
 # The allowlist is checked before anything resolves, so a name that got as far
-# as failing to resolve had passed it: no rule refused it and none can clear it.
-echo "[report] Failed Connections, for a name the resolver could not answer:"
-if grep -qF "### ⚠️ Failed Connections" <<< "$REPORT_MARKDOWN" \
-  && grep -qF "| nxdomain.wildcard.example.com:443 | HTTPS | dns-failed |" <<< "$REPORT_MARKDOWN"; then
-  pass "an unresolvable name is reported outside the blocked table"
+# as failing to resolve had passed it: no rule blocked it and none can clear it.
+echo "[report] a failure, for a name the resolver could not answer:"
+if grep -qF "| \`nxdomain.wildcard.example.com:443\` | HTTPS | ⚠️ dns-failed |" <<< "$REPORT_MARKDOWN"; then
+  pass "an unresolvable name is reported as a failure, not a block"
 else
-  fail "the Failed Connections table is missing expected rows"
+  fail "the Blocked / Failed Hosts table is missing the failed row"
 fi
 echo ""
 

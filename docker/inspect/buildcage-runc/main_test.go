@@ -8,20 +8,6 @@ import (
 	"testing"
 )
 
-// useTempLog points logf and the dump at a file the test owns, since a test
-// process usually can't write the real host path.
-func useTempLog(t *testing.T) {
-	t.Helper()
-	oldFile, oldTag := logFile, logTag
-	logFile = filepath.Join(t.TempDir(), "runc.log")
-	logTag = "[this-step]"
-	ownLog.Reset()
-	t.Cleanup(func() {
-		logFile, logTag = oldFile, oldTag
-		ownLog.Reset()
-	})
-}
-
 // A failure must report the failing step's lines and no one else's, however
 // the concurrent steps ended up interleaved on disk.
 func TestDumpOwnLogCoversOnlyThisInvocation(t *testing.T) {
@@ -75,7 +61,6 @@ func TestLogfKeepsTheLineWhenTheSharedFileCannotBeOpened(t *testing.T) {
 
 	logf("CA write-back failed for %s: %v", "/etc/ssl/certs", "rsync exit status 23")
 
-	// ENOTDIR, not ENOENT: a file sits where the directory would be.
 	if _, err := os.Stat(logFile); err == nil {
 		t.Fatal("the shared log was reachable after all, so this proves nothing")
 	}
@@ -181,8 +166,7 @@ func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
 	t.Setenv("SCRATCH_ROOT", scratchRoot)
 	// sh does not glob a redirection target, so the loop resolves it first.
 	useFakeRunc(t, `for f in "$SCRATCH_ROOT"/*/ca-certificates.crt; do echo REGENERATED > "$f"; done`)
-	// 1 is prepare's mirror and 2 is the write-back's dry run, so 3 is the apply.
-	failRsyncOn(t, 3)
+	failRsyncWhen(t, isRsyncApply)
 
 	readStderr := captureStderr(t)
 	code := run([]string{"run", "--bundle", bundle, "id"})
@@ -193,6 +177,33 @@ func TestRunFailsAStepWhoseWriteBackFailed(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "CA write-back failed for") {
 		t.Errorf("the failure did not reach stderr:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "fail-on-ca-residue") {
+		t.Errorf("a failed write-back hinted at fail-on-ca-residue:\n%s", stderr)
+	}
+}
+
+// A step that exits non-zero can still be committed, when the LLB's
+// ValidExitCodes allows the code, so its layer is swept like any other.
+func TestRunSweepsAStepThatExitedNonZero(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, string(testCA))
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	useMountInfo(t, overlayLine(rootfs, rootfs))
+	useFakeRunc(t, "exit 3")
+	// Standing for a copy the step made: the fake runc writes nothing itself.
+	copied := filepath.Join(rootfs, "ca.pem")
+	mustWriteFile(t, copied, string(testCA))
+
+	if code := run([]string{"run", "--bundle", bundle, "id"}); code != 3 {
+		t.Errorf("run exited %d, want 3", code)
+	}
+	if _, err := os.Stat(copied); !os.IsNotExist(err) {
+		t.Error("the copy of the CA in the layer was left behind")
+	}
+	if _, err := os.Lstat(filepath.Join(rootfs, "etc", "pki")); !os.IsNotExist(err) {
+		t.Error("the anchor directories were left behind")
 	}
 }
 
@@ -246,7 +257,7 @@ func TestRunUndoesInjectionWhenRuncWillNotStart(t *testing.T) {
 	useTempLog(t)
 	useFakeRsync(t)
 	useTempCAFile(t, string(testCA))
-	bundle, rootfs := newBundle(t, []string{"PATH=/usr/bin"})
+	bundle, _ := newBundle(t, []string{"PATH=/usr/bin"})
 	realRuncWas := realRunc
 	realRunc = filepath.Join(t.TempDir(), "not-there")
 	t.Cleanup(func() { realRunc = realRuncWas })
@@ -254,8 +265,65 @@ func TestRunUndoesInjectionWhenRuncWillNotStart(t *testing.T) {
 	if code := run([]string{"run", "--bundle", bundle, "id"}); code != 1 {
 		t.Errorf("run exited %d, want 1", code)
 	}
-	ownCA := filepath.Join(rootfs, strings.TrimPrefix(ownCAPath, "/"))
-	if _, err := os.Stat(ownCA); !os.IsNotExist(err) {
-		t.Errorf("the own-CA file was left behind: %v", err)
+	if left, err := os.ReadDir(scratchRoot); err != nil || len(left) != 0 {
+		t.Errorf("scratch directories were left behind: %v %v", left, err)
+	}
+}
+
+// A step whose layer cannot be read back fails before runc starts it, and the
+// build log says why without pointing at fail-on-ca-residue.
+func TestRunRefusesAStepWithoutALayerToReadBack(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, string(testCA))
+	bundle, rootfs := newBundleNoStore(t, []string{"PATH=/usr/bin"})
+	useMountInfo(t, mountLine(rootfs, "ext4", "rw"))
+	ran := filepath.Join(t.TempDir(), "ran")
+	t.Setenv("RAN", ran)
+	useFakeRunc(t, `touch "$RAN"`)
+
+	readStderr := captureStderr(t)
+	code := run([]string{"run", "--bundle", bundle, "id"})
+	stderr := readStderr()
+
+	if code != 1 {
+		t.Errorf("run exited %d, want 1", code)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Errorf("runc ran the step: %v", err)
+	}
+	if !strings.Contains(stderr, "not running the step: "+errLayerUnread.Error()) {
+		t.Errorf("the build log does not say why:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "fail-on-ca-residue") {
+		t.Errorf("an unread layer hinted at fail-on-ca-residue:\n%s", stderr)
+	}
+}
+
+// A keystore left half-written fails the step before runc starts it.
+func TestRunRefusesAStepWithAHalfWrittenKeystore(t *testing.T) {
+	useTempLog(t)
+	useFakeRsync(t)
+	useTempCAFile(t, string(testCA))
+	bundle, rootfs := newBundleNoStore(t, []string{"JAVA_HOME=/opt/java"})
+	writeRootfsKeystore(t, rootfs, "/opt/java/lib/security/cacerts",
+		keystore(2, trustedEntry(2, "digicert", otherDER)))
+	useBrokenBundleFile(t, &brokenFile{shortWriteAt: 1})
+	ran := filepath.Join(t.TempDir(), "ran")
+	t.Setenv("RAN", ran)
+	useFakeRunc(t, `touch "$RAN"`)
+
+	readStderr := captureStderr(t)
+	code := run([]string{"run", "--bundle", bundle, "id"})
+	stderr := readStderr()
+
+	if code != 1 {
+		t.Errorf("run exited %d, want 1", code)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Errorf("runc ran the step: %v", err)
+	}
+	if !strings.Contains(stderr, "not running the step: ") || !strings.Contains(stderr, errKeystoreHalfWritten.Error()) {
+		t.Errorf("the build log does not say why:\n%s", stderr)
 	}
 }
